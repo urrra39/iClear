@@ -404,34 +404,50 @@ case "cost":
         ("  microphone", 5, { _ = AudioActivity.microphoneInUse() }),
         ("system sample (tick)", 30, { _ = SystemSampler.sample() }),
         ("  power state", 30, { _ = SystemSampler.powerState() }),
-        ("  disk free (important usage)", 30, {
-            _ = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        }),
-        ("  disk free (statfs)", 30, {
-            var s = statfs()
-            _ = statfs(NSHomeDirectory(), &s)
-        }),
+        (
+            "  disk free (important usage)", 30,
+            {
+                _ = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            }
+        ),
+        (
+            "  disk free (statfs)", 30,
+            {
+                var s = statfs()
+                _ = statfs(NSHomeDirectory(), &s)
+            }
+        ),
         ("app collect (tick)", 30, { _ = collector.collect() }),
         ("  process table", 30, { _ = Proc.table() }),
         ("  audio pids x3", 30, { _ = AudioActivity.pids(samples: 3, gapMicros: 0) }),
         ("  audio pids x3, 50 ms gaps", 30, { _ = AudioActivity.pids(samples: 3) }),
         ("  frontmost app", 30, { _ = NSWorkspace.shared.frontmostApplication?.processIdentifier }),
         ("  power assertions", 30, { _ = PowerAssertions.pids() }),
-        ("  running apps", 30, {
-            _ = NSWorkspace.shared.runningApplications.map {
-                ($0.bundleIdentifier, $0.bundleURL, $0.isHidden, $0.activationPolicy, $0.localizedName)
+        (
+            "  running apps", 30,
+            {
+                _ = NSWorkspace.shared.runningApplications.map {
+                    ($0.bundleIdentifier, $0.bundleURL, $0.isHidden, $0.activationPolicy, $0.localizedName)
+                }
             }
-        }),
-        ("  copies per bundle", 30, {
-            for id in Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) {
-                _ = NSRunningApplication.runningApplications(withBundleIdentifier: id).map(\.bundleURL)
+        ),
+        (
+            "  copies per bundle", 30,
+            {
+                for id in Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) {
+                    _ = NSRunningApplication.runningApplications(withBundleIdentifier: id).map(\.bundleURL)
+                }
             }
-        }),
-        ("  electron check", 30, {
-            for a in NSWorkspace.shared.runningApplications {
-                _ = FileManager.default.fileExists(atPath: (a.bundleURL?.path ?? "") + "/Contents/Frameworks/Electron Framework.framework")
+        ),
+        (
+            "  electron check", 30,
+            {
+                for a in NSWorkspace.shared.runningApplications {
+                    _ = FileManager.default.fileExists(
+                        atPath: (a.bundleURL?.path ?? "") + "/Contents/Frameworks/Electron Framework.framework")
+                }
             }
-        }),
+        ),
     ]
     let n = CommandLine.arguments.firstIndex(of: "--n").flatMap { Int(CommandLine.arguments[$0 + 1]) } ?? 30
     let t = Proc.table()
