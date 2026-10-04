@@ -59,8 +59,11 @@ public final class AppCollector {
         for id in Set(running.compactMap(\.bundleIdentifier)) {
             for a in NSRunningApplication.runningApplications(withBundleIdentifier: id) { copies[a.bundleURL?.path ?? "", default: 0] += 1 }
         }
+        // Launchd-owned processes: the only candidates for helpers shipped inside a bundle.
+        let launchdChildren = table.values.filter { $0.ppid == 1 && !roots.contains($0.pid) }
         for app in running {
             let root = app.processIdentifier
+            let path = app.bundleURL?.path ?? ""
             let bundlePath = app.bundleURL.map { $0.path + "/" } ?? "\u{0}"
             var tree: [Int32] = [root]
             var queue = [root]
@@ -72,17 +75,13 @@ public final class AppCollector {
             }
             // Helpers launched by launchd but shipped inside the bundle belong to the app too,
             // when only one copy of the app runs; with two copies nobody can tell whose they are.
-            for p in table.values
-            where copies[app.bundleURL?.path ?? ""] == 1 && p.ppid == 1 && !roots.contains(p.pid) && p.path.hasPrefix(bundlePath)
-                && !tree.contains(p.pid)
-            {
-                tree.append(p.pid)
+            if copies[path] == 1 {
+                for p in launchdChildren where p.path.hasPrefix(bundlePath) && !tree.contains(p.pid) { tree.append(p.pid) }
             }
             claimed.formUnion(tree)
             let procs = tree.compactMap { table[$0] }
             let outside = procs.dropFirst().filter { !$0.path.hasPrefix(bundlePath) }
             let id = app.bundleIdentifier!
-            let path = app.bundleURL?.path ?? ""
             apps.append(
                 AppSnapshot(
                     id: id, name: app.localizedName ?? id, processes: procs.map(\.identity),

@@ -375,6 +375,80 @@ case "soak-status":
         "Pressure episodes: \(sum(\.pressureEpisodes)), daemon freezes in them: \(sum(\.policyFreezes)); daemon restarts: \(sum(\.daemonRestarts)); fixture respawns: \(sum(\.fixtureRespawns))"
     )
 
+case "cost":
+    // CPU per call of each periodic daemon sampler (this process, all threads), and what
+    // it costs at the daemon's idle cadence. Read-only: nothing is signalled.
+    func cpuMicros() -> Double {
+        var r = rusage()
+        getrusage(RUSAGE_SELF, &r)
+        return Double(r.ru_utime.tv_sec + r.ru_stime.tv_sec) * 1e6 + Double(r.ru_utime.tv_usec + r.ru_stime.tv_usec)
+    }
+    let collector = AppCollector()
+    _ = collector.collect()
+    let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    let facts = Windows.facts()
+    // A whole daemon tick: Observe-only, isolated home, no timers or watchdog (it can never act).
+    setenv("ICLEAR_OBSERVE_ONLY", "1", 1)
+    let costHome = URL(fileURLWithPath: "/tmp/ic-cost-\(getpid())")  // short: the socket path has a length limit
+    let daemon = try! Daemon(paths: Paths(environment: ["ICLEAR_HOME": costHome.path, "ICLEAR_INSTANCE": "cost"]))
+    try! daemon.start(watchdogExecutable: nil, live: false)
+    defer { try? FileManager.default.removeItem(at: costHome) }
+    daemon.tick()
+    let parts: [(String, Double, () -> Void)] = [
+        ("daemon tick (whole)", 30, { daemon.tick() }),
+        ("pressure level (1 s poll)", 1, { _ = SystemSampler.pressure() }),
+        ("window facts (5 s poll)", 5, { _ = Windows.facts() }),
+        ("session context (5 s poll)", 5, { _ = SessionProbe.context(frontmostPID: front, windows: facts) }),
+        ("  all process names", 5, { _ = SessionProbe.allProcessNames() }),
+        ("  camera", 5, { _ = Camera.inUse() }),
+        ("  microphone", 5, { _ = AudioActivity.microphoneInUse() }),
+        ("system sample (tick)", 30, { _ = SystemSampler.sample() }),
+        ("  power state", 30, { _ = SystemSampler.powerState() }),
+        ("  disk free (important usage)", 30, {
+            _ = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        }),
+        ("  disk free (statfs)", 30, {
+            var s = statfs()
+            _ = statfs(NSHomeDirectory(), &s)
+        }),
+        ("app collect (tick)", 30, { _ = collector.collect() }),
+        ("  process table", 30, { _ = Proc.table() }),
+        ("  audio pids x3", 30, { _ = AudioActivity.pids(samples: 3, gapMicros: 0) }),
+        ("  audio pids x3, 50 ms gaps", 30, { _ = AudioActivity.pids(samples: 3) }),
+        ("  frontmost app", 30, { _ = NSWorkspace.shared.frontmostApplication?.processIdentifier }),
+        ("  power assertions", 30, { _ = PowerAssertions.pids() }),
+        ("  running apps", 30, {
+            _ = NSWorkspace.shared.runningApplications.map {
+                ($0.bundleIdentifier, $0.bundleURL, $0.isHidden, $0.activationPolicy, $0.localizedName)
+            }
+        }),
+        ("  copies per bundle", 30, {
+            for id in Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) {
+                _ = NSRunningApplication.runningApplications(withBundleIdentifier: id).map(\.bundleURL)
+            }
+        }),
+        ("  electron check", 30, {
+            for a in NSWorkspace.shared.runningApplications {
+                _ = FileManager.default.fileExists(atPath: (a.bundleURL?.path ?? "") + "/Contents/Frameworks/Electron Framework.framework")
+            }
+        }),
+    ]
+    let n = CommandLine.arguments.firstIndex(of: "--n").flatMap { Int(CommandLine.arguments[$0 + 1]) } ?? 30
+    let t = Proc.table()
+    let bundles = NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL.map { $0.path + "/" } }
+    let orphans = t.values.filter { $0.ppid == 1 }
+    print("\(t.count) own processes, \(orphans.count) launchd children, \(bundles.count) running apps")
+    let c0 = cpuMicros()
+    for _ in 0..<n { for b in bundles { for p in orphans where p.path.hasPrefix(b) { _ = p } } }
+    print(String(format: "  bundle prefix scan | %.3f ms", (cpuMicros() - c0) / Double(n) / 1000))
+    print("part | CPU per call (ms) | idle cadence (s) | % of one core")
+    for (name, every, f) in parts {
+        let c0 = cpuMicros()
+        for _ in 0..<n { autoreleasepool { f() } }
+        let ms = (cpuMicros() - c0) / Double(n) / 1000
+        print(String(format: "%@ | %.3f | %.0f | %.3f", name, ms, every, ms / 10 / every))
+    }
+
 default:
-    print("usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status")
+    print("usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost")
 }

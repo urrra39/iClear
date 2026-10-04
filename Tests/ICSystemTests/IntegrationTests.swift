@@ -401,6 +401,16 @@ import Testing
         }
         #expect(!d.handle(Request("bogus")).ok)
     }
+
+    /// Idle cost: a distant forecast keeps the 30 s tick; only a near one (or pressure) speeds it up.
+    @Test func tickCadenceFollowsForecastDistance() {
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10) == 5)
+        #expect(Daemon.interval(for: .normal, etaWarning: 0, horizonMinutes: 10) == 5)
+        #expect(Daemon.interval(for: .warning, etaWarning: nil, horizonMinutes: 10) == 3)
+        #expect(Daemon.interval(for: .critical, etaWarning: nil, horizonMinutes: 10) == 2)
+    }
 }
 
 @Suite(.serialized) struct BinaryTests {

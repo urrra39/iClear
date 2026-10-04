@@ -77,6 +77,12 @@
   The canary probe counted a crash report of any process with the probed app's name
   (found when a parallel test's fixture crashed); it now counts only reports of the
   probed processes.
+- Daemon CPU, found by the 1.0 soak (daily averages of 0.73-0.97% of one core, above the
+  0.5% bound of W5): any slow decline of available memory gave the forecast an ETA and
+  switched the daemon to 5 s ticks, even for an ETA hours away; fast ticks now need an ETA
+  within three forecast horizons (30 min by default). The app scan re-read every app's
+  bundle path once per process (81 apps × 530 processes here); it now reads it once per
+  app. One tick on this Mac: 80 ms of CPU before, 39 ms after (`ic-lab cost`).
 - Release criteria: stage 4 (X1-X8, L1-L6) added before any v1.1 measurement
   (amendment 2).
 ## 1.0.2 (2026-10-03)

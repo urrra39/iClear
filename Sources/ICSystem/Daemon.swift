@@ -272,8 +272,14 @@ public final class Daemon {
     }
 
     func interval(for level: PressureLevel) -> Double {
+        Self.interval(for: level, etaWarning: engine.lastForecast.etaWarning, horizonMinutes: engine.config.forecast.horizonMinutes)
+    }
+
+    /// Fast ticks only while the forecast sees warning within three horizons: any slow
+    /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
+    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double) -> Double {
         switch level {
-        case .normal: return engine.lastForecast.etaWarning != nil ? 5 : 30
+        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : 30
         case .warning: return 3
         case .critical: return 2
         }
