@@ -152,9 +152,10 @@ public enum Signals {
         case failed(Int32)
     }
 
-    /// Verifies PID, start time and owner, then signals.
-    public static func send(_ sig: Int32, to id: ProcessIdentity) -> Outcome {
-        guard ScopeLock.permits(id) else { return .outOfScope }
+    /// Verifies scope, PID, start time and owner, then signals. `scope` is the lab's
+    /// scope lock unless given (tests pass their own instead of changing the global).
+    public static func send(_ sig: Int32, to id: ProcessIdentity, scope: Set<ProcessIdentity>? = ScopeLock.allowed) -> Outcome {
+        guard scope?.contains(id) ?? true else { return .outOfScope }
         guard let b = Proc.bsdInfo(id.pid),
             UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec) == id.startTime
         else { return .stale }

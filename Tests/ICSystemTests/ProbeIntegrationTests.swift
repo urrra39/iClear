@@ -33,7 +33,7 @@ import Testing
         defer { h.kill() }
         let (d, r) = try probe(h, id: "com.example.survivor")
         defer { d.shutdown() }
-        #expect(r?.passed == true && r?.cycles == 2 && !isStopped(h.pid))
+        #expect(r?.passed == true && r?.cycles == 2 && !isStopped(h.pid), "\(String(describing: r))")
         #expect(d.engine.state.probes?["com.example.survivor"]?.passed == true && d.journal.read().isEmpty)
     }
 

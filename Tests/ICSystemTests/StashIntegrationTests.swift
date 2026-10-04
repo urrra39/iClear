@@ -263,13 +263,9 @@ import Testing
         let d = try testDaemon(probe) { $0.thrash.enabled = true }
         defer { d.shutdown() }
         let id = inStash.identity!
-        try d.journal.update {
-            $0.stashes.append(
-                StashRecord(
-                    name: "s", createdAt: probe.now,
-                    apps: [StashedApp(appID: "com.example.stashed", name: "s", processes: [id], wasHidden: true, windows: [], order: 0, residentMB: 1)],
-                    previousFrontmost: nil))
-        }
+        let member = StashedApp(
+            appID: "com.example.stashed", name: "s", processes: [id], wasHidden: true, windows: [], order: 0, residentMB: 1)
+        try d.journal.update { $0.stashes.append(StashRecord(name: "s", createdAt: probe.now, apps: [member], previousFrontmost: nil)) }
         #expect(Signals.freezeTree([id], appID: "com.example.stashed", at: probe.now, journal: d.journal, stash: "s").ok)
         let t0 = probe.now
         for i in 1...3 {
@@ -289,7 +285,8 @@ import Testing
         #expect(d.journal.read().isEmpty)
     }
 
-    /// Lab scope lock: nothing outside the registry is ever signalled.
+    /// Lab scope lock: nothing outside the registry is ever signalled. The scope is passed
+    /// in, not set globally, so tests running in parallel are not refused.
     @Test func scopeLockRefusesUnregisteredProcesses() throws {
         let a = try hog()
         let b = try hog()
@@ -297,13 +294,13 @@ import Testing
             a.kill()
             b.kill()
         }
-        ScopeLock.set([a.identity!])
-        defer { ScopeLock.set(nil) }
-        #expect(Signals.send(SIGSTOP, to: b.identity!) == .outOfScope)
+        let scope: Set = [a.identity!]
+        let send = { (sig: Int32, id: ProcessIdentity) in Signals.send(sig, to: id, scope: scope) }
+        #expect(send(SIGSTOP, b.identity!) == .outOfScope)
         let journal = JournalStore(url: tempHome().journal)
-        #expect(!Signals.freezeTree([b.identity!], appID: "b", at: 1, journal: journal).ok)
+        #expect(!Signals.freezeTree([b.identity!], appID: "b", at: 1, journal: journal, send: send).ok)
         #expect(!isStopped(b.pid) && journal.read().isEmpty)
-        #expect(Signals.freezeTree([a.identity!], appID: "a", at: 1, journal: journal).ok)
+        #expect(Signals.freezeTree([a.identity!], appID: "a", at: 1, journal: journal, send: send).ok)
         Signals.thawTree([a.identity!], journal: journal)
         #expect(eventually { !isStopped(a.pid) })
     }
