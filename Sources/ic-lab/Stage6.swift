@@ -452,52 +452,34 @@ extension Lab {
         }
     }
 
-    // MARK: capacity benchmark
+    // MARK: capacity benchmark (docs/BENCHMARK_PROTOCOL.md)
 
-    struct CapacityArm: Codable {
-        var active: Bool
+    /// One condition of one block: fixtures opened one at a time until responsiveness fails.
+    struct CapacityRun: Codable {
+        var block: Int
+        var family: String
+        var condition: BenchCondition
         var opened: [String] = []
-        /// Apps open at the last window that passed the responsiveness rule.
+        /// Fixtures open at the last window that passed the responsiveness rule.
         var capacity = 0
         var failedBy: String?
-        /// The run ended without a failure (60% limit, out of fixtures, or a stop reason).
+        /// The run ended without a failure (60% limit or out of fixtures): capacity is a lower bound.
         var censored: String?
         var paused: [String] = []
+        var seconds = 0.0
     }
 
-    /// Opens heavy fixtures one at a time under the emulated budget until responsiveness
-    /// fails (pre-registered rule), with iClear Active (lab condition: idleMinutes 1) or off.
-    func capacityArm(active: Bool, roomMB: Double, ballastMB: Double, swap0: Double, probe: SpawnedHog, tools: URL) -> (
-        CapacityArm, stop: String?
-    ) {
-        var r = CapacityArm(active: active)
-        var daemon: (Process, Paths)?
-        if active {
-            var c = Config()
-            c.mode = .active
-            c.idleMinutes = 1
-            daemon = freshDaemon("capacity", c, tools: tools)
-            if daemon == nil { return (r, "lab daemon did not start") }
-        }
-        let stop = capacitySteps(&r, roomMB: roomMB, ballastMB: ballastMB, swap0: swap0, probe: probe)
-        if let (d, paths) = daemon {
-            r.paused = Set(ActionLog.read(paths: paths, last: 5000).filter { $0.action.kind == .freeze }.map(\.action.appID)).sorted()
-            stopDaemon(d, paths)
-        }
-        regLock.lock()
-        let fs = fixtures
-        fixtures = []
-        regLock.unlock()
-        for f in fs { f.kill() }
-        return (r, stop)
-    }
+    /// The pre-registered fixture families. "waking" is where pausing can help (apps that
+    /// keep touching their memory); "idle" is the negative control (apps that never wake,
+    /// which macOS compresses or swaps the same with or without iClear).
+    static let capacityFamilies = ["waking", "idle"]
 
-    /// The fixtures of one capacity arm, opened one at a time; returns a stop reason.
-    func capacitySteps(_ r: inout CapacityArm, roomMB: Double, ballastMB: Double, swap0: Double, probe: SpawnedHog) -> String? {
-        let base = out.appendingPathComponent("capacity-apps-\(getpid())")
-        try? FileManager.default.removeItem(at: base)
-        let pageInLimit = ((try? Files.readJSON(StallCalibration.self, from: Paths().brakeCalibration)) ?? StallCalibration())
-            .pageInsPerSecond
+    func capacitySteps(family: String, base: URL) -> [(String, () -> AppFixture?)] {
+        if family == "idle" {
+            return (0..<40).map { k in
+                ("sleeper \(k)", { self.leakTree("CapacitySleeper\(k)", args: ["--mb", "100", "--data", "random"], dir: base) })
+            }
+        }
         var steps: [(String, () -> AppFixture?)] = LabApps.starters(base: base, hide: true, log: log).map { s in (s.name, s.start) }
         for k in 0..<40 {
             steps.append(
@@ -511,8 +493,50 @@ extension Lab {
                     }
                 ))
         }
+        return steps
+    }
+
+    /// One run: no iClear (stock), a lab daemon in Observe, or one in Active (lab condition:
+    /// idleMinutes 1). Returns a stop reason that ends the whole phase.
+    func capacityRun(
+        _ condition: BenchCondition, family: String, block: Int, roomMB: Double, ballastMB: Double, swap0: Double, probe: SpawnedHog,
+        tools: URL
+    ) -> (CapacityRun, stop: String?) {
+        var r = CapacityRun(block: block, family: family, condition: condition)
+        let t0 = Date()
+        var daemon: (Process, Paths)?
+        if condition != .stock {
+            var c = Config()
+            c.mode = condition == .active ? .active : .observe
+            c.idleMinutes = 1
+            daemon = freshDaemon("capacity", c, tools: tools)
+            if daemon == nil { return (r, "lab daemon did not start") }
+        }
+        let stop = capacitySteps(&r, roomMB: roomMB, ballastMB: ballastMB, swap0: swap0, probe: probe)
+        if let (d, paths) = daemon {
+            r.paused = Set(
+                ActionLog.read(paths: paths, last: 5000).filter { $0.action.kind == .freeze && !$0.action.dryRun }.map(\.action.appID)
+            )
+            .sorted()
+            stopDaemon(d, paths)
+        }
+        regLock.lock()
+        let fs = fixtures
+        fixtures = []
+        regLock.unlock()
+        for f in fs { f.kill() }
+        r.seconds = Date().timeIntervalSince(t0)
+        return (r, stop)
+    }
+
+    /// The fixtures of one run, opened one at a time; returns a stop reason.
+    func capacitySteps(_ r: inout CapacityRun, roomMB: Double, ballastMB: Double, swap0: Double, probe: SpawnedHog) -> String? {
+        let base = out.appendingPathComponent("capacity-apps-\(getpid())")
+        try? FileManager.default.removeItem(at: base)
+        let pageInLimit = ((try? Files.readJSON(StallCalibration.self, from: Paths().brakeCalibration)) ?? StallCalibration())
+            .pageInsPerSecond
         var warningRun = 0
-        for (name, start) in steps {
+        for (name, start) in capacitySteps(family: r.family, base: base) {
             guard let f = start() else {
                 log("capacity: \(name) did not start")
                 continue
@@ -558,62 +582,78 @@ extension Lab {
         return nil
     }
 
-    func capacityLab(budgetGB: Double, pairs: Int, tools: URL) {
-        let name = "capacity-\(Int(budgetGB))gb"
-        var done = rows(name, as: [CapacityArm].self)
-        if done.count < pairs {
-            if let p = quietWindowProblem() { return log("capacity: not started: \(p)") }
-            let swap0 = SystemSampler.sample().swapUsedMB
-            let ramMB = Double(ProcessInfo.processInfo.physicalMemory) / 1_048_576
-            guard let (ballast, room) = startBallast(budgetGB: budgetGB, tools: tools) else { return }
-            defer { ballast?.kill() }
-            guard let probe = lateProbe("ic-lab capacity probe", tools: tools) else { return log("capacity: probe did not start") }
-            defer { probe.kill() }
-            Lab.notify("Capacity benchmark started: memory pressure until 07:00 at the latest")
-            var completed = 0
-            pairsLoop: for _ in 0..<(pairs - done.count) {
-                var pair: [CapacityArm] = []
-                for active in Bool.random() ? [true, false] : [false, true] {
-                    let (a, stop) = capacityArm(
-                        active: active, roomMB: room, ballastMB: ballast == nil ? 0 : ramMB - budgetGB * 1024, swap0: swap0, probe: probe,
-                        tools: tools)
-                    if let s = stop {
-                        stopEarly("capacity", s)
-                        break pairsLoop
+    /// Blocks of three runs (stock, Observe, Active) in Williams order, appended one block per
+    /// row so a later window continues. `pilot` runs one block per family into a separate file
+    /// that the endpoint never uses (feasibility and timing only).
+    func capacityLab(budgetGB: Double, blocks: Int, families: [String], pilot: Bool, tools: URL) {
+        for family in families {
+            let name = "capacity3-\(family)-\(Int(budgetGB))gb" + (pilot ? "-pilot" : "")
+            var done = rows(name, as: [CapacityRun].self)
+            let target = pilot ? 1 : blocks
+            if done.count < target {
+                if let p = quietWindowProblem() { return log("capacity: not started: \(p)") }
+                let swap0 = SystemSampler.sample().swapUsedMB
+                let ramMB = Double(ProcessInfo.processInfo.physicalMemory) / 1_048_576
+                guard let (ballast, room) = startBallast(budgetGB: budgetGB, tools: tools) else { return }
+                defer { ballast?.kill() }
+                guard let probe = lateProbe("ic-lab capacity probe", tools: tools) else { return log("capacity: probe did not start") }
+                defer { probe.kill() }
+                Lab.notify("Capacity benchmark (\(family)) started: memory pressure until 07:00 at the latest")
+                blocksLoop: while done.count < target {
+                    var block: [CapacityRun] = []
+                    for c in BenchDesign.order(block: done.count) {
+                        let (run, stop) = capacityRun(
+                            c, family: family, block: done.count, roomMB: room, ballastMB: ballast == nil ? 0 : ramMB - budgetGB * 1024,
+                            swap0: swap0, probe: probe, tools: tools)
+                        if let s = stop {
+                            stopEarly("capacity", s)  // the unfinished block is discarded
+                            break blocksLoop
+                        }
+                        block.append(run)
+                        log("capacity \(family) \(c.rawValue): \(run.capacity) apps; \(run.failedBy ?? run.censored ?? "")")
+                        sleep(30)
                     }
-                    pair.append(a)
-                    log("capacity \(active ? "Active" : "off"): \(a.capacity) apps; \(a.failedBy ?? a.censored ?? "")")
-                    sleep(30)
+                    appendRow(name, block)
+                    done.append(block)
                 }
-                appendRow(name, pair)
-                completed += 1
+                Lab.notify("Capacity benchmark (\(family)) ended: \(done.count) of \(target) blocks")
             }
-            Lab.notify("Capacity benchmark ended: \(completed) pairs")
-            done = rows(name, as: [CapacityArm].self)
+            save(name, done, capacityReport(done, family: family, budgetGB: budgetGB, pilot: pilot))
         }
-        let ratios = done.compactMap { p -> Double? in
-            guard let on = p.first(where: \.active), let off = p.first(where: { !$0.active }), off.capacity > 0 else { return nil }
-            return Double(on.capacity) / Double(off.capacity)
-        }
-        let noGain = ratios.filter { $0 <= 1 }.count
-        let md = """
-            ## Capacity benchmark, \(Int(budgetGB)) GB emulation (a measurement, not a gate)
+    }
 
-            Emulated constrained Mac on one real machine; not a real \(Int(budgetGB)) GB Mac. Fixtures opened one at a time \
-            (Chrome with a throwaway profile, VS Code with a throwaway profile, TextEdit, Preview, then 200 MB waker apps); \
-            iClear Active with idleMinutes 1 (lab condition; the default is 15) versus no iClear; random order per pair.
+    func capacityReport(_ blocks: [[CapacityRun]], family: String, budgetGB: Double, pilot: Bool) -> String {
+        func cap(_ b: [CapacityRun], _ c: BenchCondition) -> Double? { b.first { $0.condition == c }.map { Double($0.capacity) } }
+        func pairs(_ c: BenchCondition) -> [(treated: Double, control: Double)] {
+            blocks.compactMap { b in cap(b, c).flatMap { t in cap(b, .stock).map { (treated: t, control: $0) } } }
+        }
+        func line(_ e: BenchDesign.Estimate?) -> String {
+            guard let e else { return "not measurable (no block with a stock capacity above zero)" }
+            return String(
+                format: "median %.2f (95%% CI %.2f-%.2f), n %d; higher in %d, lower in %d, equal in %d; sign test p %.3f", e.median, e.low,
+                e.high, e.n, e.better, e.worse, e.ties, e.signP)
+        }
+        let runs = blocks.flatMap { $0 }
+        let censoredStock = runs.filter { $0.condition == .stock && $0.censored != nil }.count
+        return """
+            ## Capacity benchmark, \(family) family, \(Int(budgetGB)) GB emulation\(pilot ? " (PILOT: feasibility and timing only, excluded from the endpoint)" : "")
+
+            Emulated constrained Mac on one real machine; not a real \(Int(budgetGB)) GB Mac. Protocol: \
+            [BENCHMARK_PROTOCOL.md](../../docs/BENCHMARK_PROTOCOL.md). Conditions per block in Williams order: no iClear (stock), \
+            Observe, Active (idleMinutes 1, a lab condition; the default is 15).
 
             | Measure | Result |
             |---|---|
-            | Pairs | \(done.count) (\(ratios.count) with a capacity ratio) |
-            | Apps open, off / Active | \(dist(done.compactMap { $0.first { !$0.active } }.map { Double($0.capacity) })) / \(dist(done.compactMap { $0.first(where: \.active) }.map { Double($0.capacity) })) |
-            | Capacity ratio (Active / off) | \(ratios.isEmpty ? "none" : String(format: "p50 %.2f, min %.2f, max %.2f", percentileOf(ratios, 0.5), ratios.min()!, ratios.max()!)); no gain in \(noGain) of \(ratios.count) |
-            | Runs that ended without a failure | \(done.flatMap { $0 }.compactMap(\.censored).reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none") |
-            | Failures by rule | \(done.flatMap { $0 }.compactMap(\.failedBy).map { $0.hasPrefix("probe") ? "probe p95 > 100 ms" : $0 }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none") |
+            | Blocks | \(blocks.count) |
+            | Apps open: stock / Observe / Active | \(BenchCondition.allCases.map { c in dist(runs.filter { $0.condition == c }.map { Double($0.capacity) }) }.joined(separator: " / ")) |
+            | Primary: Active / stock, per block | \(line(BenchDesign.estimate(pairs(.active)))) |
+            | Secondary: Observe / stock, per block (cost of the daemon's presence) | \(line(BenchDesign.estimate(pairs(.observe)))) |
+            | Runs that ended without a failure (lower bounds) | \(runs.compactMap(\.censored).reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none")\(censoredStock * 2 > blocks.count ? " (most stock runs censored: this budget cannot show a gain)" : "") |
+            | Failures by rule | \(runs.compactMap(\.failedBy).map { $0.hasPrefix("probe") ? "probe p95 > 100 ms" : $0 }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none") |
+            | Minutes per run: stock / Observe / Active | \(BenchCondition.allCases.map { c in dist(runs.filter { $0.condition == c }.map { $0.seconds / 60 }) }.joined(separator: " / ")) |
 
-            Apps that never wake give no gain; this run's wakers wake every 500 ms by design.
+            \(family == "idle" ? "Negative control: apps that never wake. A gain here would point to a flaw in the method, not a benefit." : "Wakers touch 256 pages every 500 ms by design; apps that never wake are the idle family.")
             """
-        save(name, done, md)
     }
 
     // MARK: canary probe (P1)
