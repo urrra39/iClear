@@ -222,7 +222,9 @@ import Testing
         written.wait()
         let r = run("iclear", ["thaw", "--all"], env: ["ICLEAR_HOME": paths.home.path])
         finished.wait()
-        #expect(r.status == 0 && r.out.contains("thawed 1"))
+        // Either recovery resumed it after the freeze finished ("thawed 1"), or the freeze
+        // saw the recovery's token and undid itself ("thawed 0"); never stopped and unrecorded.
+        #expect(r.status == 0 && r.out.contains("thawed"))
         #expect(!isStopped(h.pid) && j.read().entries.isEmpty)
     }
 

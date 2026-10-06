@@ -201,6 +201,43 @@ final class Box<T>: @unchecked Sendable {
         #expect(!f.calls.contains { $0.cmd == "stash b" })
     }
 
+    @Test func repeatedClicksCannotBuildAnUnboundedBacklog() {
+        let f = FakeDaemon()
+        f.set("undo", delay: 0.3, .success(Response(ok: true, text: "ok")))
+        let c = client(f)
+        c.maxQueuedActions = 3
+        let out = Box<DaemonClient.Outcome>()
+        for _ in 0..<10 { c.perform(Request("undo")) { out.add($0) } }
+        #expect(eventually(3) { out.all.count == 10 })
+        #expect(out.all.filter { $0 == .busy }.count == 7 && f.calls.filter { $0.cmd == "undo" }.count == 3)
+        // Emergency requests do not count against it.
+        let r = Box<DaemonClient.ResumeResult>()
+        #expect(c.resumeAll { r.add($0) } && eventually(2) { r.all.count == 1 })
+    }
+
+    @Test func onlyTheNewestDetailRequestRuns() {
+        let f = FakeDaemon()
+        f.set("status", delay: 0.5, Self.status)
+        let c = client(f)
+        c.refresh(since: (0, 0)) { _ in }  // occupies the read lane
+        let got = Box<String>()
+        for cmd in ["why", "stats", "battery"] {
+            c.detail(cmd) { r in got.add(r.map { (try? $0.get())?.text ?? "failed" } ?? "superseded:\(cmd)") }
+        }
+        #expect(eventually(3) { got.all.count == 3 })
+        #expect(Set(got.all) == ["superseded:why", "superseded:stats", "ok"])
+        #expect(!f.calls.contains { $0.cmd == "why" || $0.cmd == "stats" })
+    }
+
+    @Test func aDeclinedEmergencyAnswerIsReportedAsSuch() {
+        let f = FakeDaemon()
+        f.set("thaw all", .success(Response(ok: false, text: "1 process(es) are still paused.")))
+        let r = Box<DaemonClient.ResumeResult>()
+        client(f).resumeAll { r.add($0) }
+        #expect(eventually(2) { r.all.count == 1 })
+        #expect(r.all.first?.answerDeclined == true && r.all.first?.offline == nil)
+    }
+
     @Test func resumeAllReplaysTheJournalsWhenTheDaemonIsAbsentOrHung() throws {
         for failure in [IPC.Failure.absent, .timeout] {
             let paths = tempHome()
@@ -266,6 +303,24 @@ final class Box<T>: @unchecked Sendable {
         let t0 = Date()
         #expect(IPC.call(Request("ping"), path: s.path, deadline: Date(timeIntervalSinceNow: 0.5)).failureValue == .timeout)
         #expect(Date().timeIntervalSince(t0) < 0.9)
+    }
+
+    /// A request larger than the socket buffer to a peer that reads slowly: the write is
+    /// cut short at the deadline; that is a timeout, never an invented error or success.
+    @Test func aPartialWriteAtTheDeadlineIsATimeout() throws {
+        let slow = try server { c in
+            var b = [UInt8](repeating: 0, count: 8 << 10)
+            for _ in 0..<40 {
+                if read(c, &b, b.count) <= 0 { return }
+                usleep(100_000)
+            }
+        }
+        defer { close(slow.fd) }
+        let big = Request("x", value: String(repeating: "y", count: 2 << 20))
+        let t0 = Date()
+        let r = IPC.call(big, path: slow.path, deadline: Date(timeIntervalSinceNow: 0.5))
+        #expect(r.failureValue == .timeout, "\(r)")
+        #expect(Date().timeIntervalSince(t0) < 1.5)
     }
 
     @Test func silenceIsATimeoutAndGarbageIsMalformed() throws {

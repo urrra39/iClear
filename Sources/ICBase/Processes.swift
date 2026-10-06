@@ -185,13 +185,13 @@ public enum Signals {
     /// `send` is replaceable so tests can inject a failure part-way through a tree.
     public static func freezeTree(
         _ ids: [ProcessIdentity], appID: String, at now: Double, journal: JournalStore, stash: String? = nil,
-        send: Sender = liveSender
+        send: Sender = liveSender, since: String? = nil
     )
         -> (ok: Bool, stopped: [ProcessIdentity], error: String?)
     {
         do {
             return try journal.locked {
-                let token = journal.recoveryToken()
+                let token = since ?? journal.recoveryToken()
                 try journal.update {
                     $0.add(ids.map { JournalEntry(pid: $0.pid, startTime: $0.startTime, appID: appID, frozenAt: now, stash: stash) })
                 }
@@ -286,15 +286,17 @@ public enum Signals {
     public static func recover(
         journal: JournalStore, restorer: Restorer, send: Sender = liveSender, lockTimeout: Double = 5, restoreBudget: Double = 4
     ) -> RecoveryResult {
+        // Before anything is resumed: any change in progress (a late writer, a stash part
+        // way through) sees it and undoes itself.
+        journal.requestRecovery()
         do {
             return try journal.locked(timeout: lockTimeout) {
                 recoverLocked(journal, restorer: restorer, send: send, write: true, budget: restoreBudget)
             }
         } catch {
-            // The lock is held too long (a hung writer) or cannot be used: tell any writer
-            // to undo its change, then resume anyway (best effort, needs no ownership) and
-            // leave the file exactly as it is.
-            journal.requestRecovery()
+            // The lock is held too long (a hung writer) or cannot be used: resume anyway
+            // (best effort, needs no ownership; the token above tells the writer to undo)
+            // and leave the file exactly as it is.
             var r = recoverLocked(journal, restorer: restorer, send: send, write: false, budget: restoreBudget)
             r.pending = true
             return r

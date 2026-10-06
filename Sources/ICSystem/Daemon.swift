@@ -87,6 +87,8 @@ public final class Daemon {
     public var scheduleHealthChecks = true
     /// Test hook: called after every executed action.
     public var onAction: ((Action, String) -> Void)?
+    /// Test hook: called before each app of a stash (index in hiding order).
+    var stashStepHook: ((Int) -> Void)?
 
     public init(paths: Paths = Paths(), probe: Probe = LiveProbe(), hardware: Hardware = SystemSampler.hardware()) throws {
         self.paths = paths

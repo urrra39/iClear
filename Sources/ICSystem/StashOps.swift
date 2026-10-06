@@ -62,19 +62,30 @@ extension Daemon {
                     order: frontToBack.firstIndex(of: c.app.id) ?? 99, residentMB: c.app.residentMB)
             }, previousFrontmost: chosen.contains { $0.app.id == front } ? front : nil)
         record.availableBeforeMB = SystemSampler.availableMB()
+        // A recovery (Resume all) during the stash stops it: every step compares with this.
+        let token = journal.recoveryToken()
         // The stash is journaled before anything changes.
         do { try journal.update { $0.stashes.append(record) } } catch {
             return Response(ok: false, text: "Could not write the journal: \(error)")
         }
         var lines: [String] = []
         var failed: [String] = []
+        var interrupted = false
         // Back to front, the frontmost app last: hiding the frontmost app makes macOS
         // activate the next one, which must not be an app still waiting to be stashed.
         let hideOrder = chosen.sorted {
             (front == $0.app.id ? 1 : 0, -(frontToBack.firstIndex(of: $0.app.id) ?? 99))
                 < (front == $1.app.id ? 1 : 0, -(frontToBack.firstIndex(of: $1.app.id) ?? 99))
         }
-        for c in hideOrder {
+        for (i, c) in hideOrder.enumerated() {
+            stashStepHook?(i)
+            if journal.recoveryToken() != token {
+                let left = hideOrder[i...].map(\.app.id)
+                failed += left
+                lines.append("Stopped: a recovery (Resume all) ran meanwhile; \(left.count) app(s) left as they were.")
+                interrupted = true
+                break
+            }
             guard let root = c.app.processes.first else { continue }
             // Paused by the policy: the stash takes it over (a stopped app cannot hide itself).
             if engine.state.frozen[c.app.id] != nil {
@@ -83,7 +94,7 @@ extension Daemon {
             }
             if !c.app.isHidden {
                 let hidden: Bool
-                do { hidden = try Signals.hide(root, appID: c.app.id, journal: journal, at: now) } catch {
+                do { hidden = try Signals.hide(root, appID: c.app.id, journal: journal, at: now, since: token) } catch {
                     failed.append(c.app.id)
                     lines.append("\(c.app.name): not hidden (\(error)); left as it was.")
                     continue
@@ -95,7 +106,7 @@ extension Daemon {
                     continue
                 }
             }
-            let r = Signals.freezeTree(c.app.processes, appID: c.app.id, at: now, journal: journal, stash: name, send: sender)
+            let r = Signals.freezeTree(c.app.processes, appID: c.app.id, at: now, journal: journal, stash: name, send: sender, since: token)
             if !r.ok {
                 Signals.unhide(root, journal: journal)
                 failed.append(c.app.id)
@@ -110,6 +121,14 @@ extension Daemon {
             guard let i = j.stashes.firstIndex(where: { $0.name == name }) else { return }
             j.stashes[i].apps.removeAll { failed.contains($0.appID) }
             if j.stashes[i].apps.isEmpty { j.stashes.remove(at: i) }
+        }
+        if interrupted || journal.recoveryToken() != token {
+            // What this stash had paused was resumed by that recovery; nothing is stashed.
+            engine.noteAction("Stash \(name) stopped by a recovery")
+            return Response(
+                ok: false,
+                text: (["Stash \(name) stopped: a recovery (Resume all) ran while it worked; it resumed what was paused."] + lines)
+                    .joined(separator: "\n"))
         }
         let done = chosen.count - failed.count
         engine.noteAction("Stashed \(done) app(s) as \(name)")

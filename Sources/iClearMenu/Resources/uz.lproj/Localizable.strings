@@ -85,3 +85,5 @@
 "loading" = "Yuklanmoqda…";
 "frozen.unresolved" = "%@: hali davom ettirib bo'lmadi (to'xtatilgan). \"Hammasini davom ettirish\" qayta urinadi.";
 "thawAll.pending" = "iClear o'zgarish kiritayotgan edi va uni bekor qilish so'raldi. Tasdiqlash uchun bir necha soniyadan keyin \"Hammasini davom ettirish\" ni yana bosing.";
+"action.busy" = "Juda ko'p amallar navbatda; bu amal yuborilmadi.";
+"thawAll.notAll" = "Hammasini davom ettirib bo'lmadi:";

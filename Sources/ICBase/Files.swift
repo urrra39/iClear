@@ -217,13 +217,15 @@ public final class JournalStore: @unchecked Sendable {
         public var description: String { "the journal lock cannot be used (\(String(cString: strerror(code))))" }
     }
 
-    /// Written by a recovery that resumes without the lock (a writer held it too long),
-    /// before it resumes anything. A writer reads it before its change and again after;
-    /// if it changed, a recovery ran meanwhile and the writer undoes its own change, so a
-    /// late writer can never undo a recovery the user was told about.
+    /// Written by every recovery before it resumes anything. A writer reads it before its
+    /// change (or takes the value its whole operation started with, as a stash does) and
+    /// checks it again after; if it changed, a recovery ran meanwhile and the writer undoes
+    /// its own change, so a late or multi-step writer can never undo a recovery the user
+    /// was told about.
     var recoveryTokenURL: URL { URL(fileURLWithPath: url.path + ".recover") }
 
-    public func recoveryToken() -> String? { try? String(contentsOf: recoveryTokenURL, encoding: .utf8) }
+    /// "" when no recovery has written one yet.
+    public func recoveryToken() -> String { (try? String(contentsOf: recoveryTokenURL, encoding: .utf8)) ?? "" }
 
     /// False when the token could not be written (then a late writer is not stopped).
     @discardableResult

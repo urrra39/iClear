@@ -52,9 +52,15 @@ public final class DaemonClient: @unchecked Sendable {
         case refused(String)
         /// No answer; the action may or may not have happened. Never retried.
         case noAnswer(Reach)
-        /// Dropped by an emergency resume before it started.
+        /// Dropped by an emergency resume before it started (an action already sent is
+        /// never reported as cancelled: it may have happened).
         case cancelled
+        /// Not queued: too many actions are already waiting (repeated clicks).
+        case busy
     }
+
+    /// Actions waiting or running at most; more are refused at once (`busy`).
+    public var maxQueuedActions = 8
 
     public let paths: Paths
     let call: Call
@@ -73,6 +79,8 @@ public final class DaemonClient: @unchecked Sendable {
     private var epochValue = 0
     private var generation = 0
     private var resuming = false
+    private var queuedActions = 0
+    private var detailSeq = 0
 
     public init(
         paths: Paths, call: @escaping Call = { IPC.call($0, path: $1, deadline: $2) },
@@ -163,16 +171,30 @@ public final class DaemonClient: @unchecked Sendable {
     public func isCurrent(_ s: Snapshot, after lastShown: Int) -> Bool { s.seq > lastShown && s.epoch == epoch }
 
     /// A read the user asked for (a detail page), behind any refresh in progress.
-    public func detail(_ cmd: String, _ done: @escaping @Sendable (Result<Response, IPC.Failure>) -> Void) {
-        reads.async { [self] in done(call(Request(cmd), paths.socket.path, Date(timeIntervalSinceNow: actionDeadline))) }
+    /// Only the newest detail request runs; an older one still waiting gets nil.
+    public func detail(_ cmd: String, _ done: @escaping @Sendable (Result<Response, IPC.Failure>?) -> Void) {
+        let n = locked { () -> Int in
+            detailSeq += 1
+            return detailSeq
+        }
+        reads.async { [self] in
+            guard locked({ detailSeq }) == n else { return done(nil) }
+            done(call(Request(cmd), paths.socket.path, Date(timeIntervalSinceNow: actionDeadline)))
+        }
     }
 
     // MARK: actions
 
     /// Runs a state-changing request after the ones asked for before it.
     public func perform(_ req: Request, brake: Bool = false, _ done: @escaping @Sendable (Outcome) -> Void) {
-        let g = locked { generation }
+        let (g, admitted) = locked { () -> (Int, Bool) in
+            guard queuedActions < maxQueuedActions else { return (generation, false) }
+            queuedActions += 1
+            return (generation, true)
+        }
+        guard admitted else { return done(.busy) }
         actions.async { [self] in
+            defer { locked { queuedActions -= 1 } }
             guard locked({ generation }) == g else { return done(.cancelled) }
             let o: Outcome
             switch call(req, brake ? paths.brakeSocket.path : paths.socket.path, Date(timeIntervalSinceNow: actionDeadline)) {
@@ -189,6 +211,8 @@ public final class DaemonClient: @unchecked Sendable {
     public struct ResumeResult: Equatable, Sendable {
         /// The daemon's own report, when it answered.
         public var answer: String?
+        /// The daemon answered that not everything could be resumed (`ok: false`).
+        public var answerDeclined = false
         /// Why the daemon's journal was replayed offline (it did not answer), and how much.
         public var offline: Reach?
         public var offlineThawed = 0
@@ -214,7 +238,9 @@ public final class DaemonClient: @unchecked Sendable {
         emergency.async { [self] in
             var r = ResumeResult()
             switch call(Request("thaw", app: "all"), paths.socket.path, Date(timeIntervalSinceNow: emergencyDeadline)) {
-            case .success(let resp): r.answer = resp.text
+            case .success(let resp):
+                r.answer = resp.text
+                r.answerDeclined = !resp.ok
             case .failure(let f):
                 let rec = recover(JournalStore(url: paths.journal), true)
                 r.offline = Reach(f)

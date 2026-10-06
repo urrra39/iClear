@@ -114,3 +114,52 @@ import Testing
         #expect(!isStopped(h.pid) && j.read().entries.isEmpty)
     }
 }
+
+/// A stash in flight (the daemon busy) and the menu's Resume all: the emergency lane does
+/// not wait behind the stash, recovers from the journal, and the stash then stops instead
+/// of pausing more apps. Checked through real IPC, the journal, the fixtures and status.
+@Suite(.serialized) struct StashEmergencyTests {
+    @Test func resumeAllDuringAStashLeavesEverythingRunning() throws {
+        let paths = tempHome()
+        let probePath = products.appendingPathComponent("ic-ui-probe").path
+        let frames = ["110,140,380,240", "560,170,360,220", "260,420,340,200"]
+        let fx = try (0..<3).map { i in
+            try GUIFixture(probe: probePath, dir: paths.home, name: "Inflight\(i)-\(UUID().uuidString.prefix(4))", frame: frames[i])
+        }
+        defer { for f in fx { f.kill() } }
+        let probe = FakeProbe()
+        probe.apps = fx.map { $0.snapshot() }
+        let d = try testDaemon(probe, paths: paths, mode: .observe)
+        defer { d.shutdown() }
+        let midway = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        d.stashStepHook = { i in
+            if i == 1 {
+                midway.signal()
+                release.wait()  // the daemon's main thread is busy: IPC requests wait
+            }
+        }
+        let c = DaemonClient(paths: paths) { j, _ in
+            Signals.recover(journal: j, restorer: .appKit, send: testSender, lockTimeout: 1)
+        }
+        c.emergencyDeadline = 1
+        let stash = Box<DaemonClient.Outcome>()
+        c.perform(Request("stash", app: "work", value: "{}")) { stash.add($0) }
+        midway.wait()
+        #expect(fx.contains { isStopped($0.pid) })  // the first app is stashed
+        let resume = Box<DaemonClient.ResumeResult>()
+        c.resumeAll { resume.add($0) }
+        #expect(eventually(5) { resume.all.count == 1 })
+        #expect(resume.all.first?.offline == .timeout && (resume.all.first?.offlineThawed ?? 0) >= 1)
+        release.signal()
+        #expect(eventually(20) { stash.all.count == 1 })
+        if case .refused(let t)? = stash.all.first { #expect(t.contains("stopped")) } else { Issue.record("stash: \(stash.all)") }
+        #expect(eventually(5) { fx.allSatisfy { !isStopped($0.pid) && !$0.isHidden } })
+        let j = d.journal.read()
+        #expect(j.entries.isEmpty && j.stashes.isEmpty && j.restorations.isEmpty, "\(j)")
+        let snap = Box<DaemonClient.Snapshot>()
+        c.refresh(since: (0, 0)) { snap.add($0) }
+        #expect(eventually(5) { snap.all.count == 1 })
+        #expect(snap.all.first?.reach == .ok && snap.all.first?.stashes.isEmpty == true && snap.all.first?.status?.unresolved == nil)
+    }
+}

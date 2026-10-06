@@ -123,6 +123,7 @@ final class Model: ObservableObject {
                 case .noAnswer(.timeout): self.message = localized("action.noAnswer")
                 case .noAnswer(let r): self.message = Self.text(r)
                 case .cancelled: self.message = localized("action.cancelled")
+                case .busy: self.message = localized("action.busy")
                 }
                 self.refresh()
             }
@@ -136,7 +137,7 @@ final class Model: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 var lines: [String] = []
-                if let a = r.answer { lines.append(a) }
+                if let a = r.answer { lines.append(r.answerDeclined ? localized("thawAll.notAll") + " " + a : a) }
                 switch r.offline {
                 case nil: break
                 case .absent?: lines.append(String(format: localized("thawAll.offline"), r.offlineThawed))
@@ -186,7 +187,7 @@ final class Model: ObservableObject {
         detail = localized("loading")
         client.detail(cmd) { [weak self] r in
             Task { @MainActor in
-                guard let self, self.detailTitle == title else { return }
+                guard let self, let r, self.detailTitle == title else { return }  // nil: a newer request replaced it
                 switch r {
                 case .success(let resp): self.detail = resp.text
                 case .failure(let f): self.detail = Self.text(DaemonClient.Reach(f))

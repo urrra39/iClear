@@ -28,13 +28,13 @@ extension Signals {
     /// either sees the hide recorded and puts it back, or runs before anything happened.
     public static func hide(
         _ root: ProcessIdentity, appID: String, journal: JournalStore, at now: Double, timeout: Double = 3,
-        request: (NSRunningApplication) -> Void = { _ = $0.hide() }
+        since: String? = nil, request: (NSRunningApplication) -> Void = { _ = $0.hide() }
     ) throws -> Bool {
         try journal.locked {
             guard ScopeLock.permits(root), Proc.startTime(root.pid) == root.startTime,
                 let app = NSRunningApplication(processIdentifier: root.pid)
             else { return false }
-            let token = journal.recoveryToken()
+            let token = since ?? journal.recoveryToken()
             try journal.update {
                 $0.record(
                     Restoration(kind: .hidden, pid: root.pid, startTime: root.startTime, appID: appID, previous: app.isHidden, at: now))
