@@ -27,6 +27,8 @@ final class Model: ObservableObject {
     @Published var capacityLine: String?
     /// The one-time question after install: the brake starts in observe mode.
     @Published var brakePromptDone = UserDefaults.standard.bool(forKey: "brakePromptDone")
+    /// The first-run card: what iClear does, what it never touches, and the way out.
+    @Published var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone")
     private var lastBrakeEvent = Date().timeIntervalSince1970
 
     let paths = Paths()
@@ -164,6 +166,10 @@ final class Model: ObservableObject {
         UserDefaults.standard.set(true, forKey: "brakePromptDone")
         brakePromptDone = true
         message = mode == .on ? localized("brake.nowOn") : localized("brake.nowObserve")
+    }
+    func finishOnboarding() {
+        UserDefaults.standard.set(true, forKey: "onboardingDone")
+        onboardingDone = true
     }
     func dismissUnclean() {
         try? FileManager.default.removeItem(at: paths.blackBoxUnclean)

@@ -54,6 +54,10 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !model.onboardingDone {
+                onboarding
+                Divider()
+            }
             if let s = model.status {
                 header(s)
                 Divider()
@@ -88,6 +92,18 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 360)
+    }
+
+    /// Shown once, before anything else: Observe first, what pausing costs, what is never
+    /// paused, the optional permission and the emergency exit.
+    var onboarding: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(localized("onboarding.title")).font(.headline)
+            ForEach(["observe", "pause", "protect", "permissions", "exit"], id: \.self) { k in
+                Text(localized("onboarding." + k)).font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+            Button(localized("onboarding.done")) { model.finishOnboarding() }
+        }
     }
 
     func header(_ s: Status) -> some View {

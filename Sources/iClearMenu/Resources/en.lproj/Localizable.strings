@@ -87,3 +87,10 @@
 "thawAll.pending" = "iClear was in the middle of a change and was told to undo it. Press Resume all again in a few seconds to confirm.";
 "action.busy" = "Too many actions are waiting; this one was not sent.";
 "thawAll.notAll" = "Not everything could be resumed:";
+"onboarding.title" = "Welcome to iClear";
+"onboarding.observe" = "It starts in Observe mode and only records what it would pause. Switch to Active once that record looks right to you.";
+"onboarding.pause" = "A paused app does nothing until it resumes: no notifications, sync, downloads or timers. It resumes as soon as you switch to it.";
+"onboarding.protect" = "Never paused: the app in front, apps playing sound, in a call or using the camera, and protected apps such as input methods, security tools and terminals.";
+"onboarding.permissions" = "Accessibility is optional. With it, iClear checks that apps answer again after a resume.";
+"onboarding.exit" = "Emergency: Resume all (Control-Option-Command-T) resumes everything, also when the iClear daemon is not running.";
+"onboarding.done" = "Got it";
