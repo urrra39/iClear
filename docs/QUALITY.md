@@ -84,30 +84,40 @@ files. **C14 met.**
 
 ## Recovery and menu hardening (branch `hardening/correctness-recovery`, 2026-10-06)
 
-Measured on the M3 Pro, macOS 27.0.1, Swift 6.4 Command Line Tools:
-- **Tests:** 289 (113 in ICSystemTests, 176 in ICCoreTests) pass with `scripts/test.sh`,
-  serially. They also passed in the four earlier full runs on this branch.
+Measured on the M3 Pro, macOS 27.0.1, Swift 6.4 Command Line Tools, at commit 12986d1:
+- **Tests:** 322 (138 in ICSystemTests, 184 in ICCoreTests) pass with `scripts/test.sh`,
+  serially.
+- **Selftest:** the full selftest passed 19 of 19 at 3de0239, which has the same code
+  apart from the first-run card.
+- **Packaged build:** the universal release build of 12986d1's sources passed:
+  - signature check;
+  - quick selftest and doctor from the tarball;
+  - install with crash recovery of a journaled test process;
+  - status and uninstall, all in an isolated home.
 - **Defects fixed:**
   - the six reproduced by tests on fe208be ([SAFETY.md](SAFETY.md) 1.1);
   - the daemon answered "ok" to a freeze that had failed;
-  - two tests ran recovery's fallback scan unscoped, so they could resume any stopped
-    app process on the machine;
-  - the menu made blocking IPC calls on the main thread.
+  - two tests ran recovery's fallback scan unscoped;
+  - the menu made blocking IPC calls on the main thread;
+  - the five found by the follow-up review, each reproduced before its fix (SAFETY.md);
+  - an IPC write that a slow reader could stretch past its deadline.
 
 Line coverage, from `swift test --enable-code-coverage` and `llvm-cov export` over both
 test binaries:
 
 | Target | Lines covered |
 |---|---|
-| ICCore | 97.4% (3826 / 3930) |
-| ICBase | 75.5% (1320 / 1749) |
-| ICSystem | 55.0% (3018 / 5491) |
-| Files changed on this branch: ICBase Files, Processes, IPC; ICSystem DaemonClient | 94.7%, 96.8%, 95.0%, 93.1% |
+| ICCore | 97.4% (3939 / 4046) |
+| ICBase | 77.3% (1471 / 1904) |
+| ICSystem | 56.6% (3189 / 5639) |
+| Main files changed on this branch: ICBase Files, Processes, IPC; ICSystem DaemonClient, Processes | 94.3%, 97.3%, 94.3%, 96.5%, 97.9% |
 
 These count only code that ran inside the test process. `icleard`, `iclear` and `icbrake`
 started by the tests are separate, uninstrumented processes, so their share (and the
 ICSystem code they run) shows as uncovered here, although tests exercise it. The menu's
 SwiftUI views have no automated tests; their states were rendered with `--snapshot`.
+Coverage and test counts describe what was exercised. They do not show that a feature
+helps anyone; the capacity benchmark that could show that has not been run.
 
 ## Secret scanning
 
