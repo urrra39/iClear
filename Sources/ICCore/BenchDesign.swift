@@ -38,9 +38,13 @@ public enum BenchDesign {
 
     /// Per-block ratio treated / control. Deterministic for a given seed, so a report can be
     /// recomputed exactly from the raw rows.
+    /// Pairs with a control of zero or a non-finite value are left out; fewer than 100
+    /// resamples is refused (nil), as is an empty set.
     public static func estimate(_ pairs: [(treated: Double, control: Double)], resamples: Int = 10_000, seed: UInt64 = 1) -> Estimate? {
-        let ratios = pairs.filter { $0.control > 0 }.map { $0.treated / $0.control }
-        guard !ratios.isEmpty else { return nil }
+        let ratios = pairs.filter { $0.control > 0 && $0.control.isFinite && $0.treated.isFinite && $0.treated >= 0 }.map {
+            $0.treated / $0.control
+        }
+        guard !ratios.isEmpty, resamples >= 100 else { return nil }
         var rng = SplitMix64(seed: seed)
         var medians: [Double] = []
         medians.reserveCapacity(resamples)
@@ -87,5 +91,84 @@ struct SplitMix64 {
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
+    }
+}
+
+/// One run as the capacity analysis sees it.
+public struct CapacityObservation: Codable, Equatable, Sendable {
+    public var condition: BenchCondition
+    /// Fixtures open at the last window that passed.
+    public var capacity: Int
+    /// Ended without a failure (60% limit, out of fixtures): `capacity` is a lower bound.
+    public var censored: Bool
+
+    public init(_ condition: BenchCondition, _ capacity: Int, censored: Bool = false) {
+        self.condition = condition
+        self.capacity = capacity
+        self.censored = censored
+    }
+}
+
+/// The pre-registered capacity analysis (docs/BENCHMARK_PROTOCOL.md, amendment 2).
+/// Censored runs are lower bounds, never treated as exact: each block gives a direction
+/// only when the bounds decide it, and the ratio estimate uses exact pairs only.
+public struct CapacityAnalysis: Codable, Equatable, Sendable {
+    public enum Verdict: String, Codable, Sendable {
+        case gainShown = "gain shown"
+        case noGainShown = "no gain shown"
+        case lossShown = "loss shown"
+        case notMeasurable = "not measurable"
+    }
+
+    /// Complete blocks (both conditions present) and blocks left out for a missing run.
+    public var blocks = 0
+    public var incomplete = 0
+    /// Per block, as far as the bounds decide it.
+    public var better = 0
+    public var worse = 0
+    public var tied = 0
+    public var undetermined = 0
+    public var signP = 1.0
+    /// Median ratio and interval over blocks where both runs failed and the control was above zero.
+    public var exact: BenchDesign.Estimate?
+    public var verdict = Verdict.notMeasurable
+
+    public static let minBlocks = 6
+
+    public static func analyze(_ runs: [[CapacityObservation]], treated: BenchCondition, control: BenchCondition = .stock)
+        -> CapacityAnalysis
+    {
+        var a = CapacityAnalysis()
+        var exactPairs: [(treated: Double, control: Double)] = []
+        for block in runs {
+            guard let t = block.first(where: { $0.condition == treated }), let c = block.first(where: { $0.condition == control }) else {
+                a.incomplete += 1
+                continue
+            }
+            a.blocks += 1
+            switch (t.censored, c.censored) {
+            case (false, false):
+                if t.capacity > c.capacity { a.better += 1 } else if t.capacity < c.capacity { a.worse += 1 } else { a.tied += 1 }
+                if c.capacity > 0 { exactPairs.append((Double(t.capacity), Double(c.capacity))) }
+            case (true, false):  // treated is at least t.capacity
+                if t.capacity > c.capacity { a.better += 1 } else { a.undetermined += 1 }
+            case (false, true):  // control is at least c.capacity
+                if t.capacity < c.capacity { a.worse += 1 } else { a.undetermined += 1 }
+            case (true, true):
+                a.undetermined += 1
+            }
+        }
+        a.signP = BenchDesign.signTest(a.better, a.worse)
+        a.exact = BenchDesign.estimate(exactPairs)
+        if a.blocks < minBlocks || a.undetermined * 2 >= a.blocks {
+            a.verdict = .notMeasurable
+        } else if a.signP < 0.05, a.better > a.worse, a.exact.map { $0.n < minBlocks || $0.low > 1 } ?? true {
+            a.verdict = .gainShown
+        } else if a.signP < 0.05, a.worse > a.better, a.exact.map { $0.n < minBlocks || $0.high < 1 } ?? true {
+            a.verdict = .lossShown
+        } else {
+            a.verdict = .noGainShown
+        }
+        return a
     }
 }

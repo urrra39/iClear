@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import Foundation
 import ICCore
 import ICSystem
@@ -454,6 +455,16 @@ extension Lab {
 
     // MARK: capacity benchmark (docs/BENCHMARK_PROTOCOL.md)
 
+    /// Protocol version of docs/BENCHMARK_PROTOCOL.md that rows were collected under.
+    static let capacityProtocol = 2
+
+    /// The memory state a run started from (carry-over between runs is checked, not assumed away).
+    struct StartConditions: Codable {
+        var availableMB: Double
+        var swapMB: Double
+        var pressure: Int
+    }
+
     /// One condition of one block: fixtures opened one at a time until responsiveness fails.
     struct CapacityRun: Codable {
         var block: Int
@@ -467,7 +478,40 @@ extension Lab {
         var censored: String?
         var paused: [String] = []
         var seconds = 0.0
+        var protocolVersion = Lab.capacityProtocol
+        /// SHA-256 of the ic-lab binary that ran it.
+        var build = Lab.buildHash
+        var start: StartConditions?
+        /// icleard processes already running when the run started (the owner's install, a soak):
+        /// "stock" means no lab daemon, not necessarily no iClear at all.
+        var otherDaemons = 0
+
+        var observation: CapacityObservation { CapacityObservation(condition, capacity, censored: censored != nil) }
     }
+
+    static let buildHash: String = {
+        guard let url = Bundle.main.executableURL, let d = try? Data(contentsOf: url) else { return "unknown" }
+        return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+    }()
+
+    /// The checkout the binary was built in, best effort ("unknown", "+dirty" when it has changes).
+    static let gitCommit: String = {
+        func git(_ args: [String]) -> String? {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", (Bundle.main.executableURL ?? URL(fileURLWithPath: ".")).deletingLastPathComponent().path] + args
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return nil }
+            p.waitUntilExit()
+            let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(
+                in: .whitespacesAndNewlines)
+            return p.terminationStatus == 0 ? out : nil
+        }
+        guard let sha = git(["rev-parse", "HEAD"]) else { return "unknown" }
+        return sha + ((git(["status", "--porcelain", "--untracked-files=no"]) ?? "").isEmpty ? "" : "+dirty")
+    }()
 
     /// The pre-registered fixture families. "waking" is where pausing can help (apps that
     /// keep touching their memory); "idle" is the negative control (apps that never wake,
@@ -503,6 +547,9 @@ extension Lab {
         tools: URL
     ) -> (CapacityRun, stop: String?) {
         var r = CapacityRun(block: block, family: family, condition: condition)
+        let sample = SystemSampler.sample()
+        r.start = StartConditions(availableMB: SystemSampler.availableMB(), swapMB: sample.swapUsedMB, pressure: sample.pressure.rawValue)
+        r.otherDaemons = Proc.table().values.filter { $0.name == "icleard" }.count
         let t0 = Date()
         var daemon: (Process, Paths)?
         if condition != .stock {
@@ -590,6 +637,14 @@ extension Lab {
             let name = "capacity3-\(family)-\(Int(budgetGB))gb" + (pilot ? "-pilot" : "")
             var done = rows(name, as: [CapacityRun].self)
             let target = pilot ? 1 : blocks
+            // Never mix data from another build or protocol into a dataset.
+            if let other = done.flatMap({ $0 }).first(where: { $0.protocolVersion != Self.capacityProtocol || $0.build != Self.buildHash })
+            {
+                log(
+                    "capacity: \(name) holds rows from build \(other.build.prefix(12)) / protocol \(other.protocolVersion); this is \(Self.buildHash.prefix(12)) / \(Self.capacityProtocol). Move \(name).jsonl aside to start a new dataset."
+                )
+                return
+            }
             if done.count < target {
                 if let p = quietWindowProblem() { return log("capacity: not started: \(p)") }
                 let swap0 = SystemSampler.sample().swapUsedMB
@@ -606,7 +661,14 @@ extension Lab {
                             c, family: family, block: done.count, roomMB: room, ballastMB: ballast == nil ? 0 : ramMB - budgetGB * 1024,
                             swap0: swap0, probe: probe, tools: tools)
                         if let s = stop {
-                            stopEarly("capacity", s)  // the unfinished block is discarded
+                            stopEarly("capacity", s)
+                            // The unfinished block never enters the analysis; it is kept with its reason.
+                            struct Aborted: Codable {
+                                var reason: String
+                                var at: Double
+                                var runs: [CapacityRun]
+                            }
+                            appendRow(name + "-aborted", Aborted(reason: s, at: Date().timeIntervalSince1970, runs: block + [run]))
                             break blocksLoop
                         }
                         block.append(run)
@@ -623,36 +685,53 @@ extension Lab {
     }
 
     func capacityReport(_ blocks: [[CapacityRun]], family: String, budgetGB: Double, pilot: Bool) -> String {
-        func cap(_ b: [CapacityRun], _ c: BenchCondition) -> Double? { b.first { $0.condition == c }.map { Double($0.capacity) } }
-        func pairs(_ c: BenchCondition) -> [(treated: Double, control: Double)] {
-            blocks.compactMap { b in cap(b, c).flatMap { t in cap(b, .stock).map { (treated: t, control: $0) } } }
+        let obs = blocks.map { $0.map(\.observation) }
+        func line(_ a: CapacityAnalysis) -> String {
+            let exact =
+                a.exact.map {
+                    String(format: "median ratio %.2f (95%% CI %.2f-%.2f) over %d exact pair(s)", $0.median, $0.low, $0.high, $0.n)
+                } ?? "no exact pair"
+            return
+                "**\(a.verdict.rawValue)**: higher in \(a.better), lower in \(a.worse), equal in \(a.tied), undecided (censored) in \(a.undetermined) of \(a.blocks) block(s)"
+                + String(format: "; sign test p %.3f; ", a.signP) + exact
+                + (a.incomplete > 0 ? "; \(a.incomplete) incomplete block(s) left out" : "")
         }
-        func line(_ e: BenchDesign.Estimate?) -> String {
-            guard let e else { return "not measurable (no block with a stock capacity above zero)" }
-            return String(
-                format: "median %.2f (95%% CI %.2f-%.2f), n %d; higher in %d, lower in %d, equal in %d; sign test p %.3f", e.median, e.low,
-                e.high, e.n, e.better, e.worse, e.ties, e.signP)
-        }
+        let primary = CapacityAnalysis.analyze(obs, treated: .active)
+        let presence = CapacityAnalysis.analyze(obs, treated: .observe)
         let runs = blocks.flatMap { $0 }
-        let censoredStock = runs.filter { $0.condition == .stock && $0.censored != nil }.count
+        // A block whose runs started from clearly different memory states is flagged (kept in).
+        let flagged = blocks.filter { b in
+            let s = b.compactMap(\.start)
+            guard s.count == b.count, let lo = s.map(\.availableMB).min(), let hi = s.map(\.availableMB).max() else { return true }
+            return hi - lo > 0.2 * hi || (s.map(\.swapMB).max()! - s.map(\.swapMB).min()!) > 1024
+        }.count
+        let ram = ProcessInfo.processInfo.physicalMemory >> 30
+        var model = [CChar](repeating: 0, count: 64)
+        var size = model.count
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        let negative = family == "idle" && primary.verdict == .gainShown
         return """
-            ## Capacity benchmark, \(family) family, \(Int(budgetGB)) GB emulation\(pilot ? " (PILOT: feasibility and timing only, excluded from the endpoint)" : "")
+            ## Capacity benchmark, \(family) family, \(Int(budgetGB)) GB emulation\(pilot ? " (PILOT: feasibility and timing only, excluded from every endpoint)" : "")
 
-            Emulated constrained Mac on one real machine; not a real \(Int(budgetGB)) GB Mac. Protocol: \
-            [BENCHMARK_PROTOCOL.md](../../docs/BENCHMARK_PROTOCOL.md). Conditions per block in Williams order: no iClear (stock), \
-            Observe, Active (idleMinutes 1, a lab condition; the default is 15).
+            | Identity | |
+            |---|---|
+            | Protocol | [BENCHMARK_PROTOCOL.md](../../docs/BENCHMARK_PROTOCOL.md), version \(Self.capacityProtocol) |
+            | Build | commit \(Self.gitCommit), ic-lab SHA-256 \(Self.buildHash.prefix(16)) |
+            | Machine | \(String(cString: model)), \(ram) GB; emulated budget about \(Int(budgetGB)) GB (not a real \(Int(budgetGB)) GB Mac) |
+            | Conditions | stock = no lab daemon (other icleard processes at run start: \(Set(runs.map(\.otherDaemons)).sorted().map(String.init).joined(separator: "/"))); Observe; Active with idleMinutes 1 (default 15) |
+            | Retained | \(blocks.count) block(s); aborted blocks are kept in capacity3-\(family)-\(Int(budgetGB))gb\(pilot ? "-pilot" : "")-aborted.jsonl, never analysed |
 
             | Measure | Result |
             |---|---|
-            | Blocks | \(blocks.count) |
-            | Apps open: stock / Observe / Active | \(BenchCondition.allCases.map { c in dist(runs.filter { $0.condition == c }.map { Double($0.capacity) }) }.joined(separator: " / ")) |
-            | Primary: Active / stock, per block | \(line(BenchDesign.estimate(pairs(.active)))) |
-            | Secondary: Observe / stock, per block (cost of the daemon's presence) | \(line(BenchDesign.estimate(pairs(.observe)))) |
-            | Runs that ended without a failure (lower bounds) | \(runs.compactMap(\.censored).reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none")\(censoredStock * 2 > blocks.count ? " (most stock runs censored: this budget cannot show a gain)" : "") |
+            | Apps open: stock / Observe / Active | \(BenchCondition.allCases.map { c in spread(runs.filter { $0.condition == c }.map { Double($0.capacity) }) }.joined(separator: " / ")) |
+            | Primary: Active vs stock | \(line(primary)) |
+            | Secondary: Observe vs stock (presence cost) | \(line(presence)) |
+            | Censored runs (lower bounds) | \(runs.compactMap(\.censored).reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none") |
             | Failures by rule | \(runs.compactMap(\.failedBy).map { $0.hasPrefix("probe") ? "probe p95 > 100 ms" : $0 }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ").nilIfEmpty ?? "none") |
-            | Minutes per run: stock / Observe / Active | \(BenchCondition.allCases.map { c in dist(runs.filter { $0.condition == c }.map { $0.seconds / 60 }) }.joined(separator: " / ")) |
+            | Blocks with different start states (flagged, kept) | \(flagged) |
+            | Minutes per run: stock / Observe / Active | \(BenchCondition.allCases.map { c in spread(runs.filter { $0.condition == c }.map { $0.seconds / 60 }) }.joined(separator: " / ")) |
 
-            \(family == "idle" ? "Negative control: apps that never wake. A gain here would point to a flaw in the method, not a benefit." : "Wakers touch 256 pages every 500 ms by design; apps that never wake are the idle family.")
+            \(negative ? "**Negative control shows a gain: treat as a flaw in the method; no claim from this dataset.**" : family == "idle" ? "Negative control: apps that never wake." : "Wakers touch 256 pages every 500 ms by design; apps that never wake are the idle family.")
             """
     }
 
