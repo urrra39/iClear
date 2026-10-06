@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased (v1.1, in development; not validated)
+## 1.1.0-rc.1 (release candidate; not tagged yet; lab gates not run)
+
+- **Recovery hardening.** Pause, priority band and hide are journaled before they happen,
+  under a cross-process lock that fails closed. Records stay until the change is seen
+  undone (or the process is gone). A recovery token stops late writers and stashes in
+  progress. Failed resumes show as unresolved in the engine, status, the CLI and the
+  menu. See `docs/SAFETY.md` 1.1 #1-#6.
+- **Menu.** Daemon traffic is off the main thread, with deadlines, bounded queues and
+  distinct "not running / not answering / unreadable reply" states. Resume all runs on
+  its own path. A first-run card was added (English and Uzbek).
+- **Release gates.** Until their lab criteria pass, the default install runs the Panic
+  Brake observe-only, and keeps the Black Box, Thrash Guard, Wake-on-Data and leak
+  notifications off, whatever the config says (`ReleaseGates`). Isolated instances
+  (tests, selftest, lab) keep their config. The Black Box default is now off.
+- **Capacity benchmark design** (no measurement yet): stock, Observe and Active in a
+  Williams order, an idle negative control, censoring-aware analysis
+  (`docs/BENCHMARK_PROTOCOL.md`).
+- **Version.** The CLI and artifacts read 1.1.0-rc.1; the app bundle's version fields
+  read 1.1.0, because bundle versions must be numbers.
+
+Everything below was developed for v1.1 before the candidate:
 
 - **Auto-Context Stash** (`iclear hook zsh|bash|fish|git`, `iclear context ...`): app
   groups that follow the project your terminal is in. Suggests a switch after 20 s in

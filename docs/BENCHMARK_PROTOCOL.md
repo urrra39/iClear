@@ -50,7 +50,7 @@ the daemon's presence alone cost?
 
 ## Pilot
 
-Run `ic-lab capacity --pilot`: one block per family, written to `*-pilot` files. It only
+Run `ic-lab validate capacity --pilot`: one block per family, written to `*-pilot` files. It only
 checks that runs finish, that the stop rules behave and how long a run takes. Pilot data
 never enters an endpoint. Any change to this protocol after the pilot is recorded here,
 with its date, before the main runs.
@@ -149,7 +149,7 @@ never "more RAM", never a guarantee, and never without the negative control next
 ## Reproduce
 
 ```sh
-ic-lab capacity --pilot                      # one block per family, feasibility only
-ic-lab capacity --family waking --blocks 12  # resumes where the last window stopped
-ic-lab capacity --family idle --blocks 12
+ic-lab validate capacity --pilot                      # one block per family, feasibility only
+ic-lab validate capacity --family waking --blocks 12  # resumes where the last window stopped
+ic-lab validate capacity --family idle --blocks 12
 ```

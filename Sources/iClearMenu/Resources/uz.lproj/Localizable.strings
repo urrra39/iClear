@@ -26,7 +26,7 @@
 "neverFreeze" = "Hech qachon pauza qilmaslik";
 "thawAll" = "Hammasini davom ettirish";
 "undo" = "Bekor qilish";
-"hotkey" = "Favqulodda: Control-Option-Command-T hammasini davom ettiradi.";
+"hotkey" = "Favqulodda: Control-Option-Command-T iClear pauza qilgan barcha ilovalarni davom ettiradi.";
 "why" = "Mac nega sekin ishlayapti?";
 "digest" = "Hisobot";
 "perm.ax.on" = "Maxsus imkoniyatlar ruxsati berilgan: davom ettirish tekshiruvlari o'lchanadi.";
@@ -87,10 +87,11 @@
 "thawAll.pending" = "iClear o'zgarish kiritayotgan edi va uni bekor qilish so'raldi. Tasdiqlash uchun bir necha soniyadan keyin \"Hammasini davom ettirish\" ni yana bosing.";
 "action.busy" = "Juda ko'p amallar navbatda; bu amal yuborilmadi.";
 "thawAll.notAll" = "Hammasini davom ettirib bo'lmadi:";
-"onboarding.title" = "iClear'ga xush kelibsiz";
-"onboarding.observe" = "Avval Kuzatish rejimida ishlaydi va faqat nimani pauza qilishini yozib boradi. Yozuvlar sizga to'g'ri ko'rinsa, Faol rejimga o'ting.";
-"onboarding.pause" = "Pauzadagi ilova davom ettirilguncha hech narsa qilmaydi: bildirishnoma, sinxronlash, yuklab olish va taymerlar to'xtaydi. Unga o'tishingiz bilan darhol davom etadi.";
-"onboarding.protect" = "Hech qachon pauza qilinmaydi: oldingi ilova, ovoz chiqarayotgan, qo'ng'iroqdagi yoki kamerani ishlatayotgan ilovalar hamda kiritish usullari, xavfsizlik vositalari va terminallar kabi himoyalangan ilovalar.";
-"onboarding.permissions" = "Maxsus imkoniyatlar ruxsati ixtiyoriy. U bilan iClear ilovalar davom ettirilgandan keyin yana javob berishini tekshiradi.";
-"onboarding.exit" = "Favqulodda: \"Hammasini davom ettirish\" (Control-Option-Command-T) iClear xizmati ishlamayotgan bo'lsa ham hammasini davom ettiradi.";
+"onboarding.title" = "iClear dasturiga xush kelibsiz!";
+"onboarding.observe" = "Avval Kuzatish (Observe) rejimida ishlaydi: faqat nimani pauza qilishini yozib boradi. Yozuvlar sizga to'g'ri ko'rinsa, Faol (Active) rejimga o'ting.";
+"onboarding.pause" = "Pauzadagi ilova davom ettirilguncha hech narsa qilmaydi: bildirishnoma, sinxronlash, yuklab olish va taymerlar to'xtaydi. Faol rejimda unga o'tsangiz, u davom etadi.";
+"onboarding.protect" = "iClear o'zi hozir foydalanayotgan ilovangizni, ovoz chiqarayotgan, qo'ng'iroqdagi yoki kamerani ishlatayotgan ilovalarni hamda kiritish usullari, xavfsizlik vositalari va terminallar kabi himoyalangan ilovalarni pauza qilmaydi. Siz boshlagan stash o'z ro'yxatidagi ilovalarni pauza qiladi, ovoz chiqarayotgan yoki qo'ng'iroqdagilaridan tashqari.";
+"onboarding.permissions" = "Accessibility (Maxsus imkoniyatlar) ruxsati ixtiyoriy. U bilan iClear ilovalar davom ettirilgandan keyin yana javob berishini tekshiradi.";
+"onboarding.exit" = "Favqulodda: \"Hammasini davom ettirish\" (yoki menyu ishlayotganda Control-Option-Command-T) iClear pauza qilgan barcha ilovalarni davom ettiradi, uning xizmati ishlamayotgan bo'lsa ham. Biror narsani darhol davom ettirib bo'lmasa, menyu buni aytadi.";
 "onboarding.done" = "Tushunarli";
+"brake.observeOnly" = "Panic Brake kuzatmoqda: xotira qotib qolganda qaysi ilovangizni pauza qilishini yozib boradi. Bu versiyada hali hech narsani pauza qilmaydi; buning uchun laboratoriya sinovlari kutilmoqda.";

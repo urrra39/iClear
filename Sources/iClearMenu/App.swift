@@ -185,10 +185,16 @@ struct MenuView: View {
     @ViewBuilder var brakeSection: some View {
         if let b = model.brake {
             if b.mode == .observe && !model.brakePromptDone {
-                Text(localized("brake.prompt")).font(.caption).fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button(localized("brake.turnOn")) { model.setBrake(.on) }
-                    Button(localized("brake.keepObserving")) { model.setBrake(.observe) }
+                if model.brakeActingOffered {
+                    Text(localized("brake.prompt")).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button(localized("brake.turnOn")) { model.setBrake(.on) }
+                        Button(localized("brake.keepObserving")) { model.setBrake(.observe) }
+                    }
+                } else {
+                    // Its lab criteria have not passed: this build only lets it observe.
+                    Text(localized("brake.observeOnly")).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Button(localized("onboarding.done")) { model.setBrake(.observe) }
                 }
             }
             ForEach(b.pauses, id: \.appID) { p in

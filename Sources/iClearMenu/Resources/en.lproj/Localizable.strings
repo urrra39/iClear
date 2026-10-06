@@ -26,7 +26,7 @@
 "neverFreeze" = "Never pause";
 "thawAll" = "Resume all";
 "undo" = "Undo";
-"hotkey" = "Emergency: Control-Option-Command-T resumes everything.";
+"hotkey" = "Emergency: Control-Option-Command-T resumes every app iClear paused.";
 "why" = "Why is my Mac slow?";
 "digest" = "Digest";
 "perm.ax.on" = "Accessibility granted: thaw checks are measured.";
@@ -88,9 +88,10 @@
 "action.busy" = "Too many actions are waiting; this one was not sent.";
 "thawAll.notAll" = "Not everything could be resumed:";
 "onboarding.title" = "Welcome to iClear";
-"onboarding.observe" = "It starts in Observe mode and only records what it would pause. Switch to Active once that record looks right to you.";
-"onboarding.pause" = "A paused app does nothing until it resumes: no notifications, sync, downloads or timers. It resumes as soon as you switch to it.";
-"onboarding.protect" = "Never paused: the app in front, apps playing sound, in a call or using the camera, and protected apps such as input methods, security tools and terminals.";
+"onboarding.observe" = "It starts in Observe mode: it only records what it would pause. Switch to Active when that record looks right to you.";
+"onboarding.pause" = "A paused app does nothing until it resumes: no notifications, sync, downloads or timers. In Active mode, switching to it resumes it.";
+"onboarding.protect" = "On its own, iClear does not pause the app you are using, apps playing sound, in a call or using the camera, or protected apps such as input methods, security tools and terminals. A stash you start pauses the apps it lists, except those playing sound or in a call.";
 "onboarding.permissions" = "Accessibility is optional. With it, iClear checks that apps answer again after a resume.";
-"onboarding.exit" = "Emergency: Resume all (Control-Option-Command-T) resumes everything, also when the iClear daemon is not running.";
+"onboarding.exit" = "Emergency: Resume all (or Control-Option-Command-T while this menu runs) resumes every app iClear paused, also when its daemon is not running. If something cannot be resumed at once, the menu says so.";
 "onboarding.done" = "Got it";
+"brake.observeOnly" = "Panic Brake is observing: in a memory stall it records which of your apps it would pause. In this version it does not pause anything yet; that waits for its lab tests.";

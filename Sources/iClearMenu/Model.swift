@@ -27,6 +27,8 @@ final class Model: ObservableObject {
     @Published var capacityLine: String?
     /// The one-time question after install: the brake starts in observe mode.
     @Published var brakePromptDone = UserDefaults.standard.bool(forKey: "brakePromptDone")
+    /// Whether this build lets the Panic Brake act here (`ReleaseGates`; isolated instances can).
+    var brakeActingOffered: Bool { paths.instance != nil || ReleaseGates.thisBuild.brakeActing }
     /// The first-run card: what iClear does, what it never touches, and the way out.
     @Published var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone")
     private var lastBrakeEvent = Date().timeIntervalSince1970
