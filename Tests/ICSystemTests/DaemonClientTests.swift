@@ -248,11 +248,11 @@ final class Box<T>: @unchecked Sendable {
     }
 
     @Test func absentWhenNothingListens() throws {
-        #expect(IPC.call(Request("ping"), path: "/tmp/ic-no-such.sock", deadline: Date(timeIntervalSinceNow: 1)).failed == .absent)
+        #expect(IPC.call(Request("ping"), path: "/tmp/ic-no-such.sock", deadline: Date(timeIntervalSinceNow: 1)).failureValue == .absent)
         // A stale socket file left by a crash.
         let s = try server { _ in }
         close(s.fd)
-        #expect(IPC.call(Request("ping"), path: s.path, deadline: Date(timeIntervalSinceNow: 1)).failed == .absent)
+        #expect(IPC.call(Request("ping"), path: s.path, deadline: Date(timeIntervalSinceNow: 1)).failureValue == .absent)
     }
 
     @Test func aPeerThatDribblesStillHitsTheDeadline() throws {
@@ -264,14 +264,14 @@ final class Box<T>: @unchecked Sendable {
         }
         defer { close(s.fd) }
         let t0 = Date()
-        #expect(IPC.call(Request("ping"), path: s.path, deadline: Date(timeIntervalSinceNow: 0.5)).failed == .timeout)
+        #expect(IPC.call(Request("ping"), path: s.path, deadline: Date(timeIntervalSinceNow: 0.5)).failureValue == .timeout)
         #expect(Date().timeIntervalSince(t0) < 0.9)
     }
 
     @Test func silenceIsATimeoutAndGarbageIsMalformed() throws {
         let quiet = try server { _ in usleep(1_500_000) }
         defer { close(quiet.fd) }
-        #expect(IPC.call(Request("ping"), path: quiet.path, deadline: Date(timeIntervalSinceNow: 0.3)).failed == .timeout)
+        #expect(IPC.call(Request("ping"), path: quiet.path, deadline: Date(timeIntervalSinceNow: 0.3)).failureValue == .timeout)
         let bad = try server { c in
             _ = IPC.readLine(c, limit: 1 << 16)
             _ = write(c, "hello\n", 6)
@@ -279,7 +279,7 @@ final class Box<T>: @unchecked Sendable {
         defer { close(bad.fd) }
         let t0 = Date()
         let r = IPC.call(Request("ping"), path: bad.path, deadline: Date(timeIntervalSinceNow: 1))
-        #expect(r.failed == .malformed, "\(r) after \(Date().timeIntervalSince(t0)) s")
+        #expect(r.failureValue == .malformed, "\(r) after \(Date().timeIntervalSince(t0)) s")
     }
 
     @Test func aDeclineIsAnAnswerNotAFailure() throws {
@@ -291,13 +291,6 @@ final class Box<T>: @unchecked Sendable {
         DispatchQueue.global().async { got.add(IPC.call(Request("x"), path: path, deadline: Date(timeIntervalSinceNow: 3))) }
         #expect(eventually(4) { got.all.count == 1 })
         #expect((try? got.all.first?.get())?.ok == false)
-    }
-}
-
-extension Result where Failure == IPC.Failure {
-    var failed: IPC.Failure? {
-        if case .failure(let f) = self { return f }
-        return nil
     }
 }
 

@@ -154,20 +154,28 @@ case "thaw":
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
         }
     }
-    if let r = daemon(Request("thaw", app: all ? "all" : rest.first)) {
+    // An emergency: a daemon that does not answer in 5 s is treated like one that is not running.
+    let answer = IPC.call(Request("thaw", app: all ? "all" : rest.first), path: paths.socket.path, deadline: Date(timeIntervalSinceNow: 5))
+    if case .success(let r) = answer {
         out(r.text)
         if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
+        let why =
+            answer.failureValue == .absent
+            ? "icleard is not running" : "icleard did not answer (\(answer.failureValue.map { "\($0)" } ?? ""))"
         out(
-            "icleard is not running; thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
+            "\(why); thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
                 + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
         if r.unresolved > 0 {
             out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
             exit(1)
         }
     } else {
-        fail("icleard is not running. `iclear thaw --all` works without it.")
+        fail(
+            answer.failureValue == .absent
+                ? "icleard is not running. `iclear thaw --all` works without it."
+                : "icleard did not answer. `iclear thaw --all` works without it.")
     }
 
 case "freeze":

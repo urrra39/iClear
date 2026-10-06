@@ -243,6 +243,28 @@ import Testing
         #expect(throws: JournalStore.JournalBusy.self) { try j.locked(timeout: 0.1) {} }
     }
 
+    /// The emergency path when the daemon is alive but stuck: `thaw --all` stops waiting
+    /// after 5 s, says so, and resumes from the journal.
+    @Test func cliThawAllResumesFromTheJournalWhenTheDaemonHangs() throws {
+        let paths = tempHome()
+        let h = try hog()
+        defer { h.kill() }
+        try frozen(h, appID: "a", journal: JournalStore(url: paths.journal))
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)  // listens, never answers
+        defer { close(fd) }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &addr.sun_path) { b in paths.socket.path.utf8CString.withUnsafeBytes { b.copyMemory(from: $0) } }
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        #expect(bound == 0 && listen(fd, 4) == 0)
+        let t0 = Date()
+        let r = run("iclear", ["thaw", "--all"], env: ["ICLEAR_HOME": paths.home.path])
+        #expect(r.status == 0 && r.out.contains("did not answer") && r.out.contains("thawed 1"), "\(r.out)")
+        #expect(Date().timeIntervalSince(t0) < 9 && !isStopped(h.pid))
+    }
+
     @Test func lockIsReentrantAndSharedByStoresOnOnePath() throws {
         let url = tempHome().journal
         let a = JournalStore(url: url)

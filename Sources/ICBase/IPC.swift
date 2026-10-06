@@ -195,3 +195,11 @@ public enum IPC {
         return .success(r)
     }
 }
+
+extension Result where Failure == IPC.Failure {
+    /// The failure, or nil for an answer.
+    public var failureValue: IPC.Failure? {
+        if case .failure(let f) = self { return f }
+        return nil
+    }
+}
