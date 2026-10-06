@@ -83,3 +83,4 @@
 "brake.offline" = "Panic Brake ishlamayapti; uning jurnalidan %d ta jarayon davom ettirildi.";
 "brake.notRunning" = "Panic Brake ishlamayapti.";
 "loading" = "Yuklanmoqda…";
+"frozen.unresolved" = "%@: hali davom ettirib bo'lmadi (to'xtatilgan). \"Hammasini davom ettirish\" qayta urinadi.";

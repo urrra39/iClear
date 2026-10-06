@@ -161,10 +161,15 @@ public final class Daemon {
                     "\(rec.stashesDropped) stash(es) did not survive iClear stopping (restart, crash or reboot). Their apps were resumed.",
                 appID: nil)
         }
-        // Frozen entries in the saved state were just thawed by recovery.
+        // Frozen entries in the saved state were just thawed by recovery (what recovery
+        // could not resume is still stopped: those apps stay unresolved).
         for id in engine.state.frozen.keys.sorted() where engine.state.frozen[id]?.dryRun == false {
+            let f = engine.state.frozen[id]!
             engine.thaw(id, reason: Code.thawRecovery, at: clock())
+            let still = f.processes.filter { p in Proc.startTime(p.pid) == p.startTime && Proc.bsdInfo(p.pid)?.pbi_status == UInt32(SSTOP) }
+            if !still.isEmpty { engine.thawFailed(id, stillStopped: still, at: clock()) }
         }
+        reconcileUnresolved()
         self.watchdogExecutable = watchdogExecutable
         startWatchdog()
         ipc = IPCServer(path: paths.socket.path) { [weak self] in self?.handle($0) ?? Response(ok: false, text: "shutting down") }
@@ -342,6 +347,7 @@ public final class Daemon {
         lastLevel = sample.pressure
         r.apps = visibleApps(r.apps)
         stashLifecycle()
+        reconcileUnresolved()
 
         if let pct = sample.batteryPercent, sample.onBattery, let last = lastBatteryPercent,
             last > engine.config.lowBatteryPercent, pct <= engine.config.lowBatteryPercent
@@ -523,7 +529,8 @@ public final class Daemon {
                 let stuck = zip(a.processes, results).filter { !$0.1.resolved }.map(\.0)
                 if !stuck.isEmpty {
                     outcome = "failed: \(stuck.count) process(es) still paused; kept in the journal, retrying"
-                    retryResume(stuck, appID: a.appID, name: a.name, attempt: 0)
+                    let g = engine.thawFailed(a.appID, stillStopped: stuck, at: now)
+                    retryResume(stuck, appID: a.appID, name: a.name, generation: g, attempt: 0)
                 } else if results.allSatisfy({ $0 == .stale }) {
                     outcome = "already gone"
                 }
@@ -552,10 +559,11 @@ public final class Daemon {
     /// Delays before retrying a resume that did not take (bounded; then recovery's turn).
     static let resumeRetryDelays = [1.0, 5, 30]
 
-    /// Retries a resume that did not take. After the last attempt the records stay in the
-    /// journal (a restart, the watchdog or `iclear thaw --all` tries again) and the user
-    /// is told. Stops early if the app was paused again or stashed meanwhile.
-    func retryResume(_ ids: [ProcessIdentity], appID: String, name: String, attempt: Int) {
+    /// Retries a resume that did not take, while `generation` is still the engine's
+    /// current one for the app (a new deliberate pause or a stash replaces it). After the
+    /// last attempt the app stays unresolved: shown in status, kept in the journal, and
+    /// retried by `iclear thaw --all`, recovery and a restart; the user is told once.
+    func retryResume(_ ids: [ProcessIdentity], appID: String, name: String, generation: Int, attempt: Int) {
         guard attempt < Self.resumeRetryDelays.count else {
             record("Could not resume \(ids.count) process(es) of \(name); they stay in the journal.")
             notify(
@@ -565,15 +573,42 @@ public final class Daemon {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.resumeRetryDelays[attempt]) { [weak self] in
-            self?.retryResumeNow(ids, appID: appID, name: name, attempt: attempt)
+            self?.retryResumeNow(ids, appID: appID, name: name, generation: generation, attempt: attempt)
         }
     }
 
-    func retryResumeNow(_ ids: [ProcessIdentity], appID: String, name: String, attempt: Int) {
-        if engine.state.frozen[appID].map({ !$0.dryRun }) == true || stashedAppIDs.contains(appID) { return }
+    func retryResumeNow(_ ids: [ProcessIdentity], appID: String, name: String, generation: Int, attempt: Int) {
+        guard engine.state.unresolved?[appID]?.generation == generation, !stashedAppIDs.contains(appID) else { return }
         let results = Signals.thawTree(ids, journal: journal, send: sender)
         let stuck = zip(ids, results).filter { !$0.1.resolved }.map(\.0)
-        if !stuck.isEmpty { retryResume(stuck, appID: appID, name: name, attempt: attempt + 1) }
+        if stuck.isEmpty {
+            engine.thawResolved(appID, at: clock())
+            record("Resumed \(name) on retry \(attempt + 1).")
+        } else {
+            let g = engine.thawFailed(appID, stillStopped: stuck, at: clock())
+            retryResume(stuck, appID: appID, name: name, generation: g, attempt: attempt + 1)
+        }
+    }
+
+    /// Brings unresolved resumes up to date by looking only (no signal): an app none of
+    /// whose recorded processes is still stopped (resumed by someone, or gone) is resolved,
+    /// and the journal forgets those processes. Runs at start, on every tick while any is
+    /// pending, and after "thaw all".
+    func reconcileUnresolved() {
+        guard let pending = engine.state.unresolved, !pending.isEmpty else { return }
+        for (id, u) in pending {
+            let still = u.processes.filter { p in
+                Proc.bsdInfo(p.pid).map { b in
+                    UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec) == p.startTime && b.pbi_status == UInt32(SSTOP)
+                } ?? false
+            }
+            if still.isEmpty {
+                try? journal.update { $0.remove(Set(u.processes)) }
+                engine.thawResolved(id, at: clock())
+            } else if still.count < u.processes.count {
+                engine.updateUnresolved(id, stillStopped: still)
+            }
+        }
     }
 
     /// "Thaw all": after the engine's own thaws, every journal entry no stash holds is
@@ -584,7 +619,9 @@ public final class Daemon {
         let j = journal.read()
         let live = Set(j.stashes.map(\.name))
         let ids = j.entries.filter { e in e.stash.map { !live.contains($0) } ?? true }.map(\.identity)
-        return Signals.thawTree(ids, journal: journal, send: sender).filter { !$0.resolved }.count
+        let stuck = Signals.thawTree(ids, journal: journal, send: sender).filter { !$0.resolved }.count
+        reconcileUnresolved()
+        return stuck
     }
 
     /// S5: after a thaw, check the app is alive and (with Accessibility) responsive.

@@ -142,8 +142,15 @@ struct MenuView: View {
 
     func frozen(_ s: Status) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if s.frozen.isEmpty {
+            if s.frozen.isEmpty && (s.unresolved ?? []).isEmpty {
                 Text(localized("frozen.none")).foregroundStyle(.secondary)
+            }
+            // A resume that did not take: still paused, retried; Resume all tries again.
+            ForEach(s.unresolved ?? [], id: \.app.id) { u in
+                HStack {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).accessibilityHidden(true)
+                    Text(String(format: localized("frozen.unresolved"), u.app.name)).lineLimit(2)
+                }
             }
             ForEach(s.frozen, id: \.id) { f in
                 HStack {

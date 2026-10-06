@@ -219,6 +219,7 @@ final class Model: ObservableObject {
 
     var icon: String {
         guard let s = status else { return reach == .timeout ? "hourglass" : "questionmark.circle" }
+        if !(s.unresolved ?? []).isEmpty { return "exclamationmark.triangle" }
         if s.frozen.contains(where: { !$0.dryRun }) { return "snowflake" }
         switch s.health.band {
         case .good: return "checkmark.circle"

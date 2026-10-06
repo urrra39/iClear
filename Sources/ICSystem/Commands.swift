@@ -25,6 +25,8 @@ public struct Status: Codable, Sendable {
     /// Auto-Context: the current context and a switch waiting for the user.
     public var context: String?
     public var contextSuggested: String?
+    /// Apps whose resume did not take: still paused, retried (optional for older daemons).
+    public var unresolved: [UnresolvedThaw]?
 }
 
 extension Daemon {
@@ -54,7 +56,8 @@ extension Daemon {
             configError: configError, quarantined: engine.state.quarantine.values.sorted { $0.at < $1.at },
             observeSince: engine.state.startedAt,
             recentPressure: engine.recent.map(\.pressure.rawValue), recentSwapMB: engine.recent.map(\.swapUsedMB),
-            context: contextState.current, contextSuggested: contextState.suggested)
+            context: contextState.current, contextSuggested: contextState.suggested,
+            unresolved: engine.state.unresolved.map { $0.values.sorted { $0.since < $1.since } })
     }
 
     public func statusText() -> String {
@@ -65,7 +68,12 @@ extension Daemon {
         )
         if !s.focusSafe.isEmpty { l.append("Focus Safe Mode: paused (\(s.focusSafe.joined(separator: ", ")))") }
         if s.conservative { l.append("Conservative for 24 h: too many regretted freezes today.") }
-        if s.frozen.isEmpty { l.append("Nothing frozen.") }
+        if s.frozen.isEmpty, s.unresolved?.isEmpty ?? true { l.append("Nothing frozen.") }
+        for u in s.unresolved ?? [] {
+            l.append(
+                "Still paused, resume did not take: \(u.app.name) (\(u.processes.count) process(es), \(Int((clock() - u.since) / 60)) min). `iclear thaw --all` retries."
+            )
+        }
         for f in s.frozen {
             l.append(
                 "\(f.dryRun ? "Would be frozen" : "Frozen"): \(f.name) for \(Int((clock() - f.frozenAt) / 60)) min [\(f.reasons.map(\.code).joined(separator: ", "))]"

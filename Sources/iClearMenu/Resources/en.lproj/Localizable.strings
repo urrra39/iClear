@@ -83,3 +83,4 @@
 "brake.offline" = "Panic Brake not running; resumed %d process(es) from its journal.";
 "brake.notRunning" = "The Panic Brake is not running.";
 "loading" = "Loading…";
+"frozen.unresolved" = "%@: could not be resumed yet (still paused). Resume all tries again.";

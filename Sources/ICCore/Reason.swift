@@ -59,6 +59,8 @@ public enum Code {
     public static let lowValue = "SKIP_LOW_NET_VALUE"
     public static let budget = "SKIP_FROZEN_BUDGET"
     public static let alreadyFrozen = "SKIP_ALREADY_FROZEN"
+    /// A resume of this app did not take yet; no automatic pause until it has.
+    public static let resumePending = "SKIP_RESUME_PENDING"
     public static let targetReached = "SKIP_TARGET_REACHED"
     public static let conservative = "SKIP_REGRET_BUDGET"
     public static let notInspected = "SKIP_GUARDS_NOT_INSPECTED"
