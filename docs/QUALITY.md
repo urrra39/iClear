@@ -82,6 +82,33 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## Recovery and menu hardening (branch `hardening/correctness-recovery`, 2026-10-06)
+
+Measured on the M3 Pro, macOS 27.0.1, Swift 6.4 Command Line Tools:
+- **Tests:** 289 (113 in ICSystemTests, 176 in ICCoreTests) pass with `scripts/test.sh`,
+  serially. They also passed in the four earlier full runs on this branch.
+- **Defects fixed:**
+  - the six reproduced by tests on fe208be ([SAFETY.md](SAFETY.md) 1.1);
+  - the daemon answered "ok" to a freeze that had failed;
+  - two tests ran recovery's fallback scan unscoped, so they could resume any stopped
+    app process on the machine;
+  - the menu made blocking IPC calls on the main thread.
+
+Line coverage, from `swift test --enable-code-coverage` and `llvm-cov export` over both
+test binaries:
+
+| Target | Lines covered |
+|---|---|
+| ICCore | 97.4% (3826 / 3930) |
+| ICBase | 75.5% (1320 / 1749) |
+| ICSystem | 55.0% (3018 / 5491) |
+| Files changed on this branch: ICBase Files, Processes, IPC; ICSystem DaemonClient | 94.7%, 96.8%, 95.0%, 93.1% |
+
+These count only code that ran inside the test process. `icleard`, `iclear` and `icbrake`
+started by the tests are separate, uninstrumented processes, so their share (and the
+ICSystem code they run) shows as uncovered here, although tests exercise it. The menu's
+SwiftUI views have no automated tests; their states were rendered with `--snapshot`.
+
 ## Secret scanning
 
 gitleaks was **not** run: Homebrew is not installed on the maintainer's Mac, and
