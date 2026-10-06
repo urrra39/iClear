@@ -107,15 +107,15 @@ import Testing
             $0.add([JournalEntry(pid: 99_999_997, startTime: 3, appID: "gone", frozenAt: 1)])
             $0.record(Restoration(kind: .hidden, pid: a.pid, startTime: a.identity!.startTime, appID: "a", previous: false, at: 1))
         }
-        let first = Signals.recover(journal: j, unhide: { _ in false }, send: failFor(b))
+        let first = Signals.recover(journal: j, restorer: .base, send: failFor(b))
         #expect(first.thawed == 1 && first.stale == 1 && first.unresolved == 2 && first.restored == 0)
         #expect(!isStopped(a.pid) && isStopped(b.pid))
         let left = j.read()
         #expect(left.entries.map(\.identity) == [b.identity!] && left.restorations.map(\.identity) == [a.identity!])
-        let second = Signals.recover(journal: j, unhide: { _ in true })
+        let second = Signals.recover(journal: j, restorer: shownRestorer)
         #expect(second.thawed == 1 && second.restored == 1 && second.unresolved == 0 && !isStopped(b.pid))
         #expect(!FileManager.default.fileExists(atPath: paths.journal.path))
-        #expect(Signals.recover(journal: j, unhide: { _ in true }) == Signals.RecoveryResult())
+        #expect(Signals.recover(journal: j, restorer: shownRestorer) == Signals.RecoveryResult())
     }
 
     @Test func unappliedRestorationSurvivesRecovery() throws {
@@ -126,7 +126,7 @@ import Testing
         try j.update {
             $0.record(Restoration(kind: .hidden, pid: h.pid, startTime: h.identity!.startTime, appID: "a", previous: false, at: 1))
         }
-        _ = Signals.recover(journal: j, unhide: { _ in false })
+        _ = Signals.recover(journal: j, restorer: .base)
         #expect(j.read().restorations.count == 1)
     }
 
@@ -141,7 +141,7 @@ import Testing
         let before = try Data(contentsOf: paths.journal)
         // As if it crashed after resuming a: the remaining journal is never written.
         chmod(paths.base.path, 0o500)
-        let r = Signals.recover(journal: j, unhide: { _ in false }, send: failFor(b))
+        let r = Signals.recover(journal: j, restorer: .base, send: failFor(b))
         chmod(paths.base.path, 0o700)
         #expect(r.thawed == 1 && r.unresolved == 1)
         #expect(try Data(contentsOf: paths.journal) == before)
@@ -179,7 +179,7 @@ import Testing
         defer { chmod(paths.journal.path, 0o600) }
         #expect(throws: (any Error).self) { try j.update { $0.add([JournalEntry(pid: 1, startTime: 1, appID: "n", frozenAt: 0)]) } }
         #expect(!Signals.freezeTree([h.identity!], appID: "b", at: 1, journal: j).ok)
-        let r = Signals.recover(journal: j, unhide: { _ in false }, send: testSender)
+        let r = Signals.recover(journal: j, restorer: .base, send: testSender)
         #expect(r.corrupt)  // the fallback scan ran
         chmod(paths.journal.path, 0o600)
         #expect(try Data(contentsOf: paths.journal) == before)
@@ -236,7 +236,7 @@ import Testing
         let fd = open(paths.journal.path + ".lock", O_RDWR | O_CREAT, 0o600)  // a hung holder
         #expect(flock(fd, LOCK_EX | LOCK_NB) == 0)
         defer { close(fd) }
-        let r = Signals.recover(journal: j, unhide: { _ in false }, lockTimeout: 0.2)
+        let r = Signals.recover(journal: j, restorer: .base, lockTimeout: 0.2)
         #expect(r.thawed == 1 && !isStopped(h.pid))
         #expect(try Data(contentsOf: paths.journal) == before)
         // Writers refuse instead of waiting forever.

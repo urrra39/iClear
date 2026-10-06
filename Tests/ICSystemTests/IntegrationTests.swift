@@ -106,7 +106,7 @@ import Testing
         kill(appHog.pid, SIGSTOP)
         kill(plain.pid, SIGSTOP)
         try Data("{ this is not json".utf8).write(to: paths.journal)
-        let r = Signals.recover(journal: JournalStore(url: paths.journal), unhide: { _ in false }, send: testSender)
+        let r = Signals.recover(journal: JournalStore(url: paths.journal), restorer: .base, send: testSender)
         #expect(r.corrupt && r.thawed == 1)
         #expect(eventually { !isStopped(appHog.pid) })
         #expect(isStopped(plain.pid))

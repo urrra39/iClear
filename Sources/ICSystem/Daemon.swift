@@ -141,7 +141,7 @@ public final class Daemon {
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { throw StartError.alreadyRunning }
         if labMode { ScopeLock.load(paths.labRegistry) }
         enforceObserveOnly()
-        let rec = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+        let rec = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 || rec.unresolved > 0 {
             record(
                 "Recovered from a previous run: thawed \(rec.thawed), stale \(rec.stale), restored \(rec.restored)"
@@ -183,7 +183,7 @@ public final class Daemon {
         pressureSource?.cancel()
         execute(engine.thawAll(reason: reason, at: clock()), immediate: true)
         // Anything the engine did not know about (should be nothing) is thawed from the journal.
-        _ = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+        _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
         ipc?.stop()
         watchdog?.terminate()
@@ -240,7 +240,7 @@ public final class Daemon {
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
-        _ = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+        _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
     }
 
@@ -510,7 +510,7 @@ public final class Daemon {
                 if !r.ok, r.error?.contains("corrupt") == true || r.error?.contains("cannot be read") == true {
                     // Nothing new is paused on a journal that cannot be read; recovery resumes
                     // every stopped app process and moves a damaged file aside.
-                    let rec = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+                    let rec = Signals.recover(journal: journal, restorer: .appKit, send: sender)
                     record("The freeze journal could not be read: resumed \(rec.thawed) process(es); the file was kept.")
                 }
                 if !r.ok {
@@ -658,6 +658,6 @@ public final class Daemon {
 extension Watchdog {
     /// The daemon's watchdog: also shows apps a stash hid.
     public static func run(parent: pid_t, paths: Paths) -> Never {
-        run(parent: parent, journal: JournalStore(url: paths.journal), unhide: Signals.appKitUnhide)
+        run(parent: parent, journal: JournalStore(url: paths.journal), restorer: .appKit)
     }
 }

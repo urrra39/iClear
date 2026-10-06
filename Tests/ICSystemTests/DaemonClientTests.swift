@@ -77,7 +77,7 @@ final class Box<T>: @unchecked Sendable {
 
     func client(_ f: FakeDaemon, home: Paths = tempHome()) -> DaemonClient {
         DaemonClient(paths: home, call: f.call) { j, _ in
-            Signals.recover(journal: j, unhide: { _ in false }, send: testSender, lockTimeout: 1)
+            Signals.recover(journal: j, restorer: .base, send: testSender, lockTimeout: 1)
         }
     }
 

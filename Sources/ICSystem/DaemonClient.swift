@@ -85,7 +85,7 @@ public final class DaemonClient: @unchecked Sendable {
 
     /// Replays a journal without the daemon; the lock wait is short (an emergency).
     public static let offlineRecover: Recover = { j, unhide in
-        Signals.recover(journal: j, unhide: unhide ? Signals.appKitUnhide : { _ in false }, lockTimeout: 1)
+        Signals.recover(journal: j, restorer: unhide ? .appKit : .base, lockTimeout: 1)
     }
 
     private func locked<T>(_ body: () -> T) -> T {

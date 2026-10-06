@@ -5,15 +5,21 @@ import ICCore
 
 /// The parts of `Signals` that need AppKit: hiding, unhiding, and recovery that also
 /// shows apps a stash hid.
-extension Signals {
-    static func appKitUnhide(_ pid: Int32) -> Bool { NSRunningApplication(processIdentifier: pid)?.unhide() != nil }
+extension Signals.Restorer {
+    /// The band through the kernel, hidden state through AppKit. `unhide()` returns
+    /// whether the request was sent (false if the app quit or cannot be unhidden), not
+    /// that it is visible; `restore` checks `isHidden` on a fresh instance afterwards
+    /// (a kept instance only updates on the main run loop).
+    public static let appKit = Signals.Restorer(
+        leaveBackground: base.leaveBackground, inBackground: base.inBackground,
+        requestUnhide: { NSRunningApplication(processIdentifier: $0)?.unhide() ?? false },
+        isHidden: { NSRunningApplication(processIdentifier: $0)?.isHidden })
+}
 
+extension Signals {
     /// Thaws everything in the journal (identity-checked), shows apps iClear hid, and keeps
     /// only what could not be resolved.
-    public static func recover(journal: JournalStore) -> RecoveryResult { recover(journal: journal, unhide: appKitUnhide) }
-
-    @discardableResult
-    static func apply(_ r: Restoration) -> Bool { apply(r, unhide: appKitUnhide) }
+    public static func recover(journal: JournalStore) -> RecoveryResult { recover(journal: journal, restorer: .appKit) }
 
     /// Hides an app (journaled first) and waits until it has no on-screen windows.
     /// Returns false if windows were still visible after `timeout`. If the journal cannot
@@ -44,25 +50,12 @@ extension Signals {
 
     /// Unhides an app only if iClear hid it, then forgets the record. An unhide request
     /// sent right after a resume is sometimes ignored, so it is checked and retried; if
-    /// the app is still hidden (and still running), the record stays for recovery.
+    /// the app is still hidden, or cannot be inspected, the record stays for recovery.
     @discardableResult
-    public static func unhide(_ root: ProcessIdentity, journal: JournalStore) -> Bool {
-        let r = journal.read().restorations.first { $0.kind == .hidden && $0.identity == root }
-        var shown = true
-        if let r, !r.previous {
-            shown = false
-            for _ in 0..<3 where !shown {
-                apply(r)
-                for _ in 0..<25 {
-                    if NSRunningApplication(processIdentifier: root.pid)?.isHidden != true {
-                        shown = true  // shown, or gone
-                        break
-                    }
-                    usleep(20_000)
-                }
-            }
-        }
-        if shown || Proc.startTime(root.pid) != root.startTime { try? journal.update { $0.removeRestorations(.hidden, [root]) } }
-        return shown
+    public static func unhide(_ root: ProcessIdentity, journal: JournalStore, restorer: Restorer = .appKit) -> Bool {
+        guard let r = journal.read().restorations.first(where: { $0.kind == .hidden && $0.identity == root }) else { return true }
+        let o = restore(r, with: restorer)
+        if o.resolved { try? journal.update { $0.removeRestorations(.hidden, [root]) } }
+        return o.resolved
     }
 }

@@ -112,3 +112,8 @@ func run(_ exe: String, _ args: [String], env: [String: String] = [:]) -> (statu
     p.waitUntilExit()
     return (p.terminationStatus, String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
 }
+
+/// A restorer that reports every app as shown (hidden state only; the band is real).
+let shownRestorer = Signals.Restorer(
+    leaveBackground: Signals.Restorer.base.leaveBackground, inBackground: Signals.Restorer.base.inBackground,
+    requestUnhide: { _ in true }, isHidden: { _ in false })

@@ -270,18 +270,20 @@ public enum Signals {
     /// by `iclear thaw --all` when the daemon is not running. Idempotent: running it again
     /// (also after a crash part-way) resumes nothing twice that matters and loses no record.
     public static func recover(
-        journal: JournalStore, unhide: (Int32) -> Bool, send: Sender = liveSender, lockTimeout: Double = 5
+        journal: JournalStore, restorer: Restorer, send: Sender = liveSender, lockTimeout: Double = 5, restoreBudget: Double = 4
     ) -> RecoveryResult {
         do {
-            return try journal.locked(timeout: lockTimeout) { recoverLocked(journal, unhide: unhide, send: send, write: true) }
+            return try journal.locked(timeout: lockTimeout) {
+                recoverLocked(journal, restorer: restorer, send: send, write: true, budget: restoreBudget)
+            }
         } catch {
             // The lock is held too long (a hung writer) or cannot be used: resume anyway
             // (best effort, needs no ownership) and leave the file exactly as it is.
-            return recoverLocked(journal, unhide: unhide, send: send, write: false)
+            return recoverLocked(journal, restorer: restorer, send: send, write: false, budget: restoreBudget)
         }
     }
 
-    static func recoverLocked(_ journal: JournalStore, unhide: (Int32) -> Bool, send: Sender, write: Bool) -> RecoveryResult {
+    static func recoverLocked(_ journal: JournalStore, restorer: Restorer, send: Sender, write: Bool, budget: Double) -> RecoveryResult {
         var r = RecoveryResult()
         let loaded = journal.load(moveAside: write)
         guard case .ok(let j) = loaded else {
@@ -309,9 +311,15 @@ public enum Signals {
                 r.stale += 1
             }
         }
-        // Processes run again first; then priority bands and hidden state go back.
+        // Processes run again first; then priority bands and hidden state go back, each
+        // checked, all within `budget` seconds (what is left over stays recorded).
+        let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(budget * 1e9)
         for x in Recovery.restorations(j, startTime: Proc.startTime) {
-            if apply(x, unhide: unhide) { r.restored += 1 } else { keep.restorations.append(x) }
+            switch restore(x, with: restorer, deadline: deadline) {
+            case .restored: r.restored += 1
+            case .gone: break
+            case .notRestored, .unknown: keep.restorations.append(x)
+            }
         }
         r.stashesDropped = j.stashes.count
         r.unresolved = keep.entries.count + keep.restorations.count
@@ -320,18 +328,82 @@ public enum Signals {
         return r
     }
 
-    /// Puts back one journaled change. Returns true if anything was done. Unhiding needs
-    /// AppKit, so it is passed in (ICSystem passes NSRunningApplication's unhide; the
-    /// Panic Brake never hides anything).
-    @discardableResult
-    public static func apply(_ r: Restoration, unhide: (Int32) -> Bool) -> Bool {
-        guard !r.previous, ScopeLock.permits(r.identity), Proc.startTime(r.pid) == r.startTime else { return false }
-        switch r.kind {
-        case .background:
-            return setpriority(PRIO_DARWIN_PROCESS, id_t(r.pid), 0) == 0
-        case .hidden:
-            return unhide(r.pid)
+    /// How a recorded change is put back and how the result is observed. Requests are
+    /// only requests: AppKit's `unhide()` reports whether the request could be sent, not
+    /// that the app is visible, so every restoration is checked by observing the state.
+    public struct Restorer: Sendable {
+        /// Takes the process out of the background band; true when the call succeeded.
+        public var leaveBackground: @Sendable (Int32) -> Bool
+        /// Whether the process is in the band now; nil when it cannot be told.
+        public var inBackground: @Sendable (Int32) -> Bool?
+        /// Asks the app to unhide; true when the request was sent.
+        public var requestUnhide: @Sendable (Int32) -> Bool
+        /// Whether the app is hidden now; nil when it cannot be inspected.
+        public var isHidden: @Sendable (Int32) -> Bool?
+
+        public init(
+            leaveBackground: @escaping @Sendable (Int32) -> Bool, inBackground: @escaping @Sendable (Int32) -> Bool?,
+            requestUnhide: @escaping @Sendable (Int32) -> Bool, isHidden: @escaping @Sendable (Int32) -> Bool?
+        ) {
+            self.leaveBackground = leaveBackground
+            self.inBackground = inBackground
+            self.requestUnhide = requestUnhide
+            self.isHidden = isHidden
         }
+
+        /// The band through the kernel; no AppKit, so hidden state cannot be seen or
+        /// changed (the Panic Brake never hides anything). ICSystem adds AppKit.
+        public static let base = Restorer(
+            leaveBackground: { setpriority(PRIO_DARWIN_PROCESS, id_t($0), 0) == 0 },
+            inBackground: { pid in
+                let t = Proc.threads(pid)
+                return t.isEmpty ? nil : t.allSatisfy { $0.pth_curpri <= 4 }
+            },
+            requestUnhide: { _ in false }, isHidden: { _ in nil })
+    }
+
+    public enum RestoreOutcome: Equatable, Sendable {
+        /// The same process was observed in its original state.
+        case restored
+        /// The process is gone, or its PID now belongs to another process: nothing to do.
+        case gone
+        /// Still observed in the changed state.
+        case notRestored
+        /// The state cannot be observed (or the lab scope forbids touching it).
+        case unknown
+
+        /// The record may be dropped.
+        public var resolved: Bool { self == .restored || self == .gone }
+    }
+
+    /// Puts one recorded change back and checks it: up to `attempts` requests, each
+    /// observed for `wait` seconds, never past `deadline` (uptime nanoseconds). Identity
+    /// is checked before every request and after every observation, so a replacement
+    /// process is never changed and never mistaken for the original. A record of a state
+    /// the process already had before iClear acted needs nothing.
+    public static func restore(
+        _ r: Restoration, with x: Restorer, attempts: Int = 3, wait: Double = 0.5, deadline: UInt64 = .max
+    ) -> RestoreOutcome {
+        if r.previous { return .restored }
+        let same = { Proc.startTime(r.pid) == r.startTime }
+        guard same() else { return .gone }
+        guard ScopeLock.permits(r.identity) else { return .unknown }
+        func observe() -> Bool? { r.kind == .hidden ? x.isHidden(r.pid).map { !$0 } : x.inBackground(r.pid).map { !$0 } }
+        var last = observe()
+        for _ in 0..<attempts {
+            if last == true { return same() ? .restored : .gone }
+            guard same() else { return .gone }
+            guard DispatchTime.now().uptimeNanoseconds < deadline else { break }
+            _ = r.kind == .hidden ? x.requestUnhide(r.pid) : x.leaveBackground(r.pid)
+            let end = min(deadline, DispatchTime.now().uptimeNanoseconds + UInt64(wait * 1e9))
+            repeat {
+                last = observe()
+                if last == true { return same() ? .restored : .gone }
+                usleep(20_000)
+            } while DispatchTime.now().uptimeNanoseconds < end
+        }
+        guard same() else { return .gone }
+        return last == nil ? .unknown : .notRestored
     }
 
     /// Background priority band for a tree (ladder step 1), journaled with each
@@ -342,7 +414,7 @@ public enum Signals {
     @discardableResult
     public static func setBackground(
         _ ids: [ProcessIdentity], _ on: Bool, appID: String = "", journal: JournalStore? = nil,
-        at now: Double = Date().timeIntervalSince1970
+        at now: Double = Date().timeIntervalSince1970, restorer: Restorer = .base
     ) throws -> Int {
         let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
         var n = 0
@@ -361,9 +433,15 @@ public enum Signals {
             var stuck: Set<ProcessIdentity> = []
             for id in live {
                 // Without a record (old state unknown), leave the band only if iClear set it now.
-                let previous = records.first { $0.identity == id }?.previous ?? false
-                guard !previous else { continue }
-                if setpriority(PRIO_DARWIN_PROCESS, id_t(id.pid), 0) == 0 { n += 1 } else { stuck.insert(id) }
+                let r =
+                    records.first { $0.identity == id }
+                    ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
+                guard !r.previous else { continue }
+                switch restore(r, with: restorer) {
+                case .restored: n += 1
+                case .gone: break
+                case .notRestored, .unknown: stuck.insert(id)
+                }
             }
             try? journal?.update { $0.removeRestorations(.background, Set(ids).subtracting(stuck)) }
         }

@@ -235,7 +235,7 @@ public final class BrakeAgent {
     public func start(watchdogExecutable: URL?) throws {
         try paths.ensure()
         // Anything a previous brake process left paused is resumed first.
-        _ = Signals.recover(journal: journal, unhide: { _ in false })
+        _ = Signals.recover(journal: journal, restorer: .base)
         checkUncleanRestart()
         if let exe = watchdogExecutable {
             let w = Process()
@@ -485,7 +485,7 @@ public final class BrakeAgent {
     public func resumeAll(reason: String) {
         for id in Array(pauses.keys) { release(id, reason: reason, note: "resumed") }
         if let c = ladder.current, let t = trees[c] { Signals.thawTree(t.processes, journal: journal) }
-        _ = Signals.recover(journal: journal, unhide: { _ in false })
+        _ = Signals.recover(journal: journal, restorer: .base)
     }
 
     /// Auto graceful quit (opt-in per app): skipped when the app reports unsaved work;
