@@ -68,7 +68,7 @@ after about 4 s), and absent.
 | Panic Brake: first-run prompt, paused apps (Resume, Quit), unclean-restart notice (v1.1) | brake config, `resume`, `quit` | **NOT TESTED** by hand yet |
 | Context suggestion: Switch, Not now (v1.1) | `context accept`, `context dismiss` | **NOT TESTED** by hand yet |
 | First-run card (Observe first, pausing side effects, never paused, optional permission, emergency exit; v1.1) | none (local) | `--snapshot` render in English and Uzbek of the packaged app; strings: `LocalizationParityTests` |
-| Unresolved resume row, "not answering" and "busy" states (v1.1) | `status` | `StateAgreementIntegrationTests` (status JSON), `DaemonClientTests`; render: **NOT TESTED** by hand |
+| Unresolved resume row, "not answering", "busy" and pending/emergency reports (v1.1) | `status` | `StateAgreementIntegrationTests` (status JSON), `DaemonClientTests`; rendered from the rc.1 menu binary against real daemon states in English and Uzbek; clicking through: MANUAL_TESTS 9-11 |
 | Start daemon | `launchctl` | manual M1 |
 | Open Accessibility settings | system URL | manual M6 |
 | Global hotkeys ⌃⌥⌘T (always), ⌃⌥⌘S / ⌃⌥⌘P (`stash.hotkeys`) | `thaw all`, `stash`, `pop` | manual M5; **NOT TESTED** automatically |

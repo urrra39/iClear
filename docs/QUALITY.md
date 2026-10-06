@@ -82,6 +82,37 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## 1.1.0-rc.1 release candidate: status (2026-10-06)
+
+- **Source:** commit 657e1e0, built from a clean checkout with `scripts/build-release.sh`
+  (Swift 6.4 Command Line Tools, macOS 27.0.1, arm64; universal output).
+- **Artifacts:**
+  - `iClear-1.1.0-rc.1.zip`, SHA-256 `077806fe…030f`;
+  - `iclear-1.1.0-rc.1-macos.tar.gz`, SHA-256 `725567e3…c36e`.
+- **Evidence from the previous build:** the cd3aca7 build's helpers and tarball binaries
+  are byte-identical to 657e1e0's. Only the menu binary differs (two text-wrapping
+  fixes), so CLI, daemon and selftest evidence from cd3aca7 applies by hash.
+- **Release rule:** with lab gates not run, 1.1.0 can only be an rc.
+
+| Requirement | Status | Build / artifact | Evidence | Next action or reason |
+|---|---|---|---|---|
+| Regression suite (C10 part, local) | PASSED | 657e1e0 | `scripts/test.sh`: 326 tests (139 + 187), 0 failed, 0 skipped, rc 0; strict lint clean | — |
+| C10 / R3 CI matrix | BLOCKED | PR head | Runs 37429432665 and 37456161327: "account is locked due to a billing issue", no step ran | Owner resolves the GitHub billing lock; then the matrix runs on the final head |
+| C10 / R4 ICCore coverage ≥ 90% | PASSED | 657e1e0 | 97.3% (3980/4092 lines); ICBase 76.1%, ICSystem 56.3% (subprocesses not counted) | — |
+| C13 full selftest | PASSED | cd3aca7 tarball, same binaries as rc.1 | 19/19, 174 s, from the release artifact in an isolated home | — |
+| C14 release artifacts (local) | PASSED | 657e1e0 artifacts (CLI parts by hash from cd3aca7) | Checksums verified; all binaries universal; `codesign --verify --deep --strict` and `-dv` (ad-hoc); `--version` 1.1.0-rc.1; quick selftest, doctor and `migrate` (simulated iClean install) from the artifact; install, start-up recovery of a journaled process, status and uninstall (instance `rc1check`) | Published assets: NOT RUN (nothing published) |
+| C1, C2, C3, C7, C12 (R1 subset), R2 | NOT RUN | — | Lab work waits for the soak's wrap-up | From 2026-10-09 01:30 local, on rc.1 |
+| R5 test mapping | PASSED | 657e1e0 | Every CLI command (37) and top-level config key is in TEST_MATRIX (automated check) | — |
+| Stage 4 X1-X10, L1-L4 | NOT RUN | — | Lab phases after the soak; the test-based clauses (X7, L6) have related passing tests, not audited clause by clause | Post-soak |
+| Stage 5 G1-G9, H1-H5 | NOT RUN | — | Ship rules applied: the Panic Brake observes only, the Black Box is off (`ReleaseGates`, `ReleaseGatesTests`) | Post-soak, owner told before pressure phases |
+| Stage 6 T1-T4, D1-D5, P1 | NOT RUN | — | Ship rules applied: Thrash Guard and Wake-on-Data off; leak notifications off (L5) | Post-soak |
+| Capacity benchmark (a measurement, not a gate) | NOT RUN | — | No data; no capacity claim anywhere | Pilot first (`ic-lab validate capacity --pilot`) in the quiet window |
+| Menu states (rendered) | PASSED after fixes | 657e1e0 menu binary | Real daemon states rendered in English and Uzbek: unresolved resume, not answering, busy, longest emergency report. Three cut-off texts found and fixed | — |
+| Menu interaction (dismissal, Command-T, global hotkey, live use) | NOT RUN | — | The test icon's position was hit-tested to another app; synthetic clicks were not sent | MANUAL_TESTS 9-11 |
+| Signing and first launch | PARTLY | 657e1e0 | Ad-hoc signature valid; Gatekeeper `spctl` rejects a quarantined copy, as expected; no Developer ID or notarization (none configured; release notes say so) | MANUAL_TESTS 12 (Open Anyway) |
+| Compatibility | — | — | Tested: Mac15,6, macOS 27.0.1, arm64 only. The x86_64 slice is built, not run; macOS 13-15 untested | CI or other Macs |
+| 7-day soak (W1-W7) | ongoing (v1.0.0) | 1.0.0 | Attributed to 1.0.0; not evidence for rc.1 | Wrap-up after 2026-10-09 01:30 |
+
 ## Recovery and menu hardening (branch `hardening/correctness-recovery`, 2026-10-06)
 
 Measured on the M3 Pro, macOS 27.0.1, Swift 6.4 Command Line Tools, at commit 12986d1:

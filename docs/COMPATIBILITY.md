@@ -22,9 +22,9 @@ with 8 GB or less, spinning or Fusion disks, macOS 13 and 14, and Rosetta.
 
 - **Source deployment target:** macOS 13 (`Package.swift`). That is what the code is
   built for, not what was tested.
-- **Tested so far:** only Mac15,6, macOS 27.0.1, Swift 6.4 Command Line Tools, on
-  2026-10-06. That covers the full test suite, the full selftest, and the packaged
-  universal build in an isolated home.
+- **Tested so far:** only Mac15,6, macOS 27.0.1, arm64, Swift 6.4 Command Line Tools, on
+  2026-10-06. That covers the full test suite, the full selftest, and the 1.1.0-rc.1
+  universal build in an isolated home. The x86_64 slice was built but never run.
 - **CI for this branch:** BLOCKED. GitHub reported "account locked due to a billing
   issue" for all three runners of run 37429432665, and no step ran.
 - **Untested:** macOS 13-15, Intel Macs and other toolchains, for this branch.
