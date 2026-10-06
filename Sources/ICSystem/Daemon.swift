@@ -44,6 +44,8 @@ public final class Daemon {
     var observers: [NSObjectProtocol] = []
     var lastLevel: PressureLevel = .normal
     public var clock: () -> Double = { Date().timeIntervalSince1970 }
+    /// Signal sender for freezes and resumes (tests inject failures).
+    var sender: Signals.Sender = Signals.liveSender
     /// `ICLEAR_OBSERVE_ONLY=1`: this instance records what it would do and never acts,
     /// whatever its config says (the real-use trace during the soak).
     public var observeOnly = ProcessInfo.processInfo.environment["ICLEAR_OBSERVE_ONLY"] == "1"
@@ -139,11 +141,18 @@ public final class Daemon {
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { throw StartError.alreadyRunning }
         if labMode { ScopeLock.load(paths.labRegistry) }
         enforceObserveOnly()
-        let rec = Signals.recover(journal: journal)
-        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 {
+        let rec = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 || rec.unresolved > 0 {
             record(
                 "Recovered from a previous run: thawed \(rec.thawed), stale \(rec.stale), restored \(rec.restored)"
-                    + (rec.corrupt ? ", journal was corrupt" : ""))
+                    + (rec.unresolved > 0 ? ", \(rec.unresolved) record(s) unresolved and kept" : "")
+                    + (rec.corrupt ? ", journal was unreadable" : ""))
+        }
+        if rec.unresolved > 0 {
+            notify(
+                title: "Some processes could not be resumed",
+                body: "\(rec.unresolved) record(s) from the last run are still in the journal. `iclear thaw --all` tries again.",
+                appID: nil)
         }
         if rec.stashesDropped > 0 {
             notify(
@@ -174,7 +183,7 @@ public final class Daemon {
         pressureSource?.cancel()
         execute(engine.thawAll(reason: reason, at: clock()), immediate: true)
         // Anything the engine did not know about (should be nothing) is thawed from the journal.
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
         saveState()
         ipc?.stop()
         watchdog?.terminate()
@@ -231,7 +240,7 @@ public final class Daemon {
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
         saveState()
     }
 
@@ -472,32 +481,37 @@ public final class Daemon {
 
     // MARK: Executing actions
 
-    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) {
+    /// Runs actions; returns the outcomes of those run now (delayed thaws report later).
+    @discardableResult
+    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) -> [String] {
+        var out: [String] = []
         for a in actions {
             if a.kind == .thaw, a.delaySeconds > 0, !immediate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + a.delaySeconds) { [weak self] in self?.perform(a, thawStartedAt: nil) }
             } else {
-                perform(a, thawStartedAt: thawStartedAt)
+                out.append(perform(a, thawStartedAt: thawStartedAt))
             }
         }
+        return out
     }
 
-    func perform(_ a: Action, thawStartedAt: Double?) {
+    @discardableResult
+    func perform(_ a: Action, thawStartedAt: Double?) -> String {
         let now = clock()
         var outcome = a.dryRun ? "observe" : "ok"
         if !a.dryRun {
             switch a.kind {
             case .freeze:
-                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal)
+                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal, send: sender)
                 if r.ok {
                     let mb = lastApps.first { $0.id == a.appID }?.footprintMB ?? 0
                     capacity.noteFreeze(appID: a.appID, footprintMB: mb, availableMB: SystemSampler.availableMB(), now: now)
                 }
-                if !r.ok, r.error?.contains("corrupt") == true {
+                if !r.ok, r.error?.contains("corrupt") == true || r.error?.contains("cannot be read") == true {
                     // Nothing new is paused on a journal that cannot be read; recovery resumes
-                    // every stopped app process and moves the damaged file aside.
-                    let rec = Signals.recover(journal: journal)
-                    record("The freeze journal was corrupt: resumed \(rec.thawed) process(es) and kept the file aside.")
+                    // every stopped app process and moves a damaged file aside.
+                    let rec = Signals.recover(journal: journal, unhide: Signals.appKitUnhide, send: sender)
+                    record("The freeze journal could not be read: resumed \(rec.thawed) process(es); the file was kept.")
                 }
                 if !r.ok {
                     outcome = "failed: \(r.error ?? "unknown")"
@@ -505,13 +519,23 @@ public final class Daemon {
                 }
             case .thaw:
                 let before = lastApps.first { $0.id == a.appID }?.residentMB
-                let results = Signals.thawTree(a.processes, journal: journal)
-                if results.allSatisfy({ $0 == .stale }) { outcome = "already gone" }
+                let results = Signals.thawTree(a.processes, journal: journal, send: sender)
+                let stuck = zip(a.processes, results).filter { !$0.1.resolved }.map(\.0)
+                if !stuck.isEmpty {
+                    outcome = "failed: \(stuck.count) process(es) still paused; kept in the journal, retrying"
+                    retryResume(stuck, appID: a.appID, name: a.name, attempt: 0)
+                } else if results.allSatisfy({ $0 == .stale }) {
+                    outcome = "already gone"
+                }
                 if outcome == "ok", scheduleHealthChecks { scheduleHealthCheck(a, startedAt: thawStartedAt ?? now, residentBefore: before) }
             case .deprioritize:
-                outcome = "\(Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                do {
+                    outcome = "\(try Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                } catch {
+                    outcome = "failed: journal write failed: \(error)"
+                }
             case .restorePriority:
-                outcome = "\(Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) processes"
+                outcome = "\((try? Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) ?? 0) processes"
             case .requestQuit:
                 let root = a.processes.first?.pid ?? 0
                 outcome = NSRunningApplication(processIdentifier: root)?.terminate() == true ? "requested" : "refused"
@@ -522,6 +546,45 @@ public final class Daemon {
         ActionLog.append(ActionLogEntry(t: now, action: a, outcome: outcome), paths: paths)
         traces.write(.action(a, at: now))
         onAction?(a, outcome)
+        return outcome
+    }
+
+    /// Delays before retrying a resume that did not take (bounded; then recovery's turn).
+    static let resumeRetryDelays = [1.0, 5, 30]
+
+    /// Retries a resume that did not take. After the last attempt the records stay in the
+    /// journal (a restart, the watchdog or `iclear thaw --all` tries again) and the user
+    /// is told. Stops early if the app was paused again or stashed meanwhile.
+    func retryResume(_ ids: [ProcessIdentity], appID: String, name: String, attempt: Int) {
+        guard attempt < Self.resumeRetryDelays.count else {
+            record("Could not resume \(ids.count) process(es) of \(name); they stay in the journal.")
+            notify(
+                title: "Could not resume \(name)",
+                body: "\(ids.count) process(es) are still paused. `iclear thaw --all` tries again; so does restarting iClear.",
+                appID: appID)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resumeRetryDelays[attempt]) { [weak self] in
+            self?.retryResumeNow(ids, appID: appID, name: name, attempt: attempt)
+        }
+    }
+
+    func retryResumeNow(_ ids: [ProcessIdentity], appID: String, name: String, attempt: Int) {
+        if engine.state.frozen[appID].map({ !$0.dryRun }) == true || stashedAppIDs.contains(appID) { return }
+        let results = Signals.thawTree(ids, journal: journal, send: sender)
+        let stuck = zip(ids, results).filter { !$0.1.resolved }.map(\.0)
+        if !stuck.isEmpty { retryResume(stuck, appID: appID, name: name, attempt: attempt + 1) }
+    }
+
+    /// "Thaw all": after the engine's own thaws, every journal entry no stash holds is
+    /// resumed too (earlier resumes that did not take, a probe's pause). Returns the
+    /// number still paused.
+    func resumeJournal() -> Int {
+        probeRun?.abort()
+        let j = journal.read()
+        let live = Set(j.stashes.map(\.name))
+        let ids = j.entries.filter { e in e.stash.map { !live.contains($0) } ?? true }.map(\.identity)
+        return Signals.thawTree(ids, journal: journal, send: sender).filter { !$0.resolved }.count
     }
 
     /// S5: after a thaw, check the app is alive and (with Accessibility) responsive.

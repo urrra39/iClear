@@ -154,8 +154,13 @@ extension Daemon {
                     findApp(req.app!)?.id ?? engine.state.frozen.keys.first { $0.lowercased().contains(req.app!.lowercased()) } ?? req.app!
                 acts = engine.thaw(id, reason: Code.thawUser, at: now)
             }
-            execute(acts, immediate: true)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to thaw." : acts.map(\.summary).joined(separator: "\n"))
+            let outcomes = execute(acts, immediate: true)
+            var lines = zip(acts, outcomes).map { a, o in o.hasPrefix("failed") ? "\(a.name): \(o)" : a.summary }
+            // Everything else in the journal that no stash holds (earlier resumes that did not take).
+            let stuck = req.app == nil || req.app == "all" ? resumeJournal() : 0
+            if stuck > 0 { lines.append("\(stuck) process(es) are still paused; their records stay in the journal.") }
+            let ok = stuck == 0 && !outcomes.contains { $0.hasPrefix("failed") }
+            return Response(ok: ok, text: lines.isEmpty ? "Nothing to thaw." : lines.joined(separator: "\n"))
         case "freeze":
             // Collected now: audio, microphone and power assertions from the last tick can be
             // up to 30 s old, and a call or music that just started must still block the freeze.
@@ -167,8 +172,8 @@ extension Daemon {
             engine.noteAudio([app], at: now)
             let (a, refused) = engine.userFreeze(app, at: now)
             guard let a else { return Response(ok: false, text: "Not frozen: " + refused.map(\.description).joined(separator: ", ")) }
-            execute([a])
-            return Response(ok: true, text: a.summary)
+            let outcome = execute([a]).first ?? "ok"
+            return outcome.hasPrefix("failed") ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary)
         case "undo":
             let acts = engine.undo(at: now)
             execute(acts, immediate: true)

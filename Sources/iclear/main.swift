@@ -156,11 +156,16 @@ case "thaw":
     }
     if let r = daemon(Request("thaw", app: all ? "all" : rest.first)) {
         out(r.text)
+        if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
         out(
             "icleard is not running; thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
-                + (r.corrupt ? " (journal was corrupt: resumed every stopped app process)" : "") + ".")
+                + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
+        if r.unresolved > 0 {
+            out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
+            exit(1)
+        }
     } else {
         fail("icleard is not running. `iclear thaw --all` works without it.")
     }

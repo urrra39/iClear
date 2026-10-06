@@ -23,6 +23,14 @@ func hog(_ args: [String] = []) throws -> SpawnedHog {
 
 func isStopped(_ pid: Int32) -> Bool { Proc.bsdInfo(pid)?.pbi_status == UInt32(SSTOP) }
 
+/// Signals only processes this test run started: its children (hogs) and GUI fixtures in
+/// a test home. Recovery's fallback scan (an unreadable journal) would otherwise resume
+/// every stopped app process of the user, including a running soak's fixtures.
+let testSender: Signals.Sender = { sig, id in
+    guard Proc.ancestors(of: id.pid).contains(getpid()) || Proc.path(id.pid).contains("/tmp/ic-t-") else { return .outOfScope }
+    return Signals.send(sig, to: id)
+}
+
 /// Waits until `cond` holds or the timeout passes.
 func eventually(_ timeout: Double = 5, _ cond: () -> Bool) -> Bool {
     let end = Date().addingTimeInterval(timeout)
@@ -87,6 +95,7 @@ func testDaemon(
     let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
     d.clock = { probe.now }
     d.scheduleHealthChecks = false  // tests call healthCheck() themselves
+    d.sender = testSender
     try d.start(watchdogExecutable: nil, live: false)
     return d
 }

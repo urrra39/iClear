@@ -150,7 +150,14 @@ public enum Signals {
         /// No process with this PID, or it now has a different start time (reused PID).
         case stale
         case failed(Int32)
+
+        /// For a resume: the process runs again, or is confirmed gone. Anything else keeps
+        /// its journal record.
+        public var resolved: Bool { self == .sent || self == .stale }
     }
+
+    public typealias Sender = (Int32, ProcessIdentity) -> Outcome
+    public static let liveSender: Sender = { Signals.send($0, to: $1) }
 
     /// Verifies scope, PID, start time and owner, then signals. `scope` is the lab's
     /// scope lock unless given (tests pass their own instead of changing the global).
@@ -166,89 +173,150 @@ public enum Signals {
 
     /// Freezes a whole tree. The journal entries are written before the first signal.
     /// If any live process cannot be stopped, everything stopped so far is resumed and
-    /// removed from the journal again (all-or-nothing, safety invariant 4).
+    /// removed from the journal again (all-or-nothing, safety invariant 4); a process
+    /// that cannot be resumed keeps its record. The journal lock is held throughout, so
+    /// a recovery in another process cannot drop the records between write and SIGSTOP.
     /// `send` is replaceable so tests can inject a failure part-way through a tree.
     public static func freezeTree(
         _ ids: [ProcessIdentity], appID: String, at now: Double, journal: JournalStore, stash: String? = nil,
-        send: (Int32, ProcessIdentity) -> Outcome = { Signals.send($0, to: $1) }
+        send: Sender = liveSender
     )
         -> (ok: Bool, stopped: [ProcessIdentity], error: String?)
     {
         do {
-            try journal.update {
-                $0.add(ids.map { JournalEntry(pid: $0.pid, startTime: $0.startTime, appID: appID, frozenAt: now, stash: stash) })
+            return try journal.locked {
+                try journal.update {
+                    $0.add(ids.map { JournalEntry(pid: $0.pid, startTime: $0.startTime, appID: appID, frozenAt: now, stash: stash) })
+                }
+                var stopped: [ProcessIdentity] = []
+                var gone: [ProcessIdentity] = []
+                func rollBack(_ error: String) -> (ok: Bool, stopped: [ProcessIdentity], error: String?) {
+                    let stuck = Set(stopped.reversed().filter { !resume($0, send: send).resolved })
+                    try? journal.update { $0.remove(Set(ids).subtracting(stuck)) }
+                    let kept = "; \(stuck.count) process(es) could not be resumed (kept in the journal)"
+                    return (false, [], stuck.isEmpty ? error : error + kept)
+                }
+                for id in ids {
+                    switch send(SIGSTOP, id) {
+                    case .sent: stopped.append(id)
+                    case .stale: gone.append(id)
+                    case .failed(let e): return rollBack("SIGSTOP \(id.pid) failed: \(String(cString: strerror(e)))")
+                    case .outOfScope: return rollBack("process \(id.pid) is outside the lab scope")
+                    }
+                }
+                // The root process vanished: this is not the app we meant to freeze any more.
+                if stopped.isEmpty || gone.contains(where: { $0 == ids.first }) { return rollBack("process exited") }
+                if !gone.isEmpty { try? journal.update { $0.remove(Set(gone)) } }
+                return (true, stopped, nil)
             }
         } catch {
             return (false, [], "journal write failed: \(error)")
         }
-        var stopped: [ProcessIdentity] = []
-        var gone: [ProcessIdentity] = []
-        for id in ids {
-            switch send(SIGSTOP, id) {
-            case .sent: stopped.append(id)
-            case .stale: gone.append(id)
-            case .failed(let e):
-                for s in stopped.reversed() { _ = Signals.send(SIGCONT, to: s) }
-                try? journal.update { $0.remove(Set(ids)) }
-                return (false, [], "SIGSTOP \(id.pid) failed: \(String(cString: strerror(e)))")
-            case .outOfScope:
-                for s in stopped.reversed() { _ = Signals.send(SIGCONT, to: s) }
-                try? journal.update { $0.remove(Set(ids)) }
-                return (false, [], "process \(id.pid) is outside the lab scope")
-            }
-        }
-        // The root process vanished: this is not the app we meant to freeze any more.
-        if stopped.isEmpty || gone.contains(where: { $0 == ids.first }) {
-            for s in stopped { _ = Signals.send(SIGCONT, to: s) }
-            try? journal.update { $0.remove(Set(ids)) }
-            return (false, [], "process exited")
-        }
-        if !gone.isEmpty { try? journal.update { $0.remove(Set(gone)) } }
-        return (true, stopped, nil)
     }
 
-    /// Resumes a tree and drops it from the journal. Resuming comes first; the journal
-    /// is only cleaned up afterwards, so a crash in between errs toward "thaw again".
+    /// SIGCONT, checked: resolved when the process is no longer in the stopped state, or
+    /// gone. Tried three times; an out-of-scope process is never retried.
+    static func resume(_ id: ProcessIdentity, send: Sender) -> Outcome {
+        var o = Outcome.failed(EAGAIN)
+        for attempt in 0..<3 {
+            if attempt > 0 { usleep(5_000) }
+            o = send(SIGCONT, id)
+            switch o {
+            case .stale, .outOfScope: return o
+            case .sent:
+                guard let b = Proc.bsdInfo(id.pid), UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec) == id.startTime
+                else { return .stale }
+                if b.pbi_status != UInt32(SSTOP) { return .sent }
+                o = .failed(EAGAIN)  // delivered, yet still stopped
+            case .failed: continue
+            }
+        }
+        return o
+    }
+
+    /// Resumes a tree and drops the resolved processes from the journal. Resuming comes
+    /// first, so a crash in between errs toward "thaw again". A process that is still
+    /// stopped keeps its record, for a retry and for recovery (start, watchdog,
+    /// `iclear thaw --all`). If the journal lock is busy, processes are resumed anyway
+    /// and the records stay (a later recovery resuming running processes is harmless).
     @discardableResult
-    public static func thawTree(_ ids: [ProcessIdentity], journal: JournalStore) -> [Outcome] {
-        let out = ids.map { send(SIGCONT, to: $0) }
-        try? journal.update { $0.remove(Set(ids)) }
-        return out
+    public static func thawTree(_ ids: [ProcessIdentity], journal: JournalStore, send: Sender = liveSender) -> [Outcome] {
+        do {
+            return try journal.locked {
+                let out = ids.map { resume($0, send: send) }
+                let done = Set(zip(ids, out).filter { $0.1.resolved }.map(\.0))
+                if !done.isEmpty { try? journal.update { $0.remove(done) } }
+                return out
+            }
+        } catch {
+            return ids.map { resume($0, send: send) }
+        }
     }
 
-    /// Thaws everything in the journal (identity-checked) and clears it. Used on daemon
-    /// start, by the watchdog, and by `iclear thaw --all` when the daemon is not running.
-    public static func recover(journal: JournalStore, unhide: (Int32) -> Bool) -> (
-        thawed: Int, stale: Int, corrupt: Bool, restored: Int, stashesDropped: Int
-    ) {
-        switch journal.load() {
-        case .ok(let j):
-            var thawed = 0
-            var stale = 0
-            for step in Recovery.plan(j, startTime: Proc.startTime) {
-                switch step {
-                case .thaw(let e):
-                    if send(SIGCONT, to: e.identity) == .sent { thawed += 1 } else { stale += 1 }
-                case .stale:
-                    stale += 1
-                }
-            }
-            // Processes run again first; then priority bands and hidden state go back.
-            var restored = 0
-            for r in Recovery.restorations(j, startTime: Proc.startTime) where apply(r, unhide: unhide) { restored += 1 }
-            try? FileManager.default.removeItem(at: journal.url)
-            return (thawed, stale, false, restored, j.stashes.count)
-        case .corrupt:
+    public struct RecoveryResult: Equatable, Sendable {
+        public var thawed = 0
+        public var stale = 0
+        public var corrupt = false
+        public var restored = 0
+        public var stashesDropped = 0
+        /// Records that could not be resolved (a process still stopped, a change that
+        /// could not be put back). They stay in the journal for the next recovery.
+        public var unresolved = 0
+    }
+
+    /// Thaws everything in the journal (identity-checked), puts back recorded changes and
+    /// keeps only what could not be resolved. Used on daemon start, by the watchdog, and
+    /// by `iclear thaw --all` when the daemon is not running. Idempotent: running it again
+    /// (also after a crash part-way) resumes nothing twice that matters and loses no record.
+    public static func recover(
+        journal: JournalStore, unhide: (Int32) -> Bool, send: Sender = liveSender, lockTimeout: Double = 5
+    ) -> RecoveryResult {
+        do {
+            return try journal.locked(timeout: lockTimeout) { recoverLocked(journal, unhide: unhide, send: send, write: true) }
+        } catch {
+            // Another process holds the lock too long (a hung writer): resume anyway, and
+            // leave the file exactly as it is so no record is lost.
+            return recoverLocked(journal, unhide: unhide, send: send, write: false)
+        }
+    }
+
+    static func recoverLocked(_ journal: JournalStore, unhide: (Int32) -> Bool, send: Sender, write: Bool) -> RecoveryResult {
+        var r = RecoveryResult()
+        let loaded = journal.load(moveAside: write)
+        guard case .ok(let j) = loaded else {
             // Without a readable journal, resume every stopped same-user process that
             // belongs to an app bundle. Job-control stops in terminals (plain CLI
             // processes) are left alone. Hidden apps cannot be told apart from apps the
             // user hid, so they stay hidden.
-            var thawed = 0
+            r.corrupt = true
             for p in Proc.table().values where p.stopped && p.path.contains(".app/") {
-                if send(SIGCONT, to: p.identity) == .sent { thawed += 1 }
+                if resume(p.identity, send: send).resolved { r.thawed += 1 } else { r.unresolved += 1 }
             }
-            return (thawed, 0, true, 0, 0)
+            return r
         }
+        var keep = Journal()
+        keep.version = j.version
+        for step in Recovery.plan(j, startTime: Proc.startTime) {
+            switch step {
+            case .thaw(let e):
+                switch resume(e.identity, send: send) {
+                case .sent: r.thawed += 1
+                case .stale: r.stale += 1
+                default: keep.entries.append(e)
+                }
+            case .stale:
+                r.stale += 1
+            }
+        }
+        // Processes run again first; then priority bands and hidden state go back.
+        for x in Recovery.restorations(j, startTime: Proc.startTime) {
+            if apply(x, unhide: unhide) { r.restored += 1 } else { keep.restorations.append(x) }
+        }
+        r.stashesDropped = j.stashes.count
+        r.unresolved = keep.entries.count + keep.restorations.count
+        // A journal from a newer format is never rewritten (its other records would be lost).
+        if write, j.version <= Journal.formatVersion { try? journal.replace(with: keep) }
+        return r
     }
 
     /// Puts back one journaled change. Returns true if anything was done. Unhiding needs
@@ -266,17 +334,19 @@ public enum Signals {
     }
 
     /// Background priority band for a tree (ladder step 1), journaled with each
-    /// process's previous state before it changes; `on: false` puts the journaled
-    /// state back and forgets it. Returns the number of processes changed.
+    /// process's previous state before it changes: if the journal cannot be written,
+    /// nothing changes and the error is thrown. `on: false` puts the journaled state back
+    /// and forgets it; a process whose band could not be restored keeps its record (for
+    /// recovery). Returns the number of processes changed.
     @discardableResult
     public static func setBackground(
         _ ids: [ProcessIdentity], _ on: Bool, appID: String = "", journal: JournalStore? = nil,
         at now: Double = Date().timeIntervalSince1970
-    ) -> Int {
+    ) throws -> Int {
         let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
         var n = 0
         if on {
-            try? journal?.update { j in
+            try journal?.update { j in
                 for id in live {
                     j.record(
                         Restoration(
@@ -287,12 +357,14 @@ public enum Signals {
             for id in live where setpriority(PRIO_DARWIN_PROCESS, id_t(id.pid), PRIO_DARWIN_BG) == 0 { n += 1 }
         } else {
             let records = journal?.read().restorations.filter { $0.kind == .background } ?? []
+            var stuck: Set<ProcessIdentity> = []
             for id in live {
                 // Without a record (old state unknown), leave the band only if iClear set it now.
                 let previous = records.first { $0.identity == id }?.previous ?? false
-                if !previous, setpriority(PRIO_DARWIN_PROCESS, id_t(id.pid), 0) == 0 { n += 1 }
+                guard !previous else { continue }
+                if setpriority(PRIO_DARWIN_PROCESS, id_t(id.pid), 0) == 0 { n += 1 } else { stuck.insert(id) }
             }
-            try? journal?.update { $0.removeRestorations(.background, Set(ids)) }
+            try? journal?.update { $0.removeRestorations(.background, Set(ids).subtracting(stuck)) }
         }
         return n
     }

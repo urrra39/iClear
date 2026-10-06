@@ -170,7 +170,7 @@ public enum Selftest {
             for _ in 0..<n {
                 guard let id = f.identity else { break }
                 let before = f.framesByNumber
-                guard Signals.hide(id, appID: f.id, journal: journal, at: 0),
+                guard (try? Signals.hide(id, appID: f.id, journal: journal, at: 0)) == true,
                     Signals.freezeTree([id], appID: f.id, at: 0, journal: journal).ok
                 else { continue }
                 usleep(300_000)
@@ -586,9 +586,9 @@ public enum Selftest {
             }
             let journal = JournalStore(url: home.appendingPathComponent("shield-journal.json"))
             let normal = share()
-            Signals.setBackground([id], true, appID: "selftest", journal: journal)
+            _ = try? Signals.setBackground([id], true, appID: "selftest", journal: journal)
             let bg = share()
-            Signals.setBackground([id], false, appID: "selftest", journal: journal)
+            _ = try? Signals.setBackground([id], false, appID: "selftest", journal: journal)
             usleep(200_000)
             let restored = !Proc.isBackground(target.pid)
             return (

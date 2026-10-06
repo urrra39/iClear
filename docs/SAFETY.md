@@ -8,11 +8,11 @@ and each has a test that must pass before a release.
 | 1 | Nothing stays frozen if the daemon dies | Journal written (fsync + rename) **before** every SIGSTOP; recovery on start; SIGTERM/SIGINT/SIGHUP and normal exit thaw all; a watchdog process in its own session replays the journal on daemon exit (kqueue `NOTE_EXIT`); `iclear thaw --all` and the menu's "Resume all" work without the daemon | `watchdogThawsAfterDaemonIsKilled` (real `kill -9`), `daemonStartRecoversJournal`, `cliThawAllWorksWithoutDaemon`, `wakeAndShutdownThawEverything` |
 | 2 | PID reuse can never redirect a signal | Every signal re-checks PID + start time (`PROC_PIDTBSDINFO`) + owner uid | `pidReuseGuardNeverSignalsAnotherProcess`, `recoveryNeverSignalsReusedPIDs`, `recoveryThawsOnlyExactIdentities` |
 | 3 | The protected set cannot be overridden | `Protection.isProtected` is checked first and returns before any rule; allow lists, tiers and wake windows for protected apps are ignored with a warning | `protectedSetIsNotOverridable`, `protectedAppsRefusedEvenOnRequest` |
-| 4 | Whole trees, all or nothing | If any live process of a tree refuses SIGSTOP, everything already stopped is resumed and removed from the journal | `partialTreeFailureRollsBack`, `freezeAndThawWholeTreeWithJournal`, `freezeFailureRollsBack` |
+| 4 | Whole trees, all or nothing | If any live process of a tree refuses SIGSTOP, everything already stopped is resumed and removed from the journal (a process that cannot be resumed keeps its record) | `partialTreeFailureRollsBack`, `freezeAndThawWholeTreeWithJournal`, `freezeFailureRollsBack` |
 | 5 | Bounded freeze time and size | Max 240 min per freeze (config range 1-1440, cannot be unbounded); max 8 apps and 50% of RAM frozen at once | `maxFrozenDurationThaws`, `budgetsBoundFrozenCountAndSize`, config range tests |
 | 6 | No root, no SIP changes, no network, no telemetry | Per-user LaunchAgent without `UserName`; the daemon refuses to run as root; no networking or privilege APIs in product code; empty entitlements | `productCodeHasNoNetworkingOrPrivilegeEscalation`, `entitlementsGrantNothingDangerous`, `launchAgentIsPerUserAndNotRoot` |
 | 7 | Everything is explainable | Every action carries reason codes and is logged to `actions.jsonl`; `iclear explain <app>` prints the current checks and recent actions | engine tests assert reason codes; `ipcRoundTrip` |
-| 8 | Tests only signal their own processes | Tests and benchmarks signal only `ic-hog` children they spawned; `ic-hog` exits when its parent dies; `SpawnedHog.kill` refuses PID 0 | the whole suite runs on a live machine with the maintainer's apps open |
+| 8 | Tests only signal their own processes | Tests and benchmarks signal only `ic-hog` children they spawned; `ic-hog` exits when its parent dies; `SpawnedHog.kill` refuses PID 0; tests that reach recovery's fallback scan (which resumes every stopped app process) pass a sender limited to processes the test started | the whole suite runs on a live machine with the maintainer's apps open (and, in 2026-10, next to a running soak) |
 
 ### Added in 1.0
 
@@ -24,6 +24,25 @@ and each has a test that must pass before a release.
 | 1.0 #4 | The call is never touched | Call Mode never lowers or pauses microphone users, the frontmost app while a camera is on, or known call apps; a stash never pauses an app using the microphone or playing audio, an app holding a power assertion, or a call app while a camera is on | `hardBlocksCannotBeOverridden`, `callModeLowersOthersAndRestoresWithinTwoSeconds` |
 | 1.0 #5 | Estimates switch themselves off | Battery estimates are labelled unreliable above 20% median error; a shield trigger switches off if escalating does not cut the measured interference by 20% | `receiptsDisarmUnreliableEstimates`, `disarmsWhenItDoesNotHelp` |
 | 1.0 #6 | Lab work stays in its lab | With `ICLEAR_LAB=1` every signal, priority change and hide checks a registry of processes the lab started; anything else is refused | `scopeLockRefusesUnregisteredProcesses`, `everyCommandRunsThroughTheCLI` |
+
+### Added in 1.1 (recovery hardening)
+
+| # | Invariant | How | Test |
+|---|---|---|---|
+| 1.1 #1 | No change without its record | Hiding an app and the background band are refused, and the error reported, when their journal record cannot be written (as freezes always were); a freeze that did not happen is reported as such by the daemon and the CLI | `backgroundBandIsNotSetWithoutItsRecord`, `hideIsNotDoneWithoutItsRecord`, `daemonReportsAFreezeThatDidNotHappen` |
+| 1.1 #2 | A record goes only when it is resolved | A resume counts only when the process has left the stopped state (checked) or is gone; otherwise its record stays. The daemon retries after 1, 5 and 30 s, then tells the user; `thaw --all` retries; recovery keeps what it could not resolve, rewrites the journal only at the end and is idempotent; an unhide that did not take keeps its record | `thawKeepsTheRecordOfAProcessThatIsStillStopped`, `rollbackKeepsTheRecordOfAProcessItCouldNotResume`, `recoveryKeepsWhatItCouldNotResolveAndIsIdempotent`, `unappliedRestorationSurvivesRecovery`, `recoveryThatCannotRewriteTheJournalLosesNoRecord`, `daemonKeepsAFailedResumeAndThawAllRetriesIt` |
+| 1.1 #3 | One journal, one writer at a time | The daemon, its watchdog (also an old daemon's), `iclear thaw --all` and the menu share a cross-process lock (`flock` on `journal.json.lock`). A freeze holds it from the journal write to the last SIGSTOP, so no recovery can drop a record between the two. Recovery that cannot get the lock in 5 s resumes anyway and changes no file. A journal that cannot be read, or comes from a newer format, is never replaced or deleted | `recoveryInAnotherProcessCannotSlipIntoAFreeze`, `recoveryWithABusyLockResumesAndChangesNoFile`, `unreadableJournalIsNeitherReplacedNorDeleted`, `journalFromANewerFormatIsNeverRewritten`, `lockIsReentrantAndSharedByStoresOnOnePath` |
+
+Before these changes, each of these was a reproducible defect (shown by tests on the v1.1
+branch at fe208be; released 1.0.x has the same code but was not tested): a tree could be left
+stopped with no record when `iclear thaw --all` ran during a freeze; an unreadable
+journal was overwritten; a newer journal was rewritten without its extra fields; a
+restoration that could not be applied was deleted; and the band and hide were applied
+when their record could not be written.
+
+The journal is not fsynced at the directory level after the rename. A power cut can lose
+the last rename, but a power cut also ends every process the journal describes, so no
+paused process can outlive a lost record.
 
 ### Call Mode and Focus Safe Mode
 
@@ -107,6 +126,9 @@ welcome by pull request.
 | Journal corruption | moved aside; stopped app-bundle processes resumed; terminal job-control stops untouched | `corruptJournalFallback` |
 | Two daemons | second one refuses to start (flock) | `secondInstanceIsRefused`, `watchdogThawsAfterDaemonIsKilled` |
 | Disk full / journal unwritable | nothing is signalled | `journalWriteFailureMeansNoFreeze` |
+| `iclear thaw --all` (or the menu's offline Resume all) during a freeze | waits for the freeze to finish, then resumes it; never stopped without a record | `recoveryInAnotherProcessCannotSlipIntoAFreeze` |
+| SIGCONT refused or without effect | the record stays; retried, then reported | `thawKeepsTheRecordOfAProcessThatIsStillStopped`, `daemonKeepsAFailedResumeAndThawAllRetriesIt` |
+| Journal unreadable (permissions, I/O) | fallback scan; the file is kept, never replaced | `unreadableJournalIsNeitherReplacedNorDeleted` |
 | Invalid config while running | previous config kept, error shown | `invalidConfigKeepsPreviousOne` |
 | Frozen app holds a lock another app waits for | prevented by Write Guard for lock files and recent writes; advisory `flock` locks are **not** detectable (documented limit) | `recentWriteAndLockFile` |
 | Permissions revoked mid-run | Accessibility loss only disables the responsiveness probe and the stall probe, and makes the unsaved state "unknown" | `keepListUnsavedAndSharedWindows` (unknown path); the revocation itself is manual (MANUAL_TESTS 8) |

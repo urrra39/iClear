@@ -112,9 +112,15 @@ public enum Files {
 }
 
 /// The freeze journal on disk. Written before every SIGSTOP.
+///
+/// Several processes use one journal: the daemon, its watchdog (also an old daemon's
+/// watchdog while a new daemon starts), `iclear thaw --all` and the menu's offline
+/// recovery. Writers and recovery hold a cross-process lock (`flock` on
+/// `<journal>.lock`), re-entrant within a process, so a recovery can never run between
+/// a freeze's journal write and its SIGSTOP and drop the record of a process that is
+/// then stopped. Reads need no lock: files are replaced by rename, never torn.
 public final class JournalStore: @unchecked Sendable {
     public let url: URL
-    private let lock = NSLock()
 
     public init(url: URL) { self.url = url }
 
@@ -122,48 +128,137 @@ public final class JournalStore: @unchecked Sendable {
         public var description: String { "the journal is corrupt; run recovery first" }
     }
 
-    public enum LoadResult: Equatable {
-        case ok(Journal)
-        /// The file was unreadable; it was moved aside and a fallback scan is needed.
-        case corrupt(movedTo: URL)
+    /// The file exists but cannot be read (permissions, I/O error). Treated like a corrupt
+    /// journal, except that it is never moved or replaced.
+    public struct UnreadableJournal: Error, CustomStringConvertible {
+        public var code: Int32
+        public var description: String { "the journal cannot be read (\(String(cString: strerror(code))))" }
     }
 
-    public func load() -> LoadResult {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let data = try? Data(contentsOf: url) else { return .ok(Journal()) }
-        if let j = try? JSONDecoder().decode(Journal.self, from: data) { return .ok(j) }
+    /// Written by a newer iClear: this version could lose its records by rewriting it.
+    public struct NewerJournal: Error, CustomStringConvertible {
+        public var version: Int
+        public var description: String { "the journal was written by a newer iClear (format \(version)); update iClear" }
+    }
+
+    public struct JournalBusy: Error, CustomStringConvertible {
+        public var description: String { "another iClear process holds the journal lock" }
+    }
+
+    public enum LoadResult: Equatable {
+        case ok(Journal)
+        /// The file did not decode; it was moved aside and a fallback scan is needed.
+        case corrupt(movedTo: URL)
+        /// The file exists but could not be read; it stays in place and a fallback scan is needed.
+        case unreadable(Int32)
+    }
+
+    /// The file's bytes; nil when it does not exist. Other read errors throw.
+    func data() throws -> Data? {
+        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else {
+            if errno == ENOENT { return nil }
+            throw UnreadableJournal(code: errno)
+        }
+        do { return try FileHandle(fileDescriptor: fd, closeOnDealloc: true).readToEnd() ?? Data() } catch {
+            throw UnreadableJournal(code: EIO)
+        }
+    }
+
+    /// Recovery's view: moves an undecodable file aside (evidence; the fallback scan runs)
+    /// unless `moveAside` is false (recovery without the lock changes no file).
+    public func load(moveAside: Bool = true) -> LoadResult {
+        let d: Data?
+        do { d = try data() } catch { return .unreadable((error as? UnreadableJournal)?.code ?? EIO) }
+        guard let d else { return .ok(Journal()) }
+        if let j = try? JSONDecoder().decode(Journal.self, from: d) { return .ok(j) }
         let aside = URL(fileURLWithPath: url.path + ".corrupt-\(Int(Date().timeIntervalSince1970))")
-        try? FileManager.default.moveItem(at: url, to: aside)
+        if moveAside { try? FileManager.default.moveItem(at: url, to: aside) }
         return .corrupt(movedTo: aside)
     }
 
     /// The journal for reading, without side effects: a corrupt file stays where it is
     /// so that recovery (`load`, through `Signals.recover`) finds it and runs its fallback.
     public func read() -> Journal {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let data = try? Data(contentsOf: url) else { return Journal() }
-        return (try? JSONDecoder().decode(Journal.self, from: data)) ?? Journal()
+        guard let d = try? data() else { return Journal() }
+        return (try? JSONDecoder().decode(Journal.self, from: d)) ?? Journal()
     }
 
-    /// Read-modify-write under the lock. A journal that exists but does not decode is
-    /// left untouched and the write is refused: replacing it would lose the records of
-    /// processes that are still paused. Recovery (`Signals.recover`) handles it.
+    /// Read-modify-write under the lock. A journal that cannot be read, does not decode
+    /// or comes from a newer format is left untouched and the write is refused: replacing
+    /// it would lose the records of processes that are still paused. Recovery
+    /// (`Signals.recover`) handles it.
     public func update(_ body: (inout Journal) -> Void) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        var j = Journal()
-        if let data = try? Data(contentsOf: url) {
-            guard let decoded = try? JSONDecoder().decode(Journal.self, from: data) else { throw CorruptJournal() }
-            j = decoded
+        try locked {
+            var j = Journal()
+            if let d = try data() {
+                guard let decoded = try? JSONDecoder().decode(Journal.self, from: d) else { throw CorruptJournal() }
+                guard decoded.version <= Journal.formatVersion else { throw NewerJournal(version: decoded.version) }
+                j = decoded
+            }
+            body(&j)
+            try replace(with: j)
         }
-        body(&j)
+    }
+
+    /// Writes `j` (or removes the file when it is empty). Callers hold the lock.
+    func replace(with j: Journal) throws {
         if j.isEmpty {
-            try? FileManager.default.removeItem(at: url)
+            if unlink(url.path) != 0, errno != ENOENT { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } else {
             try Files.writeJSON(j, to: url)
         }
+    }
+
+    /// Runs `body` holding the journal lock; throws `JournalBusy` after `timeout` seconds.
+    public func locked<T>(timeout: Double = 5, _ body: () throws -> T) throws -> T {
+        let l = Self.pathLock(url.path)
+        guard l.mutex.lock(before: Date(timeIntervalSinceNow: timeout)) else { throw JournalBusy() }
+        defer { l.mutex.unlock() }
+        if l.depth == 0 {
+            let fd = open(url.path + ".lock", O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+            if fd >= 0 {
+                let end = Date(timeIntervalSinceNow: timeout)
+                while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                    guard Date() < end else {
+                        close(fd)
+                        throw JournalBusy()
+                    }
+                    usleep(2_000)
+                }
+            }
+            // A directory where the lock file cannot be created cannot hold a journal
+            // either: the write itself fails there.
+            l.fd = fd
+        }
+        l.depth += 1
+        defer {
+            l.depth -= 1
+            if l.depth == 0, l.fd >= 0 {
+                close(l.fd)  // releases the flock
+                l.fd = -1
+            }
+        }
+        return try body()
+    }
+
+    final class PathLock: @unchecked Sendable {
+        let mutex = NSRecursiveLock()
+        var depth = 0
+        var fd: Int32 = -1
+    }
+
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var registry: [String: PathLock] = [:]
+
+    /// One lock per journal path, shared by every `JournalStore` on it in this process.
+    static func pathLock(_ path: String) -> PathLock {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        if let l = registry[path] { return l }
+        let l = PathLock()
+        registry[path] = l
+        return l
     }
 }
 

@@ -208,7 +208,7 @@ import Testing
         defer { for f in fx { f.kill() } }
         let journal = JournalStore(url: paths.journal)
         let id = fx[0].identity!
-        #expect(Signals.hide(id, appID: fx[0].id, journal: journal, at: 1))
+        #expect(try Signals.hide(id, appID: fx[0].id, journal: journal, at: 1))
         #expect(Signals.freezeTree([id], appID: fx[0].id, at: 1, journal: journal, stash: "old").ok)
         try journal.update { $0.stashes.append(StashRecord(name: "old", createdAt: 1, apps: [], previousFrontmost: nil)) }
         let probe = FakeProbe()
@@ -228,7 +228,7 @@ import Testing
         let h = try hog(["--cpu"])
         defer { h.kill() }
         #expect(!Proc.isBackground(h.pid))
-        #expect(Signals.setBackground([h.identity!], true, appID: "t", journal: journal) == 1)
+        #expect(try Signals.setBackground([h.identity!], true, appID: "t", journal: journal) == 1)
         #expect(eventually { Proc.isBackground(h.pid) })
         #expect(journal.read().restorations.first?.previous == false)
         // Recovery (as after a daemon crash) takes it out of the band again.
@@ -237,9 +237,9 @@ import Testing
         // A process that was already in the band stays there after restore.
         setpriority(PRIO_DARWIN_PROCESS, id_t(h.pid), PRIO_DARWIN_BG)
         #expect(eventually { Proc.isBackground(h.pid) })
-        #expect(Signals.setBackground([h.identity!], true, appID: "t", journal: journal) == 1)
+        #expect(try Signals.setBackground([h.identity!], true, appID: "t", journal: journal) == 1)
         #expect(journal.read().restorations.first?.previous == true)
-        Signals.setBackground([h.identity!], false, appID: "t", journal: journal)
+        try Signals.setBackground([h.identity!], false, appID: "t", journal: journal)
         usleep(200_000)
         #expect(Proc.isBackground(h.pid))
         setpriority(PRIO_DARWIN_PROCESS, id_t(h.pid), 0)

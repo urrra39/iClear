@@ -202,14 +202,14 @@ extension Lab {
             for h in load { _ = h.waitReady() }
             let ids = load.compactMap(\.identity)
             ScopeLock.set(Set(ids))
-            if on { Signals.setBackground(ids, true, appID: "contention", journal: journal) }
+            if on { _ = try? Signals.setBackground(ids, true, appID: "contention", journal: journal) }
             sleep(2)
             _ = statsAfter(probe)
             let c0 = ids.map { Proc.info($0.pid)?.cpuNanos ?? 0 }
             sleep(seconds)
             let line = statsAfter(probe)
             let work = zip(ids, c0).map { Double((Proc.info($0.0.pid)?.cpuNanos ?? 0) &- $0.1) / 1e9 }.reduce(0, +) / Double(seconds)
-            if on { Signals.setBackground(ids, false, journal: journal) }
+            if on { _ = try? Signals.setBackground(ids, false, journal: journal) }
             for h in load { h.kill() }
             log("\(name) \(on ? "on" : "off"): \(line); contention work \(String(format: "%.2f", work)) cores")
             // Side-effect probe: the probe's median timer lateness (user-facing smoothness).
