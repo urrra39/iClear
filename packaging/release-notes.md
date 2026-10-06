@@ -28,8 +28,9 @@ Universal binaries (arm64 and x86_64) for macOS 13 and later.
 
 ## First launch
 
-These builds are ad-hoc signed and not notarized. App: right-click iClear.app, choose
-Open, confirm. Command-line tools: unpack, run
+These builds are ad-hoc signed and not notarized. App on macOS 15 and later: open it once,
+then System Settings > Privacy & Security > Open Anyway. On macOS 13 and 14: right-click
+iClear.app, choose Open, confirm. Command-line tools: unpack, run
 `xattr -dr com.apple.quarantine iclear-@VERSION@`, then inside that folder
 `./iclear selftest --quick` and `./iclear install`.
 
