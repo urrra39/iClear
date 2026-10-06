@@ -152,6 +152,7 @@ case "thaw":
         } else {
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
+            if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
         }
     }
     // An emergency: a daemon that does not answer in 5 s is treated like one that is not running.
@@ -167,6 +168,11 @@ case "thaw":
         out(
             "\(why); thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
                 + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
+        if r.pending {
+            out(
+                "iClear was busy changing something (journal locked); it was told to undo that change. Run `iclear thaw --all` again in a few seconds to confirm."
+            )
+        }
         if r.unresolved > 0 {
             out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
             exit(1)

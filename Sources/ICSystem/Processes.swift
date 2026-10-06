@@ -34,6 +34,7 @@ extension Signals {
             guard ScopeLock.permits(root), Proc.startTime(root.pid) == root.startTime,
                 let app = NSRunningApplication(processIdentifier: root.pid)
             else { return false }
+            let token = journal.recoveryToken()
             try journal.update {
                 $0.record(
                     Restoration(kind: .hidden, pid: root.pid, startTime: root.startTime, appID: appID, previous: app.isHidden, at: now))
@@ -46,11 +47,17 @@ extension Signals {
                 NSRunningApplication(processIdentifier: root.pid)?.isHidden == true && !Windows.facts().visiblePIDs.contains(root.pid)
             }
             let end = Date().addingTimeInterval(timeout)
-            while Date() < end {
-                if done() { return true }
-                usleep(10_000)
+            var hidden = false
+            while !hidden, Date() < end {
+                hidden = done()
+                if !hidden { usleep(10_000) }
             }
-            return done()
+            if journal.recoveryToken() != token {
+                // A recovery ran meanwhile: show it again (checked); forget it only if shown.
+                _ = unhide(root, journal: journal)
+                throw RecoveryIntervened()
+            }
+            return hidden || done()
         }
     }
 

@@ -85,7 +85,7 @@ extension Daemon {
                 let hidden: Bool
                 do { hidden = try Signals.hide(root, appID: c.app.id, journal: journal, at: now) } catch {
                     failed.append(c.app.id)
-                    lines.append("\(c.app.name): could not write the journal (\(error)); left as it was.")
+                    lines.append("\(c.app.name): not hidden (\(error)); left as it was.")
                     continue
                 }
                 if !hidden {

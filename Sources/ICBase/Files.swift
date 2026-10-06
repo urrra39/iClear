@@ -217,6 +217,18 @@ public final class JournalStore: @unchecked Sendable {
         public var description: String { "the journal lock cannot be used (\(String(cString: strerror(code))))" }
     }
 
+    /// Written by a recovery that resumes without the lock (a writer held it too long),
+    /// before it resumes anything. A writer reads it before its change and again after;
+    /// if it changed, a recovery ran meanwhile and the writer undoes its own change, so a
+    /// late writer can never undo a recovery the user was told about.
+    var recoveryTokenURL: URL { URL(fileURLWithPath: url.path + ".recover") }
+
+    public func recoveryToken() -> String? { try? String(contentsOf: recoveryTokenURL, encoding: .utf8) }
+
+    /// False when the token could not be written (then a late writer is not stopped).
+    @discardableResult
+    public func requestRecovery() -> Bool { (try? Files.atomicWrite(Data(UUID().uuidString.utf8), to: recoveryTokenURL)) != nil }
+
     /// Runs `body` holding the journal lock. Throws, without running `body`, `JournalBusy`
     /// when another holder keeps it past `timeout` seconds (one monotonic deadline for the
     /// in-process and the cross-process lock), and `JournalLockUnavailable` for any other

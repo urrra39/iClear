@@ -144,6 +144,7 @@ final class Model: ObservableObject {
                 }
                 if r.brakeOfflineThawed > 0 { lines.append(String(format: localized("brake.offline"), r.brakeOfflineThawed)) }
                 if r.stillPaused > 0 { lines.append(String(format: localized("thawAll.stillPaused"), r.stillPaused)) }
+                if r.pending { lines.append(localized("thawAll.pending")) }
                 self.message = lines.joined(separator: "\n")
                 self.refresh()
             }

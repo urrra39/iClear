@@ -84,3 +84,4 @@
 "brake.notRunning" = "The Panic Brake is not running.";
 "loading" = "Loading…";
 "frozen.unresolved" = "%@: could not be resumed yet (still paused). Resume all tries again.";
+"thawAll.pending" = "iClear was in the middle of a change and was told to undo it. Press Resume all again in a few seconds to confirm.";

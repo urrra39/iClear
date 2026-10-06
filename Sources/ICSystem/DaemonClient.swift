@@ -196,6 +196,8 @@ public final class DaemonClient: @unchecked Sendable {
         public var brakeOfflineThawed = 0
         /// Records the offline recovery could not resolve (they stay in the journals).
         public var stillPaused = 0
+        /// A journal was locked by a change in progress; it was told to undo itself.
+        public var pending = false
     }
 
     /// "Resume all": the daemon and the Panic Brake, with the journals as the fallback.
@@ -218,6 +220,7 @@ public final class DaemonClient: @unchecked Sendable {
                 r.offline = Reach(f)
                 r.offlineThawed = rec.thawed
                 r.stillPaused += rec.unresolved
+                r.pending = r.pending || rec.pending
             }
             switch call(Request("resume", app: "all"), paths.brakeSocket.path, Date(timeIntervalSinceNow: emergencyDeadline / 2)) {
             case .success(let resp): r.brakeAnswer = resp.text
@@ -225,6 +228,7 @@ public final class DaemonClient: @unchecked Sendable {
                 let rec = recover(JournalStore(url: paths.brakeJournal), false)
                 r.brakeOfflineThawed = rec.thawed
                 r.stillPaused += rec.unresolved
+                r.pending = r.pending || rec.pending
             }
             locked {
                 resuming = false

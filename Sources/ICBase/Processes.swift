@@ -156,6 +156,12 @@ public enum Signals {
         public var resolved: Bool { self == .sent || self == .stale }
     }
 
+    /// A recovery ran (without the lock) while a change was being made; it was undone.
+    public struct RecoveryIntervened: Error, CustomStringConvertible {
+        public init() {}
+        public var description: String { "a recovery ran meanwhile; the change was undone" }
+    }
+
     public typealias Sender = (Int32, ProcessIdentity) -> Outcome
     public static let liveSender: Sender = { Signals.send($0, to: $1) }
 
@@ -185,6 +191,7 @@ public enum Signals {
     {
         do {
             return try journal.locked {
+                let token = journal.recoveryToken()
                 try journal.update {
                     $0.add(ids.map { JournalEntry(pid: $0.pid, startTime: $0.startTime, appID: appID, frozenAt: now, stash: stash) })
                 }
@@ -197,6 +204,7 @@ public enum Signals {
                     return (false, [], stuck.isEmpty ? error : error + kept)
                 }
                 for id in ids {
+                    if journal.recoveryToken() != token { return rollBack("\(RecoveryIntervened())") }
                     switch send(SIGSTOP, id) {
                     case .sent: stopped.append(id)
                     case .stale: gone.append(id)
@@ -204,6 +212,9 @@ public enum Signals {
                     case .outOfScope: return rollBack("process \(id.pid) is outside the lab scope")
                     }
                 }
+                // Checked after the last SIGSTOP: a recovery that resumed these processes
+                // before a late SIGSTOP wrote its token first.
+                if journal.recoveryToken() != token { return rollBack("\(RecoveryIntervened())") }
                 // The root process vanished: this is not the app we meant to freeze any more.
                 if stopped.isEmpty || gone.contains(where: { $0 == ids.first }) { return rollBack("process exited") }
                 if !gone.isEmpty { try? journal.update { $0.remove(Set(gone)) } }
@@ -263,6 +274,9 @@ public enum Signals {
         /// Records that could not be resolved (a process still stopped, a change that
         /// could not be put back). They stay in the journal for the next recovery.
         public var unresolved = 0
+        /// Ran without the lock: another process was in the middle of a change. It was
+        /// told to undo it (recovery token), but that happens when it continues.
+        public var pending = false
     }
 
     /// Thaws everything in the journal (identity-checked), puts back recorded changes and
@@ -277,9 +291,13 @@ public enum Signals {
                 recoverLocked(journal, restorer: restorer, send: send, write: true, budget: restoreBudget)
             }
         } catch {
-            // The lock is held too long (a hung writer) or cannot be used: resume anyway
-            // (best effort, needs no ownership) and leave the file exactly as it is.
-            return recoverLocked(journal, restorer: restorer, send: send, write: false, budget: restoreBudget)
+            // The lock is held too long (a hung writer) or cannot be used: tell any writer
+            // to undo its change, then resume anyway (best effort, needs no ownership) and
+            // leave the file exactly as it is.
+            journal.requestRecovery()
+            var r = recoverLocked(journal, restorer: restorer, send: send, write: false, budget: restoreBudget)
+            r.pending = true
+            return r
         }
     }
 
@@ -423,6 +441,7 @@ public enum Signals {
             let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
             var n = 0
             if on {
+                let token = journal?.recoveryToken()
                 try journal?.update { j in
                     for id in live {
                         j.record(
@@ -432,6 +451,13 @@ public enum Signals {
                     }
                 }
                 for id in live where enter(id.pid) { n += 1 }
+                if let journal, journal.recoveryToken() != token {
+                    // A recovery ran meanwhile: take the band off again, keep what did not come off.
+                    let recs = journal.read().restorations.filter { $0.kind == .background && live.contains($0.identity) }
+                    let off = Set(recs.filter { restore($0, with: restorer).resolved }.map(\.identity))
+                    try? journal.update { $0.removeRestorations(.background, off) }
+                    throw RecoveryIntervened()
+                }
             } else {
                 let records = journal?.read().restorations.filter { $0.kind == .background } ?? []
                 var stuck: Set<ProcessIdentity> = []
