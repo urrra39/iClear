@@ -13,6 +13,13 @@ struct IClearMenuApp: App {
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             MainActor.assumeIsolated {
                 let model = Model()
+                // `--message key1,key2` shows those strings as the message line (layout checks of
+                // action results, which a one-shot render cannot trigger).
+                if let j = args.firstIndex(of: "--message"), j + 1 < args.count {
+                    model.message = args[j + 1].split(separator: ",").map { k in
+                        String(format: localized(String(k)), 2)
+                    }.joined(separator: "\n")
+                }
                 // The first refresh arrives asynchronously.
                 let end = Date().addingTimeInterval(6)
                 while model.reach == nil, Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
@@ -84,7 +91,9 @@ struct MenuView: View {
                 Button(localized("close")) { model.detail = nil }
             }
             if let m = model.message {
-                Text(m).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                // Never cut short: an emergency report can be several lines (what was resumed,
+                // what is still paused, a change still in progress).
+                Text(m).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             permissions

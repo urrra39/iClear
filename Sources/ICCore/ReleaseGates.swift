@@ -57,3 +57,12 @@ public struct ReleaseGates: Equatable, Sendable {
         return (c, held)
     }
 }
+
+extension Config {
+    /// A default config with the Panic Brake set to act (to ask what a build allows).
+    public static var actingBrake: Config {
+        var c = Config()
+        c.brake.mode = .on
+        return c
+    }
+}

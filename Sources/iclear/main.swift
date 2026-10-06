@@ -316,7 +316,9 @@ case "install":
     do { out(try installer.install()) } catch { fail("install failed: \(error)") }
     // The Panic Brake starts in observe mode: it records what it would do and pauses nothing.
     if FileManager.default.isExecutableFile(atPath: brakeInstaller.daemonPath) {
-        do { out(try brakeInstaller.install() + " Panic Brake: observe mode (`iclear brake on` to let it act).") } catch {
+        let canAct = paths.gated(Config.actingBrake).0.brake.mode == .on
+        let how = canAct ? "`iclear brake on` to let it act" : "this version does not let it act yet"
+        do { out(try brakeInstaller.install() + " Panic Brake: observe mode (\(how)).") } catch {
             out("Panic Brake not installed: \(error)")
         }
     }
