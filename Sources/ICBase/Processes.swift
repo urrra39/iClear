@@ -407,44 +407,53 @@ public enum Signals {
     }
 
     /// Background priority band for a tree (ladder step 1), journaled with each
-    /// process's previous state before it changes: if the journal cannot be written,
-    /// nothing changes and the error is thrown. `on: false` puts the journaled state back
-    /// and forgets it; a process whose band could not be restored keeps its record (for
-    /// recovery). Returns the number of processes changed.
+    /// process's previous state before it changes. The record and the change run under
+    /// the journal lock, so a recovery in another process never resolves a record whose
+    /// change has yet to land; if the journal cannot be written or locked, nothing changes
+    /// and the error is thrown. `on: false` puts the journaled state back and forgets it
+    /// in one transaction (without the lock: best effort, records kept); a process whose
+    /// band could not be restored keeps its record. Returns the number of processes changed.
     @discardableResult
     public static func setBackground(
         _ ids: [ProcessIdentity], _ on: Bool, appID: String = "", journal: JournalStore? = nil,
-        at now: Double = Date().timeIntervalSince1970, restorer: Restorer = .base
+        at now: Double = Date().timeIntervalSince1970, restorer: Restorer = .base,
+        enter: (Int32) -> Bool = { setpriority(PRIO_DARWIN_PROCESS, id_t($0), PRIO_DARWIN_BG) == 0 }
     ) throws -> Int {
-        let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
-        var n = 0
-        if on {
-            try journal?.update { j in
+        func run(write: Bool) throws -> Int {
+            let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
+            var n = 0
+            if on {
+                try journal?.update { j in
+                    for id in live {
+                        j.record(
+                            Restoration(
+                                kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: Proc.isBackground(id.pid),
+                                at: now))
+                    }
+                }
+                for id in live where enter(id.pid) { n += 1 }
+            } else {
+                let records = journal?.read().restorations.filter { $0.kind == .background } ?? []
+                var stuck: Set<ProcessIdentity> = []
                 for id in live {
-                    j.record(
-                        Restoration(
-                            kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: Proc.isBackground(id.pid),
-                            at: now))
+                    // Without a record (old state unknown), leave the band only if iClear set it now.
+                    let r =
+                        records.first { $0.identity == id }
+                        ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
+                    guard !r.previous else { continue }
+                    switch restore(r, with: restorer) {
+                    case .restored: n += 1
+                    case .gone: break
+                    case .notRestored, .unknown: stuck.insert(id)
+                    }
                 }
+                if write { try? journal?.update { $0.removeRestorations(.background, Set(ids).subtracting(stuck)) } }
             }
-            for id in live where setpriority(PRIO_DARWIN_PROCESS, id_t(id.pid), PRIO_DARWIN_BG) == 0 { n += 1 }
-        } else {
-            let records = journal?.read().restorations.filter { $0.kind == .background } ?? []
-            var stuck: Set<ProcessIdentity> = []
-            for id in live {
-                // Without a record (old state unknown), leave the band only if iClear set it now.
-                let r =
-                    records.first { $0.identity == id }
-                    ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
-                guard !r.previous else { continue }
-                switch restore(r, with: restorer) {
-                case .restored: n += 1
-                case .gone: break
-                case .notRestored, .unknown: stuck.insert(id)
-                }
-            }
-            try? journal?.update { $0.removeRestorations(.background, Set(ids).subtracting(stuck)) }
+            return n
         }
-        return n
+        guard let journal else { return try run(write: true) }
+        if on { return try journal.locked { try run(write: true) } }
+        if let n = try? journal.locked({ try run(write: true) }) { return n }
+        return try run(write: false)
     }
 }
