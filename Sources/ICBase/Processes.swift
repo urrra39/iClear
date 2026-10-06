@@ -237,8 +237,9 @@ public enum Signals {
     /// Resumes a tree and drops the resolved processes from the journal. Resuming comes
     /// first, so a crash in between errs toward "thaw again". A process that is still
     /// stopped keeps its record, for a retry and for recovery (start, watchdog,
-    /// `iclear thaw --all`). If the journal lock is busy, processes are resumed anyway
-    /// and the records stay (a later recovery resuming running processes is harmless).
+    /// `iclear thaw --all`). If the journal lock cannot be taken (busy or unusable),
+    /// processes are resumed anyway and the records stay (a later recovery resuming
+    /// running processes is harmless): resuming never needs ownership, changing the journal does.
     @discardableResult
     public static func thawTree(_ ids: [ProcessIdentity], journal: JournalStore, send: Sender = liveSender) -> [Outcome] {
         do {
@@ -274,8 +275,8 @@ public enum Signals {
         do {
             return try journal.locked(timeout: lockTimeout) { recoverLocked(journal, unhide: unhide, send: send, write: true) }
         } catch {
-            // Another process holds the lock too long (a hung writer): resume anyway, and
-            // leave the file exactly as it is so no record is lost.
+            // The lock is held too long (a hung writer) or cannot be used: resume anyway
+            // (best effort, needs no ownership) and leave the file exactly as it is.
             return recoverLocked(journal, unhide: unhide, send: send, write: false)
         }
     }

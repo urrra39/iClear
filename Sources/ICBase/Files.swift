@@ -210,25 +210,42 @@ public final class JournalStore: @unchecked Sendable {
         }
     }
 
-    /// Runs `body` holding the journal lock; throws `JournalBusy` after `timeout` seconds.
+    /// The lock cannot be taken for a reason other than another holder (the lock path is
+    /// not a usable file, the file system refuses locks): nothing may change.
+    public struct JournalLockUnavailable: Error, CustomStringConvertible {
+        public var code: Int32
+        public var description: String { "the journal lock cannot be used (\(String(cString: strerror(code))))" }
+    }
+
+    /// Runs `body` holding the journal lock. Throws, without running `body`, `JournalBusy`
+    /// when another holder keeps it past `timeout` seconds (one monotonic deadline for the
+    /// in-process and the cross-process lock), and `JournalLockUnavailable` for any other
+    /// lock failure. The lock file is never removed: a process may hold it.
     public func locked<T>(timeout: Double = 5, _ body: () throws -> T) throws -> T {
+        let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(max(0, timeout) * 1e9)
+        func left() -> Double {
+            let now = DispatchTime.now().uptimeNanoseconds
+            return now >= deadline ? 0 : Double(deadline - now) / 1e9
+        }
         let l = Self.pathLock(url.path)
-        guard l.mutex.lock(before: Date(timeIntervalSinceNow: timeout)) else { throw JournalBusy() }
+        guard l.mutex.lock(before: Date(timeIntervalSinceNow: left())) else { throw JournalBusy() }
         defer { l.mutex.unlock() }
         if l.depth == 0 {
-            let fd = open(url.path + ".lock", O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
-            if fd >= 0 {
-                let end = Date(timeIntervalSinceNow: timeout)
-                while flock(fd, LOCK_EX | LOCK_NB) != 0 {
-                    guard Date() < end else {
-                        close(fd)
-                        throw JournalBusy()
-                    }
-                    usleep(2_000)
+            let fd = open(url.path + ".lock", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+            guard fd >= 0 else { throw JournalLockUnavailable(code: errno) }
+            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                let e = errno
+                if e == EINTR { continue }
+                guard e == EWOULDBLOCK else {
+                    close(fd)
+                    throw JournalLockUnavailable(code: e)
                 }
+                guard left() > 0 else {
+                    close(fd)
+                    throw JournalBusy()
+                }
+                usleep(2_000)
             }
-            // A directory where the lock file cannot be created cannot hold a journal
-            // either: the write itself fails there.
             l.fd = fd
         }
         l.depth += 1
