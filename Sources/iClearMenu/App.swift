@@ -12,8 +12,12 @@ struct IClearMenuApp: App {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             MainActor.assumeIsolated {
+                let model = Model()
+                // The first refresh arrives asynchronously.
+                let end = Date().addingTimeInterval(6)
+                while model.reach == nil, Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
                 let view = NSHostingView(
-                    rootView: MenuView().environmentObject(Model())
+                    rootView: MenuView().environmentObject(model)
                         .background(Color(nsColor: .windowBackgroundColor)))
                 view.frame.size = view.fittingSize
                 let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -37,7 +41,9 @@ struct IClearMenuApp: App {
         } label: {
             Image(systemName: model.icon)
                 .accessibilityLabel(
-                    Text(model.status.map { String(format: localized("a11y.icon"), $0.health.score) } ?? localized("daemon.notRunning")))
+                    Text(
+                        model.status.map { String(format: localized("a11y.icon"), $0.health.score) }
+                            ?? model.reach.map(Model.text) ?? localized("daemon.connecting")))
         }
         .menuBarExtraStyle(.window)
     }
@@ -57,9 +63,12 @@ struct MenuView: View {
                 brakeSection
                 Divider()
                 stashSection(s)
+            } else if let r = model.reach {
+                Text(Model.text(r)).font(.headline).fixedSize(horizontal: false, vertical: true)
+                // Starting a second daemon next to one that does not answer would only fail.
+                if r == .absent { Button(localized("daemon.start")) { model.startDaemon() } }
             } else {
-                Text(localized("daemon.notRunning")).font(.headline)
-                Button(localized("daemon.start")) { model.startDaemon() }
+                Text(localized("daemon.connecting")).font(.headline)
             }
             Divider()
             actions

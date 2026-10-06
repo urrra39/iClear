@@ -47,6 +47,17 @@ The menu calls the same daemon commands as the CLI; those commands are covered a
 The SwiftUI wiring of each button is checked by hand (M-steps) and by the `--snapshot`
 render used for the screenshots.
 
+The menu's transport (`DaemonClient`) is tested without a GUI: `DaemonClientTests`
+(refresh off the main thread, coalescing, deadline, distinct outcomes for absent, not
+answering, unreadable reply and declined; actions in order, never retried, not behind a
+refresh; a refresh from before an action is not shown; Resume all not queued behind an
+action, dropping actions not started, falling back to the journals when the daemon is
+absent or hung), `IPCCallTests` (end-to-end deadline against a peer that dribbles bytes,
+stale socket, garbage reply) and `LocalizationParityTests` (English and Uzbek keys and
+placeholders). The three daemon states were also rendered with `--snapshot` against an
+isolated observe-only daemon: answering, stopped with SIGSTOP (shown as "not answering"
+after about 4 s), and absent.
+
 | Action | Command | Wiring |
 |---|---|---|
 | Mode and profile pickers | `mode`, `profile` | manual M4 |

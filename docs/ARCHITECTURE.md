@@ -24,7 +24,7 @@
 | `ICSystem` | Sampler, process table, app collector, inspector, signals, journal store, IPC, daemon runtime, doctor, installer, bench | yes |
 | `icleard` | Daemon entry point; also the watchdog (`--watchdog <pid>`) | |
 | `iclear` | CLI | |
-| `iClearMenu` | Menu-bar app (macOS 13+ `MenuBarExtra`) | |
+| `iClearMenu` | Menu-bar app (macOS 13+ `MenuBarExtra`). All daemon traffic goes through `DaemonClient` (ICSystem), never on the main thread: refreshes are coalesced and bounded by a 4 s end-to-end deadline, actions run one at a time in order and are never retried, and "Resume all" has its own lane (3 s deadline, then the journals) | |
 | `ic-hog` | Test process: memory, CPU, sockets, files, locks, heartbeats, crash/hang after SIGCONT | |
 | `ic-ui-probe` | Test GUI app: a 5 ms main-thread timer that reports stalls, used by the selftest, GUI tests and the lab | |
 | `ic-call-sim` | Test "call": microphone input through AudioQueue plus a 10 ms timer whose jitter is reported | |

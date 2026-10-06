@@ -70,3 +70,16 @@
 "blackbox.unclean" = "Mac to'g'ri o'chirilmasdan qayta ishga tushdi. Batafsil: iclear blackbox";
 "capacity.none" = "Sig'im: bu hafta xabar qiladigan narsa yo'q.";
 "capacity.line" = "Bu hafta: %d ta pauza, joylashgandan keyin bo'sh xotira medianasi %@ MB (iclear capacity).";
+"daemon.connecting" = "iClear bilan ulanmoqda…";
+"daemon.noResponse" = "iClear ishlayapti, lekin javob bermayapti. \"Hammasini davom ettirish\" baribir ishlaydi.";
+"daemon.badReply" = "iClear bu menyu o'qiy olmaydigan javob yubordi. iClear'ni yangilang yoki qayta ishga tushiring.";
+"daemon.ipcError" = "iClear bilan bog'lanib bo'lmadi (xato %d).";
+"daemon.starting" = "iClear ishga tushirilmoqda…";
+"action.noAnswer" = "iClear vaqtida javob bermadi. Ish baribir bajarilishi mumkin; natijani holat ko'rsatadi.";
+"action.cancelled" = "\"Hammasini davom ettirish\" tufayli bekor qilindi.";
+"thawAll.inProgress" = "Davom ettirilmoqda…";
+"thawAll.notResponding" = "iClear javob bermadi; jurnaldan %d ta jarayon davom ettirildi.";
+"thawAll.stillPaused" = "%d ta yozuvni hal qilib bo'lmadi, ular jurnalda qoldi. Qayta urinib ko'ring.";
+"brake.offline" = "Panic Brake ishlamayapti; uning jurnalidan %d ta jarayon davom ettirildi.";
+"brake.notRunning" = "Panic Brake ishlamayapti.";
+"loading" = "Yuklanmoqda…";

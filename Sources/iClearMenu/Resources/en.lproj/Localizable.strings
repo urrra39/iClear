@@ -70,3 +70,16 @@
 "blackbox.unclean" = "The Mac restarted without a clean shutdown. Details: iclear blackbox";
 "capacity.none" = "Capacity: nothing to report this week.";
 "capacity.line" = "This week: %d pause episode(s), median %@ MB available after settling (iclear capacity).";
+"daemon.connecting" = "Connecting to iClear…";
+"daemon.noResponse" = "iClear is running but not answering. Resume all still works.";
+"daemon.badReply" = "iClear sent a reply this menu cannot read. Update or restart iClear.";
+"daemon.ipcError" = "Could not talk to iClear (error %d).";
+"daemon.starting" = "Starting iClear…";
+"action.noAnswer" = "No answer from iClear in time. It may still finish; the status will show the result.";
+"action.cancelled" = "Cancelled by Resume all.";
+"thawAll.inProgress" = "Already resuming…";
+"thawAll.notResponding" = "iClear did not answer; resumed %d process(es) from the journal.";
+"thawAll.stillPaused" = "%d record(s) could not be resolved and stay in the journal. Try again.";
+"brake.offline" = "Panic Brake not running; resumed %d process(es) from its journal.";
+"brake.notRunning" = "The Panic Brake is not running.";
+"loading" = "Loading…";

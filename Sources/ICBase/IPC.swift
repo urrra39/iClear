@@ -124,29 +124,74 @@ public enum IPC {
         }
     }
 
-    /// Sends one request. Returns nil when the daemon is not running.
+    /// Sends one request. Returns nil when the daemon is not running or did not answer.
     public static func send(_ req: Request, path: String, timeout: Int = 10) -> Response? {
+        try? call(req, path: path, deadline: Date(timeIntervalSinceNow: Double(timeout))).get()
+    }
+
+    /// Why a request got no response. A response with `ok == false` is not a failure:
+    /// it is the daemon declining.
+    public enum Failure: Error, Equatable, Sendable {
+        /// Nothing listens on the socket (not running, or a stale socket after a crash).
+        case absent
+        /// Connected, but no complete answer before the deadline.
+        case timeout
+        /// An answer that is not a response.
+        case malformed
+        case failed(Int32)
+    }
+
+    /// One request with an end-to-end deadline (connect, write and every read).
+    public static func call(_ req: Request, path: String, deadline: Date) -> Result<Response, Failure> {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return nil }
+        guard fd >= 0 else { return .failure(.failed(errno)) }
         defer { close(fd) }
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: addr.sun_path) else { return nil }
+        guard path.utf8.count < MemoryLayout.size(ofValue: addr.sun_path) else { return .failure(.failed(ENAMETOOLONG)) }
         withUnsafeMutableBytes(of: &addr.sun_path) { buf in
             path.utf8CString.withUnsafeBytes { buf.copyMemory(from: $0) }
         }
+        var nosig: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
+        /// Sets the socket timeout to what is left; false once the deadline has passed.
+        func timeout(_ opt: Int32) -> Bool {
+            let left = deadline.timeIntervalSinceNow
+            guard left > 0 else { return false }
+            var tv = timeval(tv_sec: Int(left), tv_usec: max(1000, Int32((left - left.rounded(.down)) * 1e6)))
+            // Fails (EINVAL) once the peer has closed, which a daemon does right after its
+            // reply; reads then return at once anyway.
+            _ = setsockopt(fd, SOL_SOCKET, opt, &tv, socklen_t(MemoryLayout<timeval>.size))
+            return true
+        }
+        // A Unix-socket connect does not wait: a full backlog or no listener is refused at once.
         let rc = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard rc == 0 else { return nil }
-        var tv = timeval(tv_sec: timeout, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        var nosig: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
-        guard var d = try? JSONEncoder().encode(req) else { return nil }
+        guard rc == 0 else { return .failure(errno == ENOENT || errno == ECONNREFUSED ? .absent : .failed(errno)) }
+        guard var d = try? JSONEncoder().encode(req) else { return .failure(.failed(EINVAL)) }
         d.append(0x0A)
+        guard timeout(SO_SNDTIMEO) else { return .failure(.timeout) }
         let sent = d.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-        guard sent == d.count, let line = readLine(fd, limit: 32 << 20) else { return nil }
-        return try? JSONDecoder().decode(Response.self, from: line)
+        guard sent == d.count else { return .failure(errno == EAGAIN ? .timeout : .failed(errno)) }
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 64 << 10)
+        while !data.contains(0x0A) {
+            guard timeout(SO_RCVTIMEO) else { return .failure(.timeout) }
+            let n = read(fd, &buf, buf.count)
+            if n > 0 {
+                data.append(buf, count: n)
+                if data.count > 32 << 20 { return .failure(.malformed) }
+            } else if n == 0 {
+                break
+            } else if errno == EINTR {
+                continue
+            } else {
+                return .failure(errno == EAGAIN || errno == EWOULDBLOCK ? .timeout : .failed(errno))
+            }
+        }
+        let line = data.prefix { $0 != 0x0A }
+        guard !line.isEmpty, let r = try? JSONDecoder().decode(Response.self, from: line) else { return .failure(.malformed) }
+        return .success(r)
     }
 }
