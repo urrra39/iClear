@@ -37,6 +37,10 @@ public struct Paths: Sendable {
     /// Lab mode only: identities of the processes the lab harness registered.
     public var labRegistry: URL { base.appendingPathComponent("lab-registry.json") }
 
+    /// The config this instance runs: the default install holds back features whose
+    /// release gates have not passed (`ReleaseGates`); isolated instances run it as written.
+    public func gated(_ c: Config) -> (Config, [String]) { instance == nil ? ReleaseGates.thisBuild.apply(c) : (c, []) }
+
     public func ensure() throws {
         try FileManager.default.createDirectory(
             at: base, withIntermediateDirectories: true,

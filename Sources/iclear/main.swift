@@ -484,10 +484,13 @@ case "brake":
             out("Panic Brake off.")
         } else {
             if !brakeInstaller.isLoaded { out((try? brakeInstaller.install()) ?? "Panic Brake could not be installed.") }
+            let held = sub == "on" && paths.gated(c).0.brake.mode != .on
             out(
-                sub == "on"
-                    ? "Panic Brake on: in a memory stall it pauses the same-user app causing it (journaled, resumable). Not validated yet: see docs/RELEASE_CRITERIA_v1.1.md."
-                    : "Panic Brake observe mode: it records what it would have done and pauses nothing.")
+                held
+                    ? "Panic Brake set to on, but this build runs it observe-only: it records what it would have done and pauses nothing until its stage 5 criteria pass (docs/RELEASE_CRITERIA_v1.1.md)."
+                    : sub == "on"
+                        ? "Panic Brake on: in a memory stall it pauses the same-user app causing it (journaled, resumable)."
+                        : "Panic Brake observe mode: it records what it would have done and pauses nothing.")
         }
     case "status":
         out(

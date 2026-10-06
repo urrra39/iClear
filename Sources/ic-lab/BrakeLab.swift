@@ -14,6 +14,8 @@ extension Lab {
         try? JSONEncoder().encode(registry).write(to: paths.labRegistry)
         var c = Config()
         c.brake.mode = mode
+        // Off by default until its H criteria pass; the lab measures it as it would ship then.
+        c.brake.blackBox = true
         try? c.encoded().write(to: paths.config)
         if let cal = try? Data(contentsOf: Paths().brakeCalibration) { try? cal.write(to: paths.brakeCalibration) }
         let b = Process()

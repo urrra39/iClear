@@ -222,7 +222,7 @@ public final class BrakeAgent {
         self.paths = paths
         self.source = source
         journal = JournalStore(url: paths.brakeJournal)
-        let config = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()
+        let config = paths.gated((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()).0
         settings = config.brake
         let calibration = (try? Files.readJSON(StallCalibration.self, from: paths.brakeCalibration)) ?? StallCalibration()
         detector = StallDetector(calibration: calibration)
@@ -380,7 +380,8 @@ public final class BrakeAgent {
         let m = (try? FileManager.default.attributesOfItem(atPath: paths.config.path))?[.modificationDate] as? Date
         guard m != configMTime else { return }
         configMTime = m
-        guard let c = (try? Data(contentsOf: paths.config)).flatMap({ try? Config.load(json: $0).0 }) else { return }
+        guard let loaded = (try? Data(contentsOf: paths.config)).flatMap({ try? Config.load(json: $0).0 }) else { return }
+        let c = paths.gated(loaded).0
         settings = c.brake
         ladder.settings = c.brake
         if c.brake.mode != .on { resumeAll(reason: Code.panicReleased) }

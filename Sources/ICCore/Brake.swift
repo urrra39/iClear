@@ -33,7 +33,7 @@ public struct BrakeSettings: Codable, Equatable, Sendable {
     public var autoQuitApps: [String] = []
     public var autoQuitSeconds = 30.0
     /// The Black Box ring buffer and its file (written only while the Mac is not healthy).
-    public var blackBox = true
+    public var blackBox = false
     public init() {}
 }
 

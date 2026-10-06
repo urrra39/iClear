@@ -117,7 +117,7 @@ public final class Daemon {
             return (Config(), nil)
         }
         do {
-            return (try Config.load(json: data).0, nil)
+            return (paths.gated(try Config.load(json: data).0).0, nil)
         } catch {
             return (Config(), "\(error)")
         }
@@ -412,7 +412,8 @@ public final class Daemon {
     public func reloadConfig() -> String? {
         guard let data = try? Data(contentsOf: paths.config) else { return "config file missing" }
         do {
-            let (c, warnings) = try Config.load(json: data)
+            let (loaded, warnings) = try Config.load(json: data)
+            let c = paths.gated(loaded).0
             engine.config = c
             enforceObserveOnly()
             traces.update(settings: c.trace)

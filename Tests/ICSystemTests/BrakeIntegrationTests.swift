@@ -203,6 +203,7 @@ import Testing
         try JSONEncoder().encode([runaway.identity!, calm.identity!]).write(to: paths.labRegistry)
         var c = Config()
         c.brake.mode = .on
+        c.brake.blackBox = true  // off by default until its stage 5 criteria pass; this test measures it
         try c.encoded().write(to: paths.config)
         let p = Process()
         p.executableURL = products.appendingPathComponent("icbrake")

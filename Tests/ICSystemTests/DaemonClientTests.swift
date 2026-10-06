@@ -379,3 +379,21 @@ final class Box<T>: @unchecked Sendable {
         }
     }
 }
+
+/// The default install holds back ungated features; isolated instances (tests, selftest,
+/// lab) keep their config because they measure those gates.
+@Suite struct InstanceGatingTests {
+    @Test func onlyTheDefaultInstallIsGated() {
+        var c = Config()
+        c.brake.mode = .on
+        c.thrash.enabled = true
+        let real = Paths(environment: [:])
+        #expect(real.instance == nil)
+        let (g, held) = real.gated(c)
+        #expect(g.brake.mode == .observe && !g.thrash.enabled && held.count == 2)
+        for env in [["ICLEAR_HOME": "/tmp/ic-t-gate"], ["ICLEAR_INSTANCE": "lab"]] {
+            let (k, none) = Paths(environment: env).gated(c)
+            #expect(k == c && none.isEmpty)
+        }
+    }
+}

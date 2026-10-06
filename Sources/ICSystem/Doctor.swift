@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import ICCore
 
-public let iclearVersion = "1.0.2"
+public let iclearVersion = "1.1.0-rc.1"
 
 /// `iclear doctor`: what this Mac is, which mechanisms work here, and daemon health.
 /// Mechanism checks only ever touch a child process the doctor starts itself.
@@ -32,6 +32,8 @@ public enum Doctor {
         public var journalCorrupt: Bool
         public var pressure: String
         public var swapUsedMB: Int
+        /// Default install only: features whose release gates have not passed (`ReleaseGates`).
+        public var heldBack: [String] = []
     }
 
     public static func mechanisms() -> Mechanisms {
@@ -89,7 +91,7 @@ public enum Doctor {
             daemonRunning: IPC.send(Request("ping"), path: paths.socket.path, timeout: 2)?.ok == true,
             launchAgentInstalled: FileManager.default.fileExists(atPath: installer.plist.path),
             journalEntries: entries, journalCorrupt: corrupt, pressure: s.pressure.name,
-            swapUsedMB: Int(s.swapUsedMB))
+            swapUsedMB: Int(s.swapUsedMB), heldBack: paths.instance == nil ? ReleaseGates.thisBuild.pending : [])
     }
 
     public static func text(_ r: Report) -> String {
@@ -112,6 +114,9 @@ public enum Doctor {
             Journal: \(r.journalCorrupt ? "CORRUPT (run `iclear thaw --all`)" : "\(r.journalEntries) frozen process(es) recorded")
             Now: pressure \(r.pressure), swap \(r.swapUsedMB) MB
             """
+                + (r.heldBack.isEmpty
+                    ? ""
+                    : "\nNot validated yet in this build, so held in their fallback modes: " + r.heldBack.joined(separator: ", ") + ".")
     }
 
     /// Anonymized block for a compatibility report: no hostname, user name, serial,
