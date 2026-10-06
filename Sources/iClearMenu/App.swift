@@ -144,7 +144,7 @@ struct MenuView: View {
             }
             // Zero-surprise: the last action is always visible.
             Text(s.lastAction.map { String(format: localized("lastAction"), $0) } ?? localized("lastAction.none"))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if s.frozen.isEmpty && s.pressure == "normal" {
                 Text(localized("healthyIdle")).font(.caption)
             }
@@ -174,7 +174,7 @@ struct MenuView: View {
             ForEach(s.unresolved ?? [], id: \.app.id) { u in
                 HStack {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).accessibilityHidden(true)
-                    Text(String(format: localized("frozen.unresolved"), u.app.name)).lineLimit(2)
+                    Text(String(format: localized("frozen.unresolved"), u.app.name)).fixedSize(horizontal: false, vertical: true)
                 }
             }
             ForEach(s.frozen, id: \.id) { f in
