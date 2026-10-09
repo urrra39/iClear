@@ -335,3 +335,31 @@ Full `iclear selftest` from a release build of the final code, 2026-10-02 01:28,
 | shield ladder | CPU share 0.90 → 0.15 cores in the band; restored |
 | stall probe | 2,567 samples, p99 1.15 ms, 0 stalls |
 | pressure sensor, battery readings, battery logic, migration, permissions | PASS |
+
+## 7-day soak on 1.0.0, status on 2026-10-09 (W1-W7)
+
+Read from `ic-lab soak-status` on 2026-10-09; the soak is still running and no criterion was changed.
+
+| Criterion | Result | Met |
+|---|---|---|
+| W1 elapsed days | 7.39 d | yes |
+| W2 awake hours on AC | 29.1 h of 40 | no |
+| W3 cycles | freeze/thaw 3,497 of 5,000 (238 counted as failed); stash/pop 112 of 300 (1 failed) | no |
+| W4 apps left stopped / hangs | 0 / 0; 1 crash report, from a v1.1 test fixture (not a soak app) | yes |
+| W5 daemon CPU | daily p95 1.26% and 1.19% of one core, bound 0.5% | no (1.0.0 only; v1.1 measured separately, see below) |
+| W5 RSS | within bound (at most 40.5 MB) | yes |
+| W6 daily reports | present for 2026-10-02 to 2026-10-09 | yes |
+
+- Of the 238 failed freezes, at least 122 were refusals by the quarantine after
+  one soak probe went unresponsive after a thaw on 2026-10-02 (the rest not yet analyzed); the
+  quarantine worked as designed, but they count as failures. The entry was removed by
+  hand so the remaining cycles could run (the original state is kept locally).
+- v1.1 daemon tick cost: 40.2 ms CPU per 30 s = 0.134% of one core (N=1, owner active);
+  to be re-measured on an idle Mac.
+
+## Leak trend retrospective on the archived Observe trace (L5)
+
+`ic-lab validate leak-retro` on the archived trace: 179.0 h, 14,777 records, 0 skipped.
+Apps flagged: 0, so 0/0 predictions to judge. The ≥ 80% rule of L5 cannot be shown
+from this trace, and L1-L4 (synthetic leakers) have not been run. Per the ship rule,
+leak notifications stay OFF; `iclear leaks` and the menu list only.
