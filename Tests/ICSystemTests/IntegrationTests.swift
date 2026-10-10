@@ -402,14 +402,44 @@ import Testing
         #expect(!d.handle(Request("bogus")).ok)
     }
 
-    /// Idle cost: a distant forecast keeps the 30 s tick; only a near one (or pressure) speeds it up.
+    /// Idle cost: a distant forecast keeps the slow tick (60 s, 30 s while something is
+    /// paused); only a near one (or pressure) speeds it up.
     @Test func tickCadenceFollowsForecastDistance() {
-        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10) == 30)
-        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10) == 60)
+        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10) == 60)
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10, holding: true) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10, holding: true) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10, holding: true) == 5)
         #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10) == 5)
         #expect(Daemon.interval(for: .normal, etaWarning: 0, horizonMinutes: 10) == 5)
         #expect(Daemon.interval(for: .warning, etaWarning: nil, horizonMinutes: 10) == 3)
         #expect(Daemon.interval(for: .critical, etaWarning: nil, horizonMinutes: 10) == 2)
+    }
+
+    /// A forecast that is shown but never acted on (off by default) does not speed up the
+    /// tick: the 1.0 soak's Observe daemon ticked every 5 s on such an ETA.
+    @Test func disarmedForecastKeepsTheSlowTick() throws {
+        for enabled in [false, true] {
+            let probe = FakeProbe()
+            let paths = tempHome()
+            var c = Config()
+            c.mode = .observe
+            c.forecast.enabled = enabled
+            try Files.atomicWrite(c.encoded(), to: paths.config)
+            var st = EngineState(startedAt: probe.now - 86400)
+            st.forecast.warningLevels = [70, 70, 70]  // above the probe's 60% available: ETA 0
+            st.forecast.slope = 0  // a trend exists
+            try Files.writeJSON(st, to: paths.state)
+            let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
+            d.clock = { probe.now }
+            d.scheduleHealthChecks = false
+            d.sender = testSender
+            try d.start(watchdogExecutable: nil, live: false)
+            defer { d.shutdown() }
+            d.tick()
+            #expect(d.engine.lastForecast.etaWarning == 0)
+            #expect(d.interval(for: .normal) == (enabled ? 5 : 60))
+        }
     }
 }
 

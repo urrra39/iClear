@@ -44,8 +44,11 @@ public enum Proc {
         return proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : ""
     }
 
-    public static func info(_ pid: Int32) -> ProcInfo? {
-        guard let b = bsdInfo(pid) else { return nil }
+    /// `onlyUID` skips other users' processes before the rusage and path calls. `known`
+    /// holds paths read earlier, by identity and name (a name change means an exec).
+    public static func info(_ pid: Int32, onlyUID: uid_t? = nil, known: [ProcessIdentity: (name: String, path: String)] = [:]) -> ProcInfo?
+    {
+        guard let b = bsdInfo(pid), onlyUID.map({ b.pbi_uid == $0 }) ?? true else { return nil }
         var ri = rusage_info_v4()
         let ok =
             withUnsafeMutablePointer(to: &ri) {
@@ -56,10 +59,11 @@ public enum Proc {
             return s.isEmpty ? withUnsafeBytes(of: b.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } : s
         }
         let cpu = ok ? (ri.ri_user_time + ri.ri_system_time) * timebase.numer / timebase.denom : 0
+        let start = UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec)
+        let k = known[ProcessIdentity(pid: pid, startTime: start)].flatMap { $0.name == name ? $0.path : nil }
         return ProcInfo(
-            pid: pid, ppid: Int32(b.pbi_ppid),
-            startTime: UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec),
-            uid: b.pbi_uid, name: name, path: path(pid), stopped: b.pbi_status == UInt32(SSTOP),
+            pid: pid, ppid: Int32(b.pbi_ppid), startTime: start,
+            uid: b.pbi_uid, name: name, path: k ?? path(pid), stopped: b.pbi_status == UInt32(SSTOP),
             residentMB: ok ? Double(ri.ri_resident_size) / 1_048_576 : 0,
             footprintMB: ok ? Double(ri.ri_phys_footprint) / 1_048_576 : 0,
             cpuNanos: cpu, pageIns: ok ? ri.ri_pageins : 0, wakeups: ok ? ri.ri_interrupt_wkups &+ ri.ri_pkg_idle_wkups : 0)
@@ -73,12 +77,12 @@ public enum Proc {
         return Array(pids.prefix(Int(max(0, got)))).filter { $0 > 0 }
     }
 
-    /// All processes owned by the current user.
-    public static func table() -> [Int32: ProcInfo] {
+    /// All processes owned by the current user (`known` as in `info`).
+    public static func table(known: [ProcessIdentity: (name: String, path: String)] = [:]) -> [Int32: ProcInfo] {
         let uid = getuid()
         var out: [Int32: ProcInfo] = [:]
         for pid in allPIDs() {
-            if let p = info(pid), p.uid == uid { out[pid] = p }
+            if let p = info(pid, onlyUID: uid, known: known) { out[pid] = p }
         }
         return out
     }

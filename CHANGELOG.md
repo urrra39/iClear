@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased (after 1.1.0-rc.1)
+
+- **Daemon CPU (soak W5).** A forecast ETA that is only shown, never acted on (the
+  forecast is off by default, and switches itself off over its false-alarm budget), no
+  longer forces 5 s ticks and per-app guard inspections. On the 1.0 soak's Observe data
+  it did so on every tick; see `docs/VALIDATION.md`, "Daemon overhead after the soak".
+- At normal pressure with nothing paused and no actionable forecast, the daemon samples
+  once a minute instead of every 30 s; a change of pressure level still triggers a tick
+  within a second.
+- Fewer calls per tick: rusage and path only for the user's own processes, paths kept
+  per process, the LaunchServices copy count only for apps with launchd-started helpers,
+  the Electron check once per app, the screen-sharing process scan reused for 15 s.
+- `iclear selftest --no-mic` skips the microphone check.
+
 ## 1.1.0-rc.1 (release candidate; not tagged yet; lab gates not run)
 
 - **Recovery hardening.** Pause, priority band and hide are journaled before they happen,

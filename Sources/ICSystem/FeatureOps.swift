@@ -219,8 +219,8 @@ extension Daemon {
     func shieldPoll() {
         // Real time, not the engine clock: the end-of-call debounce is about elapsed seconds.
         let now = Date().timeIntervalSince1970
-        let session = SessionProbe.context(
-            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier, windows: Windows.facts())
+        // Only the call signals are read here, so no window list or front app.
+        let session = SessionProbe.context(frontmostPID: nil, windows: WindowFacts(visiblePIDs: [], fullscreenPIDs: []))
         let call = callDetector.update(signal: session.microphoneInUse || session.cameraInUse || session.screenSharing, now: now)
         if call.changed {
             if call.inCall {

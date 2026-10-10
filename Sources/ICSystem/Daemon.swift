@@ -287,15 +287,23 @@ public final class Daemon {
         pressureSource = m
     }
 
+    /// The ETA the policy may act on: none while the forecast is disarmed (off by default,
+    /// or over its false-alarm budget), when it is shown but never acted on.
+    var actionableETA: Double? { engine.lastForecast.armed ? engine.lastForecast.etaWarning : nil }
+
     func interval(for level: PressureLevel) -> Double {
-        Self.interval(for: level, etaWarning: engine.lastForecast.etaWarning, horizonMinutes: engine.config.forecast.horizonMinutes)
+        Self.interval(
+            for: level, etaWarning: actionableETA, horizonMinutes: engine.config.forecast.horizonMinutes,
+            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty)
     }
 
     /// Fast ticks only while the forecast sees warning within three horizons: any slow
     /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
-    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double) -> Double {
+    /// Otherwise 30 s while something is paused (`holding`) and one tick a minute when not:
+    /// a change of pressure level still ticks at once (1 s poll).
+    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false) -> Double {
         switch level {
-        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : 30
+        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : 60
         case .warning: return 3
         case .critical: return 2
         }
@@ -361,7 +369,7 @@ public final class Daemon {
         // S4 guards cost syscalls per descriptor, so only inspect when iClear may act.
         let horizon = engine.config.forecast.horizonMinutes
         let mayAct =
-            sample.pressure >= .warning || (engine.lastForecast.etaWarning.map { $0 <= horizon } ?? false)
+            sample.pressure >= .warning || (actionableETA.map { $0 <= horizon } ?? false)
             || engine.state.wakeRefreezeAt.values.contains { $0 <= now }
             || (engine.config.thrash.enabled && engine.thrashTicks > 0)
         if mayAct {

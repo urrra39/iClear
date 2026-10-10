@@ -209,10 +209,24 @@ public enum SessionProbe {
         let locked = (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
         return SessionContext(
             cameraInUse: Camera.inUse(), microphoneInUse: AudioActivity.microphoneInUse(),
-            screenSharing: !allProcessNames().isDisjoint(with: sharingProcessNames),
+            screenSharing: screenSharing(),
             displayMirrored: Windows.mirrored(),
             frontmostFullscreen: frontmostPID.map { windows.fullscreenPIDs.contains($0) } ?? false,
             screenLocked: locked)
+    }
+
+    private static let sharingLock = NSLock()
+    nonisolated(unsafe) private static var sharing: (at: Double, on: Bool)?
+
+    /// Screen sharing starts and stops rarely, and the scan of every process behind it was
+    /// the 5 s poll's largest cost: a result up to 15 s old is reused.
+    static func screenSharing(now: Double = Date().timeIntervalSince1970) -> Bool {
+        sharingLock.lock()
+        defer { sharingLock.unlock() }
+        if let s = sharing, now >= s.at, now - s.at < 15 { return s.on }
+        let on = !allProcessNames().isDisjoint(with: sharingProcessNames)
+        sharing = (now, on)
+        return on
     }
 
     /// Names of all processes, including other users' (screensharingd runs as root),

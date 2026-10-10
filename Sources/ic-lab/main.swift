@@ -399,36 +399,36 @@ case "cost":
     defer { try? FileManager.default.removeItem(at: costHome) }
     daemon.tick()
     let parts: [(String, Double, () -> Void)] = [
-        ("daemon tick (whole)", 30, { daemon.tick() }),
+        ("daemon tick (whole)", 60, { daemon.tick() }),
         ("pressure level (1 s poll)", 1, { _ = SystemSampler.pressure() }),
-        ("window facts (5 s poll)", 5, { _ = Windows.facts() }),
+        ("window facts (tick)", 60, { _ = Windows.facts() }),
         ("session context (5 s poll)", 5, { _ = SessionProbe.context(frontmostPID: front, windows: facts) }),
-        ("  all process names", 5, { _ = SessionProbe.allProcessNames() }),
+        ("  all process names (reused for 15 s)", 15, { _ = SessionProbe.allProcessNames() }),
         ("  camera", 5, { _ = Camera.inUse() }),
         ("  microphone", 5, { _ = AudioActivity.microphoneInUse() }),
-        ("system sample (tick)", 30, { _ = SystemSampler.sample() }),
-        ("  power state", 30, { _ = SystemSampler.powerState() }),
+        ("system sample (tick)", 60, { _ = SystemSampler.sample() }),
+        ("  power state", 60, { _ = SystemSampler.powerState() }),
         (
-            "  disk free (important usage)", 30,
+            "  disk free (important usage)", 60,
             {
                 _ = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             }
         ),
         (
-            "  disk free (statfs)", 30,
+            "  disk free (statfs)", 60,
             {
                 var s = statfs()
                 _ = statfs(NSHomeDirectory(), &s)
             }
         ),
-        ("app collect (tick)", 30, { _ = collector.collect() }),
-        ("  process table", 30, { _ = Proc.table() }),
-        ("  audio pids x3", 30, { _ = AudioActivity.pids(samples: 3, gapMicros: 0) }),
-        ("  audio pids x3, 50 ms gaps", 30, { _ = AudioActivity.pids(samples: 3) }),
-        ("  frontmost app", 30, { _ = NSWorkspace.shared.frontmostApplication?.processIdentifier }),
-        ("  power assertions", 30, { _ = PowerAssertions.pids() }),
+        ("app collect (tick)", 60, { _ = collector.collect() }),
+        ("  process table", 60, { _ = Proc.table() }),
+        ("  audio pids x3", 60, { _ = AudioActivity.pids(samples: 3, gapMicros: 0) }),
+        ("  audio pids x3, 50 ms gaps", 60, { _ = AudioActivity.pids(samples: 3) }),
+        ("  frontmost app", 60, { _ = NSWorkspace.shared.frontmostApplication?.processIdentifier }),
+        ("  power assertions", 60, { _ = PowerAssertions.pids() }),
         (
-            "  running apps", 30,
+            "  running apps", 60,
             {
                 _ = NSWorkspace.shared.runningApplications.map {
                     ($0.bundleIdentifier, $0.bundleURL, $0.isHidden, $0.activationPolicy, $0.localizedName)
@@ -436,7 +436,7 @@ case "cost":
             }
         ),
         (
-            "  copies per bundle", 30,
+            "  copies per bundle (all apps; the daemon now asks only for apps with launchd helpers)", 60,
             {
                 for id in Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) {
                     _ = NSRunningApplication.runningApplications(withBundleIdentifier: id).map(\.bundleURL)
@@ -444,7 +444,7 @@ case "cost":
             }
         ),
         (
-            "  electron check", 30,
+            "  electron check", 60,
             {
                 for a in NSWorkspace.shared.runningApplications {
                     _ = FileManager.default.fileExists(

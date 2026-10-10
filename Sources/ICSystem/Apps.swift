@@ -15,6 +15,10 @@ public final class AppCollector {
 
     private var lastCPU: [ProcessIdentity: UInt64] = [:]
     private var lastTime: Double?
+    /// Executable paths from the last collect, and whether a bundle is an Electron app:
+    /// neither changes while a process runs, so each is read once.
+    private var paths: [ProcessIdentity: (name: String, path: String)] = [:]
+    private var electron: [String: Bool] = [:]
     /// The daemon's own PID and its descendants (the watchdog) and ancestors.
     public var lineage: Set<Int32>
     /// Standalone processes smaller than this are left out of snapshots.
@@ -28,11 +32,13 @@ public final class AppCollector {
     static let partialTreeIDs: Set<String> = ["com.apple.Safari", "com.apple.mail", "com.apple.Notes"]
 
     public func collect(now: Double = Date().timeIntervalSince1970) -> Result {
-        let table = Proc.table()
+        let table = Proc.table(known: paths)
         let dt = lastTime.map { now - $0 } ?? 0
         var cpu: [Int32: Double] = [:]
         var nextCPU: [ProcessIdentity: UInt64] = [:]
+        paths = [:]
         for p in table.values {
+            paths[p.identity] = (p.name, p.path)
             nextCPU[p.identity] = p.cpuNanos
             if dt > 0, let prev = lastCPU[p.identity], p.cpuNanos >= prev {
                 cpu[p.pid] = Double(p.cpuNanos - prev) / 1e9 / dt * 100
@@ -54,11 +60,9 @@ public final class AppCollector {
         var claimed = Set<Int32>()
         var apps: [AppSnapshot] = []
 
-        // Fresh per-bundle query: the workspace list can lag behind a copy that just started.
-        var copies: [String: Int] = [:]
-        for id in Set(running.compactMap(\.bundleIdentifier)) {
-            for a in NSRunningApplication.runningApplications(withBundleIdentifier: id) { copies[a.bundleURL?.path ?? "", default: 0] += 1 }
-        }
+        // Bundle paths of each bundle ID's running copies, queried fresh (the workspace list
+        // can lag behind a copy that just started), and only for apps with launchd helpers.
+        var copies: [String: [String]] = [:]
         // Launchd-owned processes: the only candidates for helpers shipped inside a bundle.
         let launchdChildren = table.values.filter { $0.ppid == 1 && !roots.contains($0.pid) }
         for app in running {
@@ -73,15 +77,21 @@ public final class AppCollector {
                     queue.append(c)
                 }
             }
+            let id = app.bundleIdentifier!
             // Helpers launched by launchd but shipped inside the bundle belong to the app too,
             // when only one copy of the app runs; with two copies nobody can tell whose they are.
-            if copies[path] == 1 {
-                for p in launchdChildren where p.path.hasPrefix(bundlePath) && !tree.contains(p.pid) { tree.append(p.pid) }
+            let helpers = launchdChildren.filter { $0.path.hasPrefix(bundlePath) && !tree.contains($0.pid) }
+            if !helpers.isEmpty {
+                let c = copies[id] ?? NSRunningApplication.runningApplications(withBundleIdentifier: id).map { $0.bundleURL?.path ?? "" }
+                copies[id] = c
+                if c.filter({ $0 == path }).count == 1 { tree += helpers.map(\.pid) }
             }
             claimed.formUnion(tree)
             let procs = tree.compactMap { table[$0] }
             let outside = procs.dropFirst().filter { !$0.path.hasPrefix(bundlePath) }
-            let id = app.bundleIdentifier!
+            let isElectron =
+                electron[path] ?? FileManager.default.fileExists(atPath: path + "/Contents/Frameworks/Electron Framework.framework")
+            electron[path] = isElectron
             apps.append(
                 AppSnapshot(
                     id: id, name: app.localizedName ?? id, processes: procs.map(\.identity),
@@ -90,7 +100,7 @@ public final class AppCollector {
                     isFrontmost: root == frontPID,
                     hasVisibleWindow: !windows.visiblePIDs.isDisjoint(with: tree) && !app.isHidden,
                     isHidden: app.isHidden, isRegularApp: app.activationPolicy == .regular,
-                    isElectron: FileManager.default.fileExists(atPath: path + "/Contents/Frameworks/Electron Framework.framework"),
+                    isElectron: isElectron,
                     origin: path.hasPrefix("/System/") ? .system : id.hasPrefix("com.apple.") ? .apple : .thirdParty,
                     partialTree: Self.partialTreeIDs.contains(id),
                     isDaemonLineage: !lineage.isDisjoint(with: tree),
