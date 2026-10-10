@@ -35,6 +35,10 @@ automated test that exercises it and is listed in the README's "Not validated" l
 | `bench` | used to produce [BENCHMARKS.md](BENCHMARKS.md); **NOT TESTED** in the suite |
 | `hook zsh\|bash\|fish\|git` (v1.1) | `hooksAndCommands` (snippets print, `context enter` is silent and quick without a daemon); zsh and bash overhead and delivery: spike [`hook_overhead.py`](../spikes/hook_overhead.py), gate X1 after the soak; fish and the git hook running in a real shell or repository **NOT TESTED** |
 | `context add/list/remove/status/pause/resume/accept/dismiss/switch/undo/suggest/enter` (v1.1) | `ContextTests` (9 tests: resolve, dwell, false triggers, cooldown, modes, plan, suggestions, decoding, stash `only`), `ContextIntegrationTests` (switch with a shared app and undo, hard block stops the switch, crash after a switch, Observe records and Active suggests, branch detection), `everyCommandRunsThroughTheCLI`; lab X2-X6 after the soak |
+| `probe <app> [--cycles N] [--yes]`, `probe.*` (v1.1) | `verdicts`, `failureQuarantinesAndPassReleases`, `requirePassedGatesAutomaticPausesOnly`; `survivorPasses`, `crashAfterResumeFailsAndQuarantines`, `hangAfterResumeFailsWithAccessibility` (needs Accessibility; skipped without it); `everyCommandRunsThroughTheCLI` (refusals); selftest `canary probe (isolated)`; the approval prompt by hand **NOT TESTED**; lab P1 after the soak |
+| `capacity [--json]` (v1.1) | `CapacityTests` (episodes, settling, regrets, headroom, swap, nothing to report), `freezeOpensAnEpisodeThatTheReportShows`, `everyCommandRunsThroughTheCLI`; menu line **NOT TESTED** by hand; capacity benchmark after the soak (a measurement, not a gate) |
+| `brake observe/on/off/status/report/resume/quit` (v1.1) | `BrakeTests` (detector, ranking, ladder, releases, Black Box), `BrakeIntegrationTests` (pause and confirm, wrong guess then give up, observe touches nothing, real `icbrake` with kill -9 and its watchdog), `everyCommandRunsThroughTheCLI` (refusals); selftest `Panic Brake (isolated)`; lab `brake`, `brake-fp`, `brake-replay` after the soak |
+| `blackbox [--previous] [--dismiss]` (v1.1) | `blackBoxRingMarkerAndPrivacy`, `icbrakePausesTheRunawayAndItsWatchdogRecovers` (file written while stalled), `everyCommandRunsThroughTheCLI`; lab `blackbox`; unclean restart: manual step 5 |
 | `leaks`, `leaks quit <app> [--yes]` (v1.1) | `LeakTests` (5 tests: Theil-Sen and Mann-Kendall, growth found, flat/step/sawtooth/in-use/too-little-data/stopped/slow not found, history bounds, in use), `leakQuitNeedsPreviewAndConfirmation`, `leakNotificationsOncePerDay`, `everyCommandRunsThroughTheCLI`; lab L1-L4 with `ic-hog --profile` after the soak |
 
 ## Menu actions
@@ -43,6 +47,17 @@ The menu calls the same daemon commands as the CLI; those commands are covered a
 The SwiftUI wiring of each button is checked by hand (M-steps) and by the `--snapshot`
 render used for the screenshots.
 
+The menu's transport (`DaemonClient`) is tested without a GUI: `DaemonClientTests`
+(refresh off the main thread, coalescing, deadline, distinct outcomes for absent, not
+answering, unreadable reply and declined; actions in order, never retried, not behind a
+refresh; a refresh from before an action is not shown; Resume all not queued behind an
+action, dropping actions not started, falling back to the journals when the daemon is
+absent or hung), `IPCCallTests` (end-to-end deadline against a peer that dribbles bytes,
+stale socket, garbage reply) and `LocalizationParityTests` (English and Uzbek keys and
+placeholders). The three daemon states were also rendered with `--snapshot` against an
+isolated observe-only daemon: answering, stopped with SIGSTOP (shown as "not answering"
+after about 4 s), and absent.
+
 | Action | Command | Wiring |
 |---|---|---|
 | Mode and profile pickers | `mode`, `profile` | manual M4 |
@@ -50,7 +65,10 @@ render used for the screenshots.
 | Stash, Pop | `stash`, `pop` | manual M5 |
 | Why, Digest, Battery, Stalls, Calls | `why`, `stats`, `battery`, `beachball`, `shield` | manual M4 |
 | Growth (v1.1) | `leaks` | **NOT TESTED** by hand yet |
+| Panic Brake: first-run prompt, paused apps (Resume, Quit), unclean-restart notice (v1.1) | brake config, `resume`, `quit` | **NOT TESTED** by hand yet |
 | Context suggestion: Switch, Not now (v1.1) | `context accept`, `context dismiss` | **NOT TESTED** by hand yet |
+| First-run card (Observe first, pausing side effects, never paused, optional permission, emergency exit; v1.1) | none (local) | `--snapshot` render in English and Uzbek of the packaged app; strings: `LocalizationParityTests` |
+| Unresolved resume row, "not answering", "busy" and pending/emergency reports (v1.1) | `status` | `StateAgreementIntegrationTests` (status JSON), `DaemonClientTests`; rendered from the rc.1 menu binary against real daemon states in English and Uzbek; clicking through: MANUAL_TESTS 9-11 |
 | Start daemon | `launchctl` | manual M1 |
 | Open Accessibility settings | system URL | manual M6 |
 | Global hotkeys ⌃⌥⌘T (always), ⌃⌥⌘S / ⌃⌥⌘P (`stash.hotkeys`) | `thaw all`, `stash`, `pop` | manual M5; **NOT TESTED** automatically |
@@ -93,6 +111,10 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | `contexts` (v1.1) | `configAndDecoding` (names, paths, duplicates), `resolveMostSpecificGlobAndBranch`, `planKeepsSharedApps`, `switchSharedAppAndUndo` |
 | `context.dwellSeconds`, `context.cooldownMinutes` (v1.1) | `dwellAndSubdirectories`, `cooldown`, `falseTriggersAreIgnored` |
 | `leaks.minHours`, `leaks.minSamples`, `leaks.minRateMBPerHour` (v1.1) | `notTrends` (too little data, slow growth), `steadyGrowthIsFound` |
+| `wakeOnData.*` (v1.1) | `coversOptedInChatAndBrowserAppsOnly` (opt-in, class, validation), `wakesOnDataAndPausesAgainAfterQuiet`, `aBusyAppIsLeftRunning`, `pausedClientIsWokenByDataAndPausedAgain` (daemon, loopback); selftest `Wake-on-Data (sockets)`; guard during a call: **NOT TESTED** end to end (the refreeze uses the same guard checks as other freezes); lab D1-D5 after the soak |
+| `thrash.*` (v1.1) | `pausesTheTopBackgroundOffendersOnly`, `needsTheEpisodeTheSettingAndActiveMode` (off by default, validation, Observe dry run); selftest `Thrash Guard (synthetic)`; lab T1-T4 after the soak |
+| `brake.autoQuitApps`, `brake.autoQuitSeconds` (v1.1) | `pausesAreReleasedAndQuitRequestsAreOptIn` (opt-in, timing, once, validation); `autoQuitQuitsCleanly`, `autoQuitIgnoredLeavesItPaused`, `autoQuitCrashIsRecordedAsExited`, `autoQuitSkippedWhenTheAppReportsUnsavedWork` (probe apps that quit, refuse or crash); the daemon's `quitapp`/`unsaved` path end to end is **NOT TESTED**; not in the lab gate |
+| `brake.*` (v1.1) | `pausesAreReleasedAndQuitRequestsAreOptIn` (validation, release, quit opt-in), `ladderTriesTheNextCandidateAndGivesUp` (`candidates`), `observeRecordsOnceAndOffDoesNothing` (`mode`); `brake.blackBox` off is **NOT TESTED** |
 | `leaks.notify` (v1.1) | off by default (`defaultsAreValidAndObserveFirst`); one notification per app per day (`leakNotificationsOncePerDay`) |
 | `callMode.*` | `callModeLowersOthersAndRestoresWithinTwoSeconds`, `ShieldTests`; lab `callmode` |
 | `thermalShield.*` | `ShieldTests` (ladder logic only); the thermal trigger on real heat is **NOT TESTED** |
@@ -115,6 +137,7 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | F6 `before` | `launchAdvisor`, `featureCommandsAnswer` | **NOT TESTED** continuously (a one-shot estimate) |
 | F7 Unsaved guard | `keepListUnsavedAndSharedWindows` (planner) | lab `unsaved` (spike g) |
 | App classes (COMM, MEDIA, BROWSER) | `AppClassTests` (defaults, cooldown, browser caution, wake window never during a call, compat) | lab `sideeffects` |
+| Thrash Guard (v1.1) | `ThrashTests` (episode, ranking, protection, Observe, calibration decoding) | lab T1-T4 (paired runs with `ic-hog --waker` under the 8 GB emulation) after the soak |
 | Auto-Context Stash (v1.1) | `ContextTests`, `ContextIntegrationTests`; selftest `context switch (isolated)` | lab `context` (X2-X6) after the soak |
 | Leak trend (v1.1) | `LeakTests`, `leakQuitNeedsPreviewAndConfirmation`; selftest `leak trend (synthetic)` | lab `leaks` (L1-L4) after the soak; `leak-retro` (L5) on the soak's Observe trace |
 | Everything together | | lab `combined` (≥ 60 min) |
@@ -141,6 +164,10 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | 1.1 A context switch is journaled first (it is a stash and a pop) | `switchSharedAppAndUndo` (journal ends empty), `crashAfterSwitchRecovers` (recovery after the daemon dies mid-switch) |
 | 1.1 A context switch is one transaction | `hardBlockStopsTheSwitch` |
 | 1.1 Auto-Context and the leak trend stay in the lab's scope | the switch and `leaks` work on the scope-filtered app list; `scopeLockRefusesUnregisteredProcesses`; selftest `context switch (isolated)` runs scope-locked |
+| Persistence under faults (1.1; journal part also 1.0.2) | `corruptJournalIsNeverReplacedByANewWrite`, `daemonRecoversWhenItMeetsACorruptJournal`, `corruptStateContextAndCapacityFilesAreKeptAsideAndDefaultsUsed`, `concurrentAppendsKeepWholeLinesAndTheActiveFile`, `unwritableDirectoryKeepsTheOldFile`, `clockJumpsDoNotDeleteTheCurrentTraceOrGoNegative`, `truncatedBlackBoxIsReportedNotFatal`, `limitsDeleteOldestAndKeepTheCurrentFile` |
+| 1.1 Panic Brake pauses are journaled and survive its death | `icbrakePausesTheRunawayAndItsWatchdogRecovers`, `pausesTheCulpritAndKeepsItWhenTheStallClears` (journal) |
+| 1.1 Auto graceful quit does not force, and an ignored request leaves the app paused | `autoQuitIgnoredLeavesItPaused` (paused again, journaled), `autoQuitSkippedWhenTheAppReportsUnsavedWork`, `productCodeHasNoNetworkingOrPrivilegeEscalation` (no `forceTerminate`) |
+| 1.1 Panic Brake touches only reachable same-user trees | `rankingExcludesProtectedAndOutOfReachAndHoldsBackTheForeground`, `icbrakePausesTheRunawayAndItsWatchdogRecovers` (unregistered process untouched) |
 | 1.1 No quit without preview and confirmation, no force-quit (L6) | `leakQuitNeedsPreviewAndConfirmation`, `productCodeHasNoNetworkingOrPrivilegeEscalation` (no `forceTerminate`) |
 
 ## Red team (1.0)
@@ -164,3 +191,32 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | Stash hides the frontmost app and macOS activates a stashed one (stash lab) | hidden back to front; activations in the first 2 s ignored | `activationPopsOnlyThatApp` (settle window), lab `stash` |
 | Exited test process keeps a pipe handler spinning (paired-run lab) | handler removed at end of file | `exitedTestProcessStopsReading` |
 | Accessibility revoked mid-run | unsaved state becomes "unknown" (stash still pauses, with a note); the stall probe stops | `keepListUnsavedAndSharedWindows` (unknown path); the revocation itself is **NOT TESTED** (needs a TCC change) |
+
+## Red team (1.1)
+
+| Attack | Result | Test |
+|---|---|---|
+| Automatic context switch due during a call, screen share or fullscreen use | only suggested (was: switched; fixed) | `modes` |
+| Switch accepted during a call | call app and anything playing or recording stay running; the rest is stashed | `switchDuringACallKeepsTheCallRunning` |
+| Stash, then Dock launch of a stashed app | pops just that app | `activationPopsOnlyThatApp` |
+| Pop due while the Mac sleeps | pops once on wake | `expiryAfterSleepPopsWithoutLateReminder` |
+| Daemon killed mid-pop / mid-switch | recovery resumes and unhides the rest | `daemonKilledMidPopRecoversTheRest`, `crashAfterSwitchRecovers` |
+| Two contexts sharing an app | the shared app stays running; undo restores both groups | `switchSharedAppAndUndo`, `planKeepsSharedApps` |
+| Leak trend on an app that is suddenly used | no longer listed or offered a quit request (was: listed; fixed) | `notTrends` |
+| Thrash episode while a stash is active | the stashed app is never paused or resumed by Thrash Guard; the waker outside it is paused | `thrashEpisodeLeavesTheStashAlone` |
+| Wake-on-Data during a call | woken on data, not paused again until the call ends (was: paused again; fixed) | `noRefreezeDuringACall` |
+| Disk full during a stash or switch | refused before anything changes; the switch does not happen | `refusesWithoutDiskHeadroom`, `hardBlockStopsTheSwitch` |
+| Permission revoked mid-run | as in 1.0 | revocation itself **NOT TESTED** (needs a TCC change) |
+
+## Recovery and state (v1.1 hardening branch)
+
+| Area | Tests |
+|---|---|
+| Journal lock fails closed, bounded wait | `JournalLockTests` (4) |
+| Record and change in one transaction (hide, band) | `RecordActionTests` (3), cross-process with `iclear thaw --all` |
+| Restorations observed, not assumed | `RestorationTests` (5), including real GUI fixtures |
+| Recovery token: late writers and stashes undo themselves | `EmergencyOrderTests` (4), `StashEmergencyTests` (1, real daemon and IPC) |
+| Engine, journal, status and menu agree on unresolved resumes | `StateAgreementTests` (4), `StateAgreementIntegrationTests` (4) |
+| Transport deadlines, bounded queues, distinct outcomes | `IPCCallTests` (5), `DaemonClientTests` (11) |
+| Capacity analysis (censoring, verdict) | `BenchDesignTests` (8); the lab report itself was rendered from synthetic rows only |
+

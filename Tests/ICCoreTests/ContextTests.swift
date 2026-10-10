@@ -83,6 +83,11 @@ import Testing
         s.current = "web"
         ContextTracker.enter(&s, path: "/home/dev/code/api", branch: nil, source: "t", now: 0, rules: auto, settings: settings, home: home)
         var o = s
+        var call = s
+        // Red team: during a call or screen share an automatic switch is only suggested.
+        #expect(
+            ContextTracker.decide(&call, now: 20, rules: auto, settings: settings, mode: .active, focusSafe: true)
+                == .suggest(from: "web", to: "api"))
         #expect(ContextTracker.decide(&s, now: 20, rules: auto, settings: settings, mode: .active) == .switchNow(from: "web", to: "api"))
         #expect(ContextTracker.decide(&o, now: 20, rules: auto, settings: settings, mode: .observe) == .wouldSwitch(from: "web", to: "api"))
         #expect(o.current == "api" && o.suggested == nil && o.lastSwitch?.stashed == [] && o.lastSwitch?.popped == [])
@@ -143,5 +148,22 @@ import Testing
             options: StashOptions(only: ["com.a"]), session: SessionContext(), freeDiskMB: 100_000, config: Config())
         #expect(p.stashed.map(\.appID) == ["com.a"])
         #expect(p.items.first { $0.appID == "com.b" }?.notes == ["not in this group"])
+    }
+
+    /// Red team: a switch accepted during a call keeps the call app and anything playing
+    /// or recording running; the rest of the leaving group is stashed.
+    @Test func switchDuringACallKeepsTheCallRunning() {
+        var zoom = app("us.zoom.xos")
+        zoom.signals.audioInput = true
+        var music = app("com.example.player")
+        music.signals.audioOutput = true
+        var session = SessionContext()
+        session.cameraInUse = true
+        let p = StashPlanner.plan(
+            [zoom, music, app("com.a")].map { StashCandidate(app: $0, windows: [], unsaved: false) },
+            options: StashOptions(only: ["us.zoom.xos", "com.example.player", "com.a"]), session: session, freeDiskMB: 100_000,
+            config: Config())
+        #expect(p.stashed.map(\.appID) == ["com.a"] && p.refusal == nil)
+        #expect(p.items.filter { $0.decision == .blocked }.map(\.appID).sorted() == ["com.example.player", "us.zoom.xos"])
     }
 }

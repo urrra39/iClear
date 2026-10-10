@@ -137,6 +137,19 @@ public struct DayStats: Codable, Equatable, Sendable {
     public init() {}
 }
 
+/// A resume that did not take: some processes are still stopped. The thaw's counts are
+/// taken back until the app is confirmed running (or gone); the app is not paused
+/// automatically meanwhile, and a deliberate new pause replaces this record.
+public struct UnresolvedThaw: Codable, Equatable, Sendable {
+    /// The app as it was frozen.
+    public var app: FrozenApp
+    /// Processes still stopped (identity-checked).
+    public var processes: [ProcessIdentity]
+    public var since: Double
+    /// Retries carry it; a mismatch means a newer decision replaced this one.
+    public var generation: Int
+}
+
 public struct EngineState: Codable, Equatable, Sendable {
     public var version = 1
     public var startedAt: Double
@@ -148,6 +161,10 @@ public struct EngineState: Codable, Equatable, Sendable {
     public var learnedIdleMinutes: [String: Double] = [:]
     public var demoted: [String: String] = [:]
     public var quarantine: [String: QuarantineEntry] = [:]
+    /// Canary probe results (optional so older state files still load).
+    public var probes: [String: ProbeRecord]?
+    /// Resumes that did not take yet (optional so older state files still load).
+    public var unresolved: [String: UnresolvedThaw]?
     public var wakeRefreezeAt: [String: Double] = [:]
     public var lastWakeAt: [String: Double] = [:]
     public var connectionMemory: [String: [String: Double]] = [:]
@@ -191,6 +208,8 @@ public final class Engine {
     /// When each app last played audio or used the microphone, for the audio cooldown.
     public private(set) var lastAudioAt: [String: Double] = [:]
     var audioActive: Set<String> = []
+    /// The last thaw issued per app (in memory), so a failed resume can take its counts back.
+    var issuedThaws: [String: (app: FrozenApp, at: Double)] = [:]
 
     /// Records audio and microphone use. The cooldown starts at the first sample without
     /// it, so it is never shorter than configured, whatever the sampling interval.
@@ -205,6 +224,11 @@ public final class Engine {
         }
     }
     public private(set) var lastRunaway: [RunawayFinding] = []
+    /// Thrash Guard: the shared stall detector on the daemon's samples, per-app rates, and
+    /// how many consecutive ticks the episode has held.
+    public private(set) var thrashDetector = StallDetector()
+    public private(set) var thrashRates = ThrashRates()
+    public private(set) var thrashTicks = 0
 
     /// Minimum spacing between freeze rounds, so the kernel has time to compress.
     public static let roundSpacing = 60.0
@@ -218,11 +242,13 @@ public final class Engine {
     var dryRun: Bool { config.mode == .observe }
 
     func context(_ now: Double, _ cfg: Config, profile: ProfileName, wake: Set<String> = []) -> PolicyContext {
-        PolicyContext(
+        var c = PolicyContext(
             now: now, config: cfg, profile: profile, lastActiveAt: state.lastActiveAt,
             learnedIdleMinutes: state.learnedIdleMinutes, lastThawAt: state.lastThawAt,
             quarantined: Set(state.quarantine.keys), demoted: Set(state.demoted.keys),
             frozen: Set(state.frozen.keys), wakeRefreeze: wake, lastAudioAt: lastAudioAt)
+        c.resumePending = Set(state.unresolved?.keys.map { $0 } ?? [])
+        return c
     }
 
     public func activationsPerHour(_ id: String, now: Double) -> Double {
@@ -299,12 +325,21 @@ public final class Engine {
             s, swapOutMBPerMinute: recent.first.map { Health.swapOutRate($0, s) } ?? 0,
             runawayApps: runaway.count)
 
+        thrashDetector.update(StallSignals(t: now, pressure: s.pressure.rawValue, swapIns: s.swapIns, pageIns: s.pageIns ?? 0))
+        thrashRates.update(input.apps, now: now)
+        let episode = thrashDetector.pageInStorm && (s.pressure >= .warning || thrashDetector.state == .stalled)
+        thrashTicks = episode ? thrashTicks + 1 : 0
         var trigger: String?
         if focus.isEmpty {
             actions += preThaw(input, cfg: cfg)
             let (a, t) = freezeRound(input, cfg: cfg, profile: profile, forecast: forecast)
             actions += a
             trigger = t
+            if cfg.thrash.enabled, thrashTicks >= cfg.thrash.sustainTicks {
+                let a = thrashRound(input, cfg: cfg, profile: profile)
+                actions += a
+                if !a.isEmpty { trigger = Code.thrashPageIn }
+            }
         }
         if let last = actions.last(where: { $0.kind != .notify }) { state.lastAction = last.summary }
         state.lastSampleTime = now
@@ -394,6 +429,42 @@ public final class Engine {
         return out
     }
 
+    /// Pauses the top background offenders of a page-in storm. Every policy check applies
+    /// (protected and COMM/MEDIA apps, frontmost and visible apps, guards, cooldown,
+    /// quarantine, budgets) except "idle by CPU", since these apps wake by definition.
+    func thrashRound(_ input: TickInput, cfg: Config, profile: ProfileName) -> [Action] {
+        let now = input.sample.time
+        let ctx = context(now, cfg, profile: profile)
+        let idleCodes: Set<String> = [Code.notIdle, Code.cpuActive]
+        let offenders = input.apps.compactMap { a -> (AppSnapshot, Double)? in
+            guard let rate = thrashRates.pageInsPerSecond[a.id], rate >= cfg.thrash.appPageInsPerSecond,
+                !cfg.probe.requirePassed || state.probes?[a.id]?.passed == true,
+                state.frozen[a.id] == nil, Policy.skipReasons(a, ctx).allSatisfy({ idleCodes.contains($0.code) })
+            else { return nil }
+            return (a, rate + (thrashRates.wakeupsPerSecond[a.id] ?? 0) / 100)
+        }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.id < $1.0.id }
+        let budgetMB = cfg.maxFrozenPercentOfRAM / 100 * input.sample.physicalMB
+        var frozenTotal = state.frozen.values.map(\.residentAtFreezeMB).reduce(0, +)
+        var out: [Action] = []
+        for (app, _) in offenders.prefix(cfg.thrash.maxAppsPerEpisode) {
+            guard state.frozen.count < cfg.maxFrozenApps, frozenTotal + app.residentMB <= budgetMB else { break }
+            let rate = thrashRates.pageInsPerSecond[app.id] ?? 0
+            out.append(
+                freeze(
+                    app, reasons: [Reason(Code.thrashPageIn, String(format: "%.0f page-ins/s", rate))], relief: reliefEstimate(app), at: now
+                ))
+            frozenTotal += app.residentMB
+        }
+        return out
+    }
+
+    /// Thrash Guard's candidates (page-ins at the last tick above the bound) need their
+    /// guards inspected although they are not idle: they wake by definition.
+    public func needsThrashInspection(_ app: AppSnapshot, _ ctx: PolicyContext) -> Bool {
+        config.thrash.enabled && (thrashRates.pageInsPerSecond[app.id] ?? 0) >= config.thrash.appPageInsPerSecond
+            && Policy.needsGuardInspection(app, ctx, ignoring: [Code.notIdle, Code.cpuActive])
+    }
+
     func preThaw(_ input: TickInput, cfg: Config) -> [Action] {
         guard cfg.habits.enabled, cfg.habits.preThaw, input.sample.pressure != .critical,
             let from = state.lastFrontmost
@@ -420,7 +491,8 @@ public final class Engine {
         // Guards are only inspected when iClear might act, so they are not required here.
         var eligible: [AppSnapshot] = []
         for app in input.apps {
-            let r = Policy.skipReasons(app, ctx, requireInspection: false)
+            var r = Policy.skipReasons(app, ctx, requireInspection: false)
+            if cfg.probe.requirePassed, state.probes?[app.id]?.passed != true { r.append(Reason(Code.notProbed)) }
             state.lastSkips[app.id] = r
             if r.isEmpty { eligible.append(app) }
         }
@@ -548,6 +620,7 @@ public final class Engine {
     public func reliefEstimate(_ app: AppSnapshot) -> Double { app.residentMB * Policy.reliefFactor }
 
     func freeze(_ app: AppSnapshot, reasons: [Reason], relief: Double, at now: Double) -> Action {
+        if !dryRun { clearUnresolved(app.id) }  // a deliberate new pause replaces a pending resume
         state.frozen[app.id] = FrozenApp(
             id: app.id, name: app.name, processes: app.processes, frozenAt: now,
             residentAtFreezeMB: app.residentMB, reliefEstimateMB: relief,
@@ -567,6 +640,7 @@ public final class Engine {
     @discardableResult
     public func thaw(_ id: String, reason: String, at now: Double) -> [Action] {
         guard let f = state.frozen.removeValue(forKey: id) else { return [] }
+        if !f.dryRun { issuedThaws[id] = (f, now) }
         state.lastThawAt[id] = now
         let regret = RegretTracker.recordThaw(
             &state.regret, appID: id, at: now, reason: reason,
@@ -654,6 +728,50 @@ public final class Engine {
         return ids.flatMap { thaw($0, reason: Code.thawUser, at: now) }
     }
 
+    /// The resume of a thaw did not take: `stillStopped` are still paused. Takes back the
+    /// thaw's counts (once), keeps the app visible as unresolved, and returns the
+    /// generation retries must carry.
+    @discardableResult
+    public func thawFailed(_ id: String, stillStopped: [ProcessIdentity], at now: Double) -> Int {
+        let next = (state.unresolved?.values.map(\.generation).max() ?? 0) + 1
+        if var u = state.unresolved?[id] {
+            u.processes = stillStopped
+            u.generation = next
+            state.unresolved?[id] = u
+        } else {
+            guard let (f, at) = issuedThaws.removeValue(forKey: id) else { return 0 }
+            var d = state.days[day(at), default: DayStats()]
+            d.thaws -= 1
+            d.cpuSecondsSavedEstimate -= f.cpuPercentAtFreeze / 100 * (at - f.frozenAt)
+            if let r = f.realizedReliefMB, let i = d.realizedReliefMB.lastIndex(of: r) { d.realizedReliefMB.remove(at: i) }
+            state.days[day(at)] = d
+            if state.unresolved == nil { state.unresolved = [:] }
+            state.unresolved?[id] = UnresolvedThaw(app: f, processes: stillStopped, since: now, generation: next)
+        }
+        state.lastAction = "Could not resume \(state.unresolved?[id]?.app.name ?? id): \(stillStopped.count) process(es) still paused"
+        return next
+    }
+
+    func clearUnresolved(_ id: String) {
+        state.unresolved?[id] = nil
+        if state.unresolved?.isEmpty == true { state.unresolved = nil }
+    }
+
+    /// Fewer processes are still stopped (seen without signalling); the retry generation stays.
+    public func updateUnresolved(_ id: String, stillStopped: [ProcessIdentity]) { state.unresolved?[id]?.processes = stillStopped }
+
+    /// A pending resume took (or its processes are gone): the thaw counts again.
+    @discardableResult
+    public func thawResolved(_ id: String, at now: Double) -> Bool {
+        guard let u = state.unresolved?[id] else { return false }
+        clearUnresolved(id)
+        state.days[day(now), default: DayStats()].thaws += 1
+        state.days[day(now), default: DayStats()].cpuSecondsSavedEstimate += u.app.cpuPercentAtFreeze / 100 * (now - u.app.frozenAt)
+        if let r = u.app.realizedReliefMB { state.days[day(now), default: DayStats()].realizedReliefMB.append(r) }
+        state.lastAction = "Resumed \(u.app.name)"
+        return true
+    }
+
     /// Rolls back a freeze that could not be applied to the whole tree.
     public func freezeFailed(_ id: String, at now: Double) {
         state.frozen[id] = nil
@@ -668,12 +786,28 @@ public final class Engine {
     public func userFreeze(_ app: AppSnapshot, at now: Double) -> (Action?, [Reason]) {
         var ctx = context(now, config, profile: lastProfile, wake: [app.id])
         ctx.config.allow.append(app.id)  // a direct request counts as opt-in for tiers B and S
-        let blockers = Policy.skipReasons(app, ctx).filter { $0.code != Code.cpuActive }
+        // A direct request may replace a pending resume (the app is stopped anyway).
+        let blockers = Policy.skipReasons(app, ctx).filter { $0.code != Code.cpuActive && $0.code != Code.resumePending }
         guard blockers.isEmpty else { return (nil, blockers) }
         let a = freeze(app, reasons: [Reason(Code.userRequest)], relief: reliefEstimate(app), at: now)
         state.lastRound = [app.id]
         state.lastAction = a.summary
         return (a, [])
+    }
+
+    /// Pauses an app again after a Wake-on-Data resume. Idle time and the post-thaw
+    /// cooldown do not apply (it was paused a moment ago); every other check does,
+    /// including audio, microphone, call and connection guards. Like a wake window's
+    /// refreeze, none during a call, screen sharing or fullscreen use (Focus Safe Mode).
+    public func refreezeAfterWake(_ app: AppSnapshot, session: SessionContext = SessionContext(), at now: Double) -> (Action?, [Reason]) {
+        let focus = focusSafeReasons(session: session, profile: lastProfile)
+        guard focus.isEmpty else { return (nil, focus.map { Reason(Code.focusSafe, $0) }) }
+        var ctx = context(now, config, profile: lastProfile, wake: [app.id])
+        ctx.config.allow.append(app.id)
+        // A direct request may replace a pending resume (the app is stopped anyway).
+        let blockers = Policy.skipReasons(app, ctx).filter { $0.code != Code.cpuActive && $0.code != Code.resumePending }
+        guard blockers.isEmpty else { return (nil, blockers) }
+        return (freeze(app, reasons: [Reason(Code.refreezeQuiet)], relief: reliefEstimate(app), at: now), [])
     }
 
     /// Freeze requested by another feature (Call Mode, battery target). The caller has
@@ -745,6 +879,30 @@ public final class Engine {
     }
 
     public func releaseQuarantine(_ id: String) -> Bool { state.quarantine.removeValue(forKey: id) != nil }
+
+    /// Why a canary probe may not run now: every policy check except idle time and CPU
+    /// (the user asked for it), with the app counted as allowed.
+    public func probeBlockers(_ app: AppSnapshot, at now: Double) -> [Reason] {
+        var ctx = context(now, config, profile: lastProfile, wake: [app.id])
+        ctx.config.allow.append(app.id)
+        return Policy.skipReasons(app, ctx).filter { ![Code.cpuActive, Code.notIdle, Code.quarantined].contains($0.code) }
+    }
+
+    /// Stores a probe result; a failure quarantines the app.
+    public func recordProbe(_ r: ProbeRecord) -> [Action] {
+        state.probes = (state.probes ?? [:]).merging([r.appID: r]) { _, n in n }
+        guard !r.passed else {
+            state.quarantine[r.appID] = nil
+            return []
+        }
+        let why = "failed a canary probe: \(r.failure ?? "unknown")"
+        state.quarantine[r.appID] = QuarantineEntry(appID: r.appID, name: r.name, at: r.at, reason: why)
+        return [
+            Action(
+                kind: .quarantine, appID: r.appID, name: r.name, reasons: [Reason(Code.unhealthyAfterThaw, why)], dryRun: false,
+                message: "\(r.name) \(why); it will not be paused automatically until released")
+        ]
+    }
 
     /// Remembers S4 connection state per app between inspections.
     public func connectionVerdict(_ id: String, sockets: [SocketFact], at now: Double) -> (active: Bool, serving: Bool) {

@@ -24,6 +24,12 @@ struct Options {
     var exitAfter = 0.0  // exit after N seconds; 0 = run until killed
     var lifeline: Int32 = 0  // exit when this process ends instead of when the parent changes
     var profile: Profile?  // footprint over time (leak-trend tests)
+    var capMB = 0  // stop growing (--grow-mbps, --runaway) at this total; 0 = no cap
+    var thrash = false  // re-touch random pages of the allocation without pause (page-ins under pressure)
+    var wakeMs = 0  // --waker: sleep, then every N ms wake and touch `wakePages` random pages of cold memory
+    var wakePages = 256
+    var sendAfterMs = 0  // --listen: send `sendBytes` to each accepted client after this delay
+    var sendBytes = 0
 }
 
 /// A footprint shape over time, on top of `--mb`: `rate=MB_PER_HOUR,noise=MB,step=HOURS:MB,
@@ -96,6 +102,17 @@ func parse() -> Options {
         case "--exit-after": o.exitAfter = Double(v())!
         case "--lifeline": o.lifeline = Int32(v())!
         case "--profile": o.profile = Profile(v())
+        case "--runaway":
+            // Fast growth for Panic Brake tests: 200 MB/s unless --grow-mbps says otherwise, capped.
+            if o.growMBps == 0 { o.growMBps = 200 }
+            if o.capMB == 0 { o.capMB = 4096 }
+        case "--cap-mb": o.capMB = Int(v())!
+        case "--thrash": o.thrash = true
+        case "--waker": o.wakeMs = 2000
+        case "--wake-ms": o.wakeMs = Int(v())!
+        case "--wake-pages": o.wakePages = Int(v())!
+        case "--send-after-ms": o.sendAfterMs = Int(v())!
+        case "--send-bytes": o.sendBytes = Int(v())!
         default:
             FileHandle.standardError.write("unknown option \(a)\n".data(using: .utf8)!)
             exit(2)
@@ -196,6 +213,8 @@ allocate(mb: opts.mb)
 
 // Sockets, files, locks (for Connection Guard / Write Guard tests)
 var heldFDs: [Int32] = []
+/// The --connect socket: whatever arrives is read and dropped (a client that consumes its messages).
+var connectedFD: Int32 = -1
 if let port = opts.listen {
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     var yes: Int32 = 1
@@ -213,7 +232,17 @@ if let port = opts.listen {
     Thread.detachNewThread {
         while true {
             let c = accept(fd, nil, nil)
-            if c >= 0 { heldFDs.append(c) }
+            if c >= 0 {
+                heldFDs.append(c)
+                // --send-after-ms / --send-bytes: one message to each client, later (Wake-on-Data tests).
+                if opts.sendBytes > 0 {
+                    Thread.detachNewThread {
+                        usleep(UInt32(opts.sendAfterMs) * 1000)
+                        let msg = [UInt8](repeating: 0x61, count: opts.sendBytes)
+                        _ = msg.withUnsafeBytes { send(c, $0.baseAddress, $0.count, 0) }
+                    }
+                }
+            }
         }
     }
 }
@@ -227,7 +256,9 @@ if let target = opts.connect {
     let ai = res!.pointee
     let fd = socket(ai.ai_family, ai.ai_socktype, ai.ai_protocol)
     precondition(connect(fd, ai.ai_addr, ai.ai_addrlen) == 0, "connect failed: \(errno)")
+    _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
     heldFDs.append(fd)
+    connectedFD = fd
 }
 if let path = opts.lockFile {
     let fd = open(path, O_RDWR | O_CREAT, 0o644)
@@ -249,7 +280,9 @@ let parentPID = getppid()
 var lastTouch = start
 var lastHB = start
 var lastGrow = start
+var owedMB = 0.0
 var lastProfile: UInt64 = 0
+var lastWake: UInt64 = 0
 
 func tick() {
     let t = now()
@@ -279,19 +312,50 @@ func tick() {
         touchAll()
         lastTouch = t
     }
-    if opts.growMBps > 0, Double(t - lastGrow) / 1e9 >= 1 {
-        allocate(mb: max(1, Int(opts.growMBps)))
+    if opts.growMBps > 0, Double(t - lastGrow) / 1e9 >= 0.1, opts.capMB == 0 || blockBytes.reduce(0, +) >> 20 < opts.capMB {
+        owedMB += opts.growMBps * Double(t - lastGrow) / 1e9
+        allocate(mb: Int(owedMB))
+        owedMB -= Double(Int(owedMB))
         lastGrow = t
+    }
+    if opts.wakeMs > 0, t - lastWake >= UInt64(opts.wakeMs) * 1_000_000 {
+        lastWake = t
+        for _ in 0..<opts.wakePages {
+            guard let i = blocks.indices.randomElement() else { break }
+            let bytes = blocks[i].assumingMemoryBound(to: UInt8.self)
+            bytes[Int.random(in: 0..<(blockBytes[i] / pageSize)) * pageSize] &+= 1
+        }
     }
     if let p = opts.profile, t - lastProfile >= 1_000_000_000 {
         adjustProfile(toMB: Int(p.extraMB(hours: Double(t - start) / 3.6e12 * p.speed).rounded()))
         lastProfile = t
+    }
+    if connectedFD >= 0 {
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while read(connectedFD, &buf, buf.count) > 0 {}
     }
     if let h = writeHandle {
         h.write("x".data(using: .utf8)!)
         try? h.synchronize()
     }
     if opts.exitAfter > 0, Double(t - start) / 1e9 >= opts.exitAfter { exit(0) }
+}
+
+if opts.thrash {
+    // A working set re-touched at random: under memory pressure every touch can be a page-in.
+    Thread.detachNewThread {
+        var x: UInt64 = 0x9E37_79B9_7F4A_7C15
+        while true {
+            for (p, n) in zip(blocks, blockBytes) where n > 0 {
+                x ^= x << 13
+                x ^= x >> 7
+                x ^= x << 17
+                let bytes = p.assumingMemoryBound(to: UInt8.self)
+                let off = Int(x % UInt64(n / pageSize)) * pageSize
+                bytes[off] &+= 1
+            }
+        }
+    }
 }
 
 if opts.cpu {

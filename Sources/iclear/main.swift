@@ -46,6 +46,10 @@ let installer = Installer(
     daemonPath: (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
         .resolvingSymlinksInPath().deletingLastPathComponent().appendingPathComponent("icleard").path)
 
+let brakeInstaller = Installer(
+    paths: paths, daemonPath: installer.daemonPath.replacingOccurrences(of: "/icleard", with: "/icbrake"), role: "brake")
+func brake(_ req: Request) -> Response? { IPC.send(req, path: paths.brakeSocket.path, timeout: 5) }
+
 let usage = """
     iClear pauses idle background apps under memory pressure and resumes them the moment you
     switch back. It never deletes files.
@@ -74,7 +78,9 @@ let usage = """
       stash <name> [--keep a,b] [--include a,b] [--include-heavy] [--force-unsaved] [--dry-run]
       stash [list | show <name> | drop <name>]
       pop [<name> | --all | --app <app>]
-      selftest [--quick] [--report] [--json]   check that iClear works on this Mac (2-5 min; --quick 30 s)
+      selftest [--quick] [--no-mic] [--report] [--json]
+                                       check that iClear works on this Mac (2-5 min; --quick 30 s;
+                                       --no-mic skips the call check, which uses the microphone)
       battery [target <2h30m | off>]   battery minutes per app (estimates)
       beachball [stats | log]          recorded stalls of the frontmost app and their causes
       before <app>                     will launching this app push memory pressure up?
@@ -85,6 +91,11 @@ let usage = """
       context list | status | remove <name> | switch <name> | undo | pause | resume
       context suggest [<path>] | accept | dismiss | enter <path> [branch]
       leaks [quit <app> [--yes]]       apps whose memory keeps growing while not in use (a trend, not a diagnosis)
+      probe <app> [--cycles N] [--yes]   a few short pauses of one app you approve, to see whether it survives
+      capacity [--json]                what pausing measurably changed this week (available memory, swap, headroom estimate)
+      brake observe | on | off         Panic Brake: pause the same-user culprit of a memory stall (observe records only)
+      brake status | report | resume <app | all> | quit <app>
+      blackbox [--previous] [--dismiss]   the last minutes before an unclean restart (numbers and app names only)
       bench [--quick]                  run the benchmark scenarios (spawns test processes only)
       completions [zsh | bash | fish]
       version
@@ -136,15 +147,43 @@ case "explain":
 
 case "thaw":
     let all = rest.isEmpty || rest.contains("--all")
-    if let r = daemon(Request("thaw", app: all ? "all" : rest.first)) {
+    if all {
+        // The Panic Brake keeps its own journal.
+        if let b = brake(Request("resume", app: "all")) {
+            out(b.text)
+        } else {
+            let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
+            if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
+            if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
+        }
+    }
+    // An emergency: a daemon that does not answer in 5 s is treated like one that is not running.
+    let answer = IPC.call(Request("thaw", app: all ? "all" : rest.first), path: paths.socket.path, deadline: Date(timeIntervalSinceNow: 5))
+    if case .success(let r) = answer {
         out(r.text)
+        if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
+        let why =
+            answer.failureValue == .absent
+            ? "icleard is not running" : "icleard did not answer (\(answer.failureValue.map { "\($0)" } ?? ""))"
         out(
-            "icleard is not running; thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
-                + (r.corrupt ? " (journal was corrupt: resumed every stopped app process)" : "") + ".")
+            "\(why); thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
+                + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
+        if r.pending {
+            out(
+                "iClear was busy changing something (journal locked); it was told to undo that change. Run `iclear thaw --all` again in a few seconds to confirm."
+            )
+        }
+        if r.unresolved > 0 {
+            out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
+            exit(1)
+        }
     } else {
-        fail("icleard is not running. `iclear thaw --all` works without it.")
+        fail(
+            answer.failureValue == .absent
+                ? "icleard is not running. `iclear thaw --all` works without it."
+                : "icleard did not answer. `iclear thaw --all` works without it.")
     }
 
 case "freeze":
@@ -277,6 +316,14 @@ case "install":
         guard m.ok else { fail("install stopped: the iClean install could not be migrated safely.") }
     }
     do { out(try installer.install()) } catch { fail("install failed: \(error)") }
+    // The Panic Brake starts in observe mode: it records what it would do and pauses nothing.
+    if FileManager.default.isExecutableFile(atPath: brakeInstaller.daemonPath) {
+        let canAct = paths.gated(Config.actingBrake).0.brake.mode == .on
+        let how = canAct ? "`iclear brake on` to let it act" : "this version does not let it act yet"
+        do { out(try brakeInstaller.install() + " Panic Brake: observe mode (\(how)).") } catch {
+            out("Panic Brake not installed: \(error)")
+        }
+    }
 
 case "stash":
     switch rest.first {
@@ -300,7 +347,7 @@ case "pop":
 
 case "selftest":
     let tools = installer.daemonPath.replacingOccurrences(of: "/icleard", with: "")
-    let r = Selftest.run(tools: URL(fileURLWithPath: tools), quick: rest.contains("--quick")) { line in
+    let r = Selftest.run(tools: URL(fileURLWithPath: tools), quick: rest.contains("--quick"), noMic: rest.contains("--no-mic")) { line in
         if !json { FileHandle.standardError.write(Data((line + "\n").utf8)) }
     }
     if json {
@@ -397,7 +444,118 @@ case "migrate":
     if !m.ok { exit(1) }
 
 case "uninstall":
+    out(brakeInstaller.uninstall(purge: false))
     out(installer.uninstall(purge: rest.contains("--purge")))
+
+case "probe":
+    guard let app = rest.first, !app.hasPrefix("-") else { fail("usage: iclear probe <app> [--cycles N] [--yes]") }
+    let cycles = option("--cycles")
+    if !rest.contains("--yes") {
+        guard isatty(0) == 1 else { fail("A probe needs your approval: run it in a terminal or add --yes.") }
+        print(
+            "Probe \(app): pause it \(cycles ?? "5") time(s) for a few seconds each, while it is hidden, to see whether it survives? [y/N] ",
+            terminator: "")
+        guard readLine()?.lowercased().hasPrefix("y") == true else { fail("Not probed.") }
+    }
+    guard let r = daemon(Request("probe", app: app, value: cycles)) else { fail("icleard is not running.") }
+    out(r.text)
+    guard r.ok else { exit(1) }
+    while true {
+        usleep(500_000)
+        guard let s = daemon(Request("probe", value: "status")) else { fail("icleard stopped answering.") }
+        if s.text != "running" {
+            out(s.text)
+            break
+        }
+    }
+
+case "capacity":
+    guard let r = daemon(Request("capacity", json: json)) else { fail("icleard is not running.") }
+    out(json ? (r.data ?? "{}") : r.text)
+
+case "brake":
+    let sub = rest.first ?? "status"
+    switch sub {
+    case "observe", "on", "off":
+        var c = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()
+        c.brake.mode = BrakeMode(rawValue: sub)!
+        do {
+            try paths.ensure()
+            try Files.atomicWrite(c.encoded(), to: paths.config)
+        } catch { fail("could not write \(paths.config.path): \(error)") }
+        if sub == "off" {
+            out(brakeInstaller.uninstall(purge: false))
+            out("Panic Brake off.")
+        } else {
+            if !brakeInstaller.isLoaded { out((try? brakeInstaller.install()) ?? "Panic Brake could not be installed.") }
+            let held = sub == "on" && paths.gated(c).0.brake.mode != .on
+            out(
+                held
+                    ? "Panic Brake set to on, but this build runs it observe-only: it records what it would have done and pauses nothing until its stage 5 criteria pass (docs/RELEASE_CRITERIA_v1.1.md)."
+                    : sub == "on"
+                        ? "Panic Brake on: in a memory stall it pauses the same-user app causing it (journaled, resumable)."
+                        : "Panic Brake observe mode: it records what it would have done and pauses nothing.")
+        }
+    case "status":
+        out(
+            """
+            The Panic Brake can only act on your own user-space apps and processes. It cannot fix kernel, GPU/driver or
+            WindowServer hangs, hardware faults or root-owned processes (Spotlight mds, backupd, kernel_task); then it only
+            records what it saw. A fully frozen Mac cannot be rescued.
+            """)
+        guard let r = brake(Request("status")), let d = r.data, let s = try? JSONDecoder().decode(BrakeStatus.self, from: Data(d.utf8))
+        else {
+            fail("The Panic Brake is not running (`iclear brake observe` or `iclear brake on` starts it).")
+        }
+        out(
+            String(
+                format:
+                    "Mode %@; now %@ (stall score %.2f); watchdog loop late by p50 %.2f ms, p95 %.2f ms, max %.1f ms; Black Box %d samples.",
+                s.mode.rawValue, s.state.rawValue, s.score, s.loopLatencyMs[0], s.loopLatencyMs[1], s.loopLatencyMs[2], s.blackBoxSamples))
+        out(s.pauses.isEmpty ? "Paused by the brake: none." : "Paused by the brake: " + s.pauses.map(\.name).joined(separator: ", "))
+        for line in s.plans { out("  " + line) }
+        if s.unclean { out("The Mac restarted uncleanly: see `iclear blackbox`.") }
+    case "report":
+        let entries = ActionLog.read(paths: paths, last: 10_000).filter { $0.action.reasons.contains { $0.code.hasPrefix("PANIC_") } }
+        out(
+            entries.isEmpty
+                ? "No Panic Brake events yet."
+                : entries.suffix(50).map { e in
+                    "\(Date(timeIntervalSince1970: e.t)): \(e.action.message ?? e.action.summary)"
+                }.joined(separator: "\n"))
+    case "resume", "quit":
+        guard let app = rest.dropFirst().first else { fail("usage: iclear brake \(sub) <app>\(sub == "resume" ? " | all" : "")") }
+        guard let r = brake(Request(sub, app: app)) else {
+            if sub == "resume" && app == "all" {
+                let r = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
+                out("Panic Brake not running; resumed \(r.thawed) process(es) from its journal.")
+                exit(0)
+            }
+            fail("The Panic Brake is not running.")
+        }
+        out(r.text)
+        if !r.ok { exit(1) }
+    default:
+        fail("usage: iclear brake observe | on | off | status | report | resume <app | all> | quit <app>")
+    }
+
+case "blackbox":
+    if rest.contains("--dismiss") {
+        try? FileManager.default.removeItem(at: paths.blackBoxUnclean)
+        out("Unclean-restart notice dismissed.")
+        exit(0)
+    }
+    let unclean = FileManager.default.fileExists(atPath: paths.blackBoxUnclean.path)
+    let previous = rest.contains("--previous") || unclean
+    let url = previous && FileManager.default.fileExists(atPath: paths.blackBoxPrevious.path) ? paths.blackBoxPrevious : paths.blackBox
+    guard let samples = try? Files.readJSON([BlackBoxSample].self, from: url) else {
+        fail("No Black Box file yet: it is written only while the Mac is not healthy.")
+    }
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    if unclean { out("The Mac restarted without a clean shutdown. This is what the Black Box saw before it:") }
+    out(BlackBoxReport.text(samples) { f.string(from: Date(timeIntervalSince1970: $0)) })
+    if unclean { out(BlackBox.previousShutdownCause()) }
 
 case "bench":
     let hog = installer.daemonPath.replacingOccurrences(of: "/icleard", with: "/ic-hog")

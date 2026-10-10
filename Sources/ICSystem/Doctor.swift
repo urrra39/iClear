@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import ICCore
 
-public let iclearVersion = "1.0.2"
+public let iclearVersion = "1.1.0-rc.1"
 
 /// `iclear doctor`: what this Mac is, which mechanisms work here, and daemon health.
 /// Mechanism checks only ever touch a child process the doctor starts itself.
@@ -32,6 +32,8 @@ public enum Doctor {
         public var journalCorrupt: Bool
         public var pressure: String
         public var swapUsedMB: Int
+        /// Default install only: features whose release gates have not passed (`ReleaseGates`).
+        public var heldBack: [String] = []
     }
 
     public static func mechanisms() -> Mechanisms {
@@ -89,7 +91,7 @@ public enum Doctor {
             daemonRunning: IPC.send(Request("ping"), path: paths.socket.path, timeout: 2)?.ok == true,
             launchAgentInstalled: FileManager.default.fileExists(atPath: installer.plist.path),
             journalEntries: entries, journalCorrupt: corrupt, pressure: s.pressure.name,
-            swapUsedMB: Int(s.swapUsedMB))
+            swapUsedMB: Int(s.swapUsedMB), heldBack: paths.instance == nil ? ReleaseGates.thisBuild.pending : [])
     }
 
     public static func text(_ r: Report) -> String {
@@ -112,6 +114,9 @@ public enum Doctor {
             Journal: \(r.journalCorrupt ? "CORRUPT (run `iclear thaw --all`)" : "\(r.journalEntries) frozen process(es) recorded")
             Now: pressure \(r.pressure), swap \(r.swapUsedMB) MB
             """
+                + (r.heldBack.isEmpty
+                    ? ""
+                    : "\nNot validated yet in this build, so held in their fallback modes: " + r.heldBack.joined(separator: ", ") + ".")
     }
 
     /// Anonymized block for a compatibility report: no hostname, user name, serial,
@@ -142,10 +147,14 @@ public struct Installer: Sendable {
     public let label: String
     public let daemonPath: String
 
-    public init(paths: Paths = Paths(), daemonPath: String) {
+    /// `role` "brake" installs the Panic Brake watchdog (`icbrake`) under its own label.
+    public let role: String
+
+    public init(paths: Paths = Paths(), daemonPath: String, role: String = "") {
         self.paths = paths
         self.daemonPath = daemonPath
-        label = "io.github.urrra39.iclear" + (paths.instance.map { "." + $0 } ?? "")
+        self.role = role
+        label = "io.github.urrra39.iclear" + (role.isEmpty ? "" : "." + role) + (paths.instance.map { "." + $0 } ?? "")
     }
 
     public var plist: URL { paths.launchAgents.appendingPathComponent("\(label).plist") }
@@ -163,9 +172,10 @@ public struct Installer: Sendable {
             // Restart after a crash; a clean exit (bootout, uninstall) stays down.
             "KeepAlive": ["SuccessfulExit": false],
             "ThrottleInterval": 10,
-            "ProcessType": "Adaptive",
+            // The brake must not be throttled when the Mac is struggling.
+            "ProcessType": role == "brake" ? "Interactive" : "Adaptive",
             "EnvironmentVariables": env,
-            "StandardErrorPath": paths.base.appendingPathComponent("icleard.log").path,
+            "StandardErrorPath": paths.base.appendingPathComponent(role == "brake" ? "icbrake.log" : "icleard.log").path,
         ]
         return try! PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
     }
@@ -186,14 +196,17 @@ public struct Installer: Sendable {
     public var isLoaded: Bool { Self.launchctl(["print", "\(domain)/\(label)"]).status == 0 }
 
     public func install() throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: daemonPath) else { return "icleard not found at \(daemonPath)" }
+        guard FileManager.default.isExecutableFile(atPath: daemonPath) else {
+            return "\(role == "brake" ? "icbrake" : "icleard") not found at \(daemonPath)"
+        }
         try paths.ensure()
         try FileManager.default.createDirectory(at: paths.launchAgents, withIntermediateDirectories: true)
         if isLoaded { Self.launchctl(["bootout", "\(domain)/\(label)"]) }
         try Files.atomicWrite(plistData(), to: plist)
         let r = Self.launchctl(["bootstrap", domain, plist.path])
         return r.status == 0
-            ? "Installed and started \(label) (Observe mode until you run `iclear mode active`)."
+            ? (role == "brake"
+                ? "Installed and started \(label)." : "Installed and started \(label) (Observe mode until you run `iclear mode active`).")
             : "Wrote \(plist.path) but launchctl bootstrap failed: \(r.output)"
     }
 
@@ -205,7 +218,7 @@ public struct Installer: Sendable {
             let r = Self.launchctl(["bootout", "\(domain)/\(label)"])
             l.append(r.status == 0 ? "Stopped \(label)." : "launchctl bootout: \(r.output)")
         }
-        let rec = Signals.recover(journal: JournalStore(url: paths.journal))
+        let rec = Signals.recover(journal: JournalStore(url: role == "brake" ? paths.brakeJournal : paths.journal))
         if rec.thawed > 0 { l.append("Thawed \(rec.thawed) process(es) left in the journal.") }
         if (try? FileManager.default.removeItem(at: plist)) != nil { l.append("Removed \(plist.path).") }
         if purge, (try? FileManager.default.removeItem(at: paths.base)) != nil { l.append("Deleted \(paths.base.path).") }

@@ -106,8 +106,8 @@ import Testing
         kill(appHog.pid, SIGSTOP)
         kill(plain.pid, SIGSTOP)
         try Data("{ this is not json".utf8).write(to: paths.journal)
-        let r = Signals.recover(journal: JournalStore(url: paths.journal))
-        #expect(r.corrupt && r.thawed >= 1)
+        let r = Signals.recover(journal: JournalStore(url: paths.journal), restorer: .base, send: testSender)
+        #expect(r.corrupt && r.thawed == 1)
         #expect(eventually { !isStopped(appHog.pid) })
         #expect(isStopped(plain.pid))
         kill(plain.pid, SIGCONT)
@@ -118,7 +118,7 @@ import Testing
     @Test func backgroundPriorityCrossProcess() throws {
         let h = try hog(["--cpu"])
         defer { h.kill() }
-        #expect(Signals.setBackground([h.identity!], true) == 1)
+        #expect(try Signals.setBackground([h.identity!], true) == 1)
         let ps = Process()
         ps.executableURL = URL(fileURLWithPath: "/bin/ps")
         ps.arguments = ["-M", "-p", "\(h.pid)"]
@@ -131,7 +131,7 @@ import Testing
             .split(whereSeparator: \.isWhitespace).filter { $0.last?.isLetter == true && Int($0.dropLast()) != nil }
             .compactMap { Int($0.dropLast()) }
         #expect(!pris.isEmpty && pris.allSatisfy { $0 <= 4 })
-        #expect(Signals.setBackground([h.identity!], false) == 1)
+        #expect(try Signals.setBackground([h.identity!], false) == 1)
     }
 }
 
@@ -401,6 +401,46 @@ import Testing
         }
         #expect(!d.handle(Request("bogus")).ok)
     }
+
+    /// Idle cost: a distant forecast keeps the slow tick (60 s, 30 s while something is
+    /// paused); only a near one (or pressure) speeds it up.
+    @Test func tickCadenceFollowsForecastDistance() {
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10) == 60)
+        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10) == 60)
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10, holding: true) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10, holding: true) == 30)
+        #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10, holding: true) == 5)
+        #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10) == 5)
+        #expect(Daemon.interval(for: .normal, etaWarning: 0, horizonMinutes: 10) == 5)
+        #expect(Daemon.interval(for: .warning, etaWarning: nil, horizonMinutes: 10) == 3)
+        #expect(Daemon.interval(for: .critical, etaWarning: nil, horizonMinutes: 10) == 2)
+    }
+
+    /// A forecast that is shown but never acted on (off by default) does not speed up the
+    /// tick: the 1.0 soak's Observe daemon ticked every 5 s on such an ETA.
+    @Test func disarmedForecastKeepsTheSlowTick() throws {
+        for enabled in [false, true] {
+            let probe = FakeProbe()
+            let paths = tempHome()
+            var c = Config()
+            c.mode = .observe
+            c.forecast.enabled = enabled
+            try Files.atomicWrite(c.encoded(), to: paths.config)
+            var st = EngineState(startedAt: probe.now - 86400)
+            st.forecast.warningLevels = [70, 70, 70]  // above the probe's 60% available: ETA 0
+            st.forecast.slope = 0  // a trend exists
+            try Files.writeJSON(st, to: paths.state)
+            let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
+            d.clock = { probe.now }
+            d.scheduleHealthChecks = false
+            d.sender = testSender
+            try d.start(watchdogExecutable: nil, live: false)
+            defer { d.shutdown() }
+            d.tick()
+            #expect(d.engine.lastForecast.etaWarning == 0)
+            #expect(d.interval(for: .normal) == (enabled ? 5 : 60))
+        }
+    }
 }
 
 @Suite(.serialized) struct BinaryTests {
@@ -470,6 +510,7 @@ import Testing
         let host = ProcessInfo.processInfo.hostName
         #expect(!report.contains(user) && !report.contains(host))
         #expect(run("iclear", ["completions", "zsh"]).out.contains("#compdef iclear"))
+        #expect(run("iclear", ["help"]).out.contains("--no-mic") && run("iclear", ["completions", "zsh"]).out.contains("--no-mic"))
         #expect(run("iclear", ["completions", "bash"]).out.contains("complete -F"))
         #expect(run("iclear", ["completions", "fish"]).out.contains("complete -c iclear"))
         #expect(run("iclear", ["nonsense"]).status == 1)
@@ -508,7 +549,7 @@ import Testing
             ["thaw", "--all"], ["stash"], ["stash", "list"], ["pop", "--all"], ["battery"], ["battery", "target", "off"],
             ["beachball"], ["beachball", "stats"], ["shield"], ["config", "path"], ["config", "show"],
             ["trace", "export"], ["migrate", "--dry-run"], ["context"], ["context", "list"], ["context", "status"], ["context", "pause"],
-            ["context", "resume"], ["context", "dismiss"], ["context", "suggest", "/tmp"], ["leaks"], ["hook", "zsh"],
+            ["context", "resume"], ["context", "dismiss"], ["context", "suggest", "/tmp"], ["leaks"], ["hook", "zsh"], ["capacity"],
         ]
         for args in ok {
             let r = run("iclear", args, env: env)
@@ -520,6 +561,7 @@ import Testing
             ["stash", "drop", "nope"], ["explain"], ["before"],
             ["battery", "target"], ["config", "allow"], ["trace"], ["habits", "bogus"], ["context", "switch", "nope"], ["context", "undo"],
             ["context", "accept"], ["context", "add", "~/x"], ["leaks", "quit", "nope"], ["hook"],
+            ["brake", "status"], ["brake", "bogus"], ["brake", "quit", "nope"], ["blackbox"], ["probe"], ["probe", "nope", "--yes"],
         ]
         for args in refused {
             let r = run("iclear", args, env: env)
@@ -578,7 +620,7 @@ import Testing
             "forceTerminate",
         ]
         var hits: [String] = []
-        for dir in ["ICCore", "ICSystem", "icleard", "iclear", "iClearMenu"] {
+        for dir in ["ICCore", "ICBase", "ICSystem", "icleard", "icbrake", "iclear", "iClearMenu"] {
             let url = Self.root.appendingPathComponent("Sources/\(dir)")
             guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else { continue }
             for case let f as URL in files where f.pathExtension == "swift" {

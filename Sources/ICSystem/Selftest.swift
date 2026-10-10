@@ -67,7 +67,9 @@ public enum Selftest {
 
     /// Runs every check. `tools` is the directory holding ic-hog, ic-ui-probe,
     /// ic-call-sim and icleard. `progress` receives one line per check as it starts.
-    public static func run(tools: URL, quick: Bool, progress: (String) -> Void) -> Report {
+    /// `noMic` skips the one check that records from the microphone (call detection), so no
+    /// microphone permission prompt appears.
+    public static func run(tools: URL, quick: Bool, noMic: Bool = false, progress: (String) -> Void) -> Report {
         let start = Date()
         let hw = SystemSampler.hardware()
         let home = URL(fileURLWithPath: "/tmp/iclear-selftest-\(getpid())")
@@ -170,7 +172,7 @@ public enum Selftest {
             for _ in 0..<n {
                 guard let id = f.identity else { break }
                 let before = f.framesByNumber
-                guard Signals.hide(id, appID: f.id, journal: journal, at: 0),
+                guard (try? Signals.hide(id, appID: f.id, journal: journal, at: 0)) == true,
                     Signals.freezeTree([id], appID: f.id, at: 0, journal: journal).ok
                 else { continue }
                 usleep(300_000)
@@ -339,6 +341,183 @@ public enum Selftest {
             )
         }
 
+        check("Panic Brake (isolated)") {
+            // Per-Mac calibration first: 3 s of idle readings at the watchdog's rate.
+            let reader = BrakeSignalReader()
+            var last = reader.read(t: 0, jitterMs: 0)
+            var swaps: [Double] = []
+            var decs: [Double] = []
+            var late: [Double] = []
+            for i in 1...12 {
+                let t0 = DispatchTime.now().uptimeNanoseconds
+                usleep(250_000)
+                let lateMs = max(0, Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6 - 250)
+                let s = reader.read(t: Double(i) / 4, jitterMs: lateMs)
+                swaps.append(Double(s.swapIns &- last.swapIns) * 4)
+                decs.append(Double(s.decompressions &- last.decompressions) * 4)
+                late.append(lateMs)
+                last = s
+            }
+            let real = Paths()
+            try? real.ensure()
+            try? Files.writeJSON(
+                StallCalibration.from(idleSwapIns: swaps, idleDecompressions: decs, idleJitterMs: late), to: real.brakeCalibration,
+                pretty: true)
+            guard FileManager.default.isExecutableFile(atPath: tool("icbrake")) else {
+                return (.skip, "icbrake not found next to iclear", 0)
+            }
+            guard let runaway = try? SpawnedHog(path: tool("ic-hog"), args: ["--mb", "150", "--grow-mbps", "20", "--cap-mb", "400"]),
+                let calm = try? SpawnedHog(path: tool("ic-hog"), args: ["--mb", "150"]), runaway.waitReady(), calm.waitReady(),
+                let rid = runaway.identity, let cid = calm.identity
+            else { return (.fail, "could not start ic-hog", 0) }
+            defer {
+                runaway.kill()
+                calm.kill()
+            }
+            let paths = Paths(environment: ["ICLEAR_HOME": home.appendingPathComponent("brake").path, "ICLEAR_INSTANCE": "selftest"])
+            try? paths.ensure()
+            try? JSONEncoder().encode([rid, cid]).write(to: paths.labRegistry)
+            var c = Config()
+            c.brake.mode = .on
+            try? c.encoded().write(to: paths.config)
+            let b = Process()
+            b.executableURL = URL(fileURLWithPath: tool("icbrake"))
+            b.environment = ProcessInfo.processInfo.environment.merging(
+                ["ICLEAR_HOME": paths.home.path, "ICLEAR_INSTANCE": "selftest", "ICLEAR_LAB": "1"]) { _, n in n }
+            b.standardError = FileHandle.nullDevice
+            guard (try? b.run()) != nil else { return (.fail, "could not start icbrake", 0) }
+            defer {
+                b.terminate()
+                b.waitUntilExit()
+            }
+            func ask(_ cmd: String, app: String? = nil, value: String? = nil) -> Response? {
+                IPC.send(Request(cmd, app: app, value: value), path: paths.brakeSocket.path, timeout: 5)
+            }
+            func stopped(_ h: SpawnedHog) -> Bool { Proc.bsdInfo(h.pid)?.pbi_status == UInt32(SSTOP) }
+            func within(_ seconds: Double, _ cond: () -> Bool) -> Double? {
+                let t0 = Date()
+                while Date().timeIntervalSince(t0) < seconds {
+                    if cond() { return Date().timeIntervalSince(t0) }
+                    usleep(50_000)
+                }
+                return nil
+            }
+            guard within(10, { ask("ping")?.ok == true }) != nil else { return (.fail, "icbrake did not answer", 0) }
+            _ = ask("simulate", value: "on")
+            let paused = within(8) { stopped(runaway) }
+            _ = ask("simulate", value: "off")
+            let kept = paused != nil && within(8, { (ask("status")?.data ?? "").contains("\"pauses\":[{") }) != nil && stopped(runaway)
+            _ = ask("resume", app: "all")
+            let resumed = within(3) { !stopped(runaway) } != nil
+            let untouched = !stopped(calm)
+            let ok = paused != nil && kept && resumed && untouched
+            return (
+                ok ? .pass : .fail,
+                String(
+                    format:
+                        "runaway paused %@ after a simulated stall began; kept paused when it cleared: %@; resumed: %@; other process untouched: %@",
+                    paused.map { String(format: "%.1f s", $0) } ?? "not at all (8 s)", kept ? "yes" : "no", resumed ? "yes" : "no",
+                    untouched ? "yes" : "no"), 1
+            )
+        }
+
+        check("Thrash Guard (synthetic)") {
+            // A page-in storm at warning pressure: the busiest background app is paused,
+            // the frontmost app and a chat app are not; nothing happens when it is off.
+            func run(_ enabled: Bool) -> [String] {
+                var c = Config()
+                c.mode = .active
+                c.forecast.enabled = false
+                c.thrash.enabled = enabled
+                let e = Engine(config: c, hardware: Hardware(memoryGB: 16), state: EngineState(startedAt: 0))
+                var out: [String] = []
+                for i in 0..<3 {
+                    var s = SystemSample(time: Double(i) * 30, pressure: .warning, availablePercent: 10)
+                    s.pageIns = UInt64(i) * 120_000
+                    let apps = [("com.example.waker", 400), ("com.example.front", 900), ("com.tinyspeck.slackmacgap", 900)].map {
+                        id, rate in
+                        var a = AppSnapshot(
+                            id: id, name: id, processes: [ProcessIdentity(pid: Int32(9000 + rate), startTime: 1)], residentMB: 500,
+                            cpuPercent: 20, isFrontmost: id == "com.example.front",
+                            signals: ActivitySignals(activeConnection: false, servingListener: false, recentWrite: false, lockHeld: false))
+                        a.pageIns = UInt64(i * rate * 30)
+                        return a
+                    }
+                    out += e.tick(TickInput(sample: s, apps: apps, weekday: 3, hour: 10)).actions
+                        .filter { $0.reasons.contains { $0.code == Code.thrashPageIn } }.map(\.appID)
+                }
+                return out
+            }
+            let on = run(true)
+            let off = run(false)
+            let ok = on == ["com.example.waker"] && off.isEmpty
+            return (ok ? .pass : .fail, "paused when on: \(on.isEmpty ? "none" : on.joined(separator: ", ")); when off: \(off.count)", 2)
+        }
+
+        check("Wake-on-Data (sockets)") {
+            // Two test processes on loopback (iClear itself opens no socket): a server sends
+            // 300 bytes to its client after 600 ms; the client is paused before that. The
+            // waiting bytes are visible without root and gone once the client runs again.
+            let port = Int.random(in: 49152...60999)
+            guard
+                let server = try? SpawnedHog(
+                    path: tool("ic-hog"), args: ["--listen", "\(port)", "--send-after-ms", "600", "--send-bytes", "300"]),
+                server.waitReady()
+            else { return (.skip, "could not start the test server (port \(port) busy?)", 0) }
+            defer { server.kill() }
+            guard let h = try? SpawnedHog(path: tool("ic-hog"), args: ["--connect", "127.0.0.1:\(port)"]), h.waitReady(),
+                let id = h.identity
+            else {
+                return (.fail, "could not start the test client", 0)
+            }
+            defer { h.kill() }
+            _ = Signals.send(SIGSTOP, to: id)
+            usleep(1_000_000)
+            let paused = Sockets.receiveQueued([id])
+            _ = Signals.send(SIGCONT, to: id)
+            var drained = false
+            for _ in 0..<50 where !drained {
+                usleep(20_000)
+                drained = Sockets.receiveQueued([id]).bytes == 0
+            }
+            let ok = paused.bytes == 300 && drained
+            return (
+                ok ? .pass : .fail,
+                "paused client: \(paused.bytes) bytes waiting in \(paused.sockets) socket(s); read after resume: \(drained ? "yes" : "no")",
+                1
+            )
+        }
+
+        check("canary probe (isolated)") {
+            guard let f = try? GUIFixture(probe: tool("ic-ui-probe"), dir: home, name: "SelftestCanary", frame: "200,240,320,200"),
+                let id = f.identity
+            else { return (.skip, "no GUI session (could not start a window)", 0) }
+            defer { f.kill() }
+            f.app.hide()
+            usleep(500_000)
+            var config = Config()
+            config.probe.cycles = 2
+            config.probe.pauseSeconds = 0.5
+            guard let (d, paths) = isolatedDaemon("probe", registry: [id], config: config) else {
+                return (.fail, "isolated daemon did not start", 0)
+            }
+            defer {
+                d.terminate()
+                d.waitUntilExit()
+            }
+            usleep(1_500_000)  // the daemon's first sample
+            let start = IPC.send(Request("probe", app: f.id), path: paths.socket.path, timeout: 10)
+            guard start?.ok == true else { return (.fail, "probe did not start: \(start?.text ?? "no answer")", 0) }
+            var text = "running"
+            for _ in 0..<100 where text == "running" {
+                usleep(200_000)
+                text = IPC.send(Request("probe", value: "status"), path: paths.socket.path, timeout: 5)?.text ?? "no answer"
+            }
+            let running = Proc.bsdInfo(f.pid)?.pbi_status != UInt32(SSTOP)
+            let ok = text.contains("passed 2") && running
+            return (ok ? .pass : .fail, "\(text) Running afterwards: \(running ? "yes" : "no").", 2)
+        }
+
         check("pressure sensor") {
             let level = Sysctl.int("kern.memorystatus_vm_pressure_level")
             let avail = Sysctl.int("kern.memorystatus_level")
@@ -350,6 +529,7 @@ public enum Selftest {
         }
 
         check("call detection") {
+            if noMic { return (.skip, "not run (--no-mic): it records from the microphone", 0) }
             guard let sim = try? SpawnedHog(path: tool("ic-call-sim"), args: ["--audio"]), sim.waitReady() else {
                 return (.fail, "could not start ic-call-sim", 0)
             }
@@ -409,9 +589,9 @@ public enum Selftest {
             }
             let journal = JournalStore(url: home.appendingPathComponent("shield-journal.json"))
             let normal = share()
-            Signals.setBackground([id], true, appID: "selftest", journal: journal)
+            _ = try? Signals.setBackground([id], true, appID: "selftest", journal: journal)
             let bg = share()
-            Signals.setBackground([id], false, appID: "selftest", journal: journal)
+            _ = try? Signals.setBackground([id], false, appID: "selftest", journal: journal)
             usleep(200_000)
             let restored = !Proc.isBackground(target.pid)
             return (

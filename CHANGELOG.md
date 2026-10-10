@@ -1,6 +1,40 @@
 # Changelog
 
-## Unreleased (v1.1, in development; not validated)
+## Unreleased (after 1.1.0-rc.1)
+
+- **Daemon CPU (soak W5).** A forecast ETA that is only shown, never acted on (the
+  forecast is off by default, and switches itself off over its false-alarm budget), no
+  longer forces 5 s ticks and per-app guard inspections. On the 1.0 soak's Observe data
+  it did so on every tick; see `docs/VALIDATION.md`, "Daemon overhead after the soak".
+- At normal pressure with nothing paused and no actionable forecast, the daemon samples
+  once a minute instead of every 30 s; a change of pressure level still triggers a tick
+  within a second.
+- Fewer calls per tick: rusage and path only for the user's own processes, paths kept
+  per process, the LaunchServices copy count only for apps with launchd-started helpers,
+  the Electron check once per app, the screen-sharing process scan reused for 15 s.
+- `iclear selftest --no-mic` skips the microphone check.
+
+## 1.1.0-rc.1 (release candidate; not tagged yet; lab gates not run)
+
+- **Recovery hardening.** Pause, priority band and hide are journaled before they happen,
+  under a cross-process lock that fails closed. Records stay until the change is seen
+  undone (or the process is gone). A recovery token stops late writers and stashes in
+  progress. Failed resumes show as unresolved in the engine, status, the CLI and the
+  menu. See `docs/SAFETY.md` 1.1 #1-#6.
+- **Menu.** Daemon traffic is off the main thread, with deadlines, bounded queues and
+  distinct "not running / not answering / unreadable reply" states. Resume all runs on
+  its own path. A first-run card was added (English and Uzbek).
+- **Release gates.** Until their lab criteria pass, the default install runs the Panic
+  Brake observe-only, and keeps the Black Box, Thrash Guard, Wake-on-Data and leak
+  notifications off, whatever the config says (`ReleaseGates`). Isolated instances
+  (tests, selftest, lab) keep their config. The Black Box default is now off.
+- **Capacity benchmark design** (no measurement yet): stock, Observe and Active in a
+  Williams order, an idle negative control, censoring-aware analysis
+  (`docs/BENCHMARK_PROTOCOL.md`).
+- **Version.** The CLI and artifacts read 1.1.0-rc.1; the app bundle's version fields
+  read 1.1.0, because bundle versions must be numbers.
+
+Everything below was developed for v1.1 before the candidate:
 
 - **Auto-Context Stash** (`iclear hook zsh|bash|fish|git`, `iclear context ...`): app
   groups that follow the project your terminal is in. Suggests a switch after 20 s in
@@ -22,7 +56,67 @@
   and the leak trend on synthetic series.
 - `ic-hog --profile` shapes a footprint over time (growth, noise, a step, a sawtooth
   cache, a faster clock) for the leak-trend lab.
+- **Panic Brake** (`iclear brake`, observe by default): a separate watchdog (`icbrake`,
+  no AppKit) that, in a memory stall, pauses the top-ranked same-user culprit, keeps it
+  paused if the stall clears, otherwise resumes it and tries the next (up to 3), and
+  gives up and notifies at 10 s. Journaled pauses, its own watchdog child, releases on
+  normal pressure, activation or 4 h; no force-kill. It cannot fix kernel, GPU/driver,
+  WindowServer or root-owned causes.
+- Panic Brake auto graceful quit (per-app opt-in, `brake.autoQuitApps`, off by default):
+  after `brake.autoQuitSeconds` (30 s) as the confirmed culprit, the app's own Quit; skipped
+  when it reports unsaved work; paused again if it ignores the request; never SIGKILL.
+  Shown in `iclear brake status`. Not part of the stage 5 gate (no pre-registered
+  criterion covers it).
+- **Canary probe** (`iclear probe <app> [--cycles N] [--yes]`): approved per app at the
+  prompt; only while the app is hidden, not frontmost, guard-passing and on AC; short
+  journaled pause/resume cycles checking liveness, responsiveness, connections and new
+  crash reports; a failure quarantines the app; `probe.requirePassed` (off) limits
+  automatic pauses to apps that passed; activation aborts it.
+- **Capacity Report** (`iclear capacity [--json]`, a menu line, `capacity.json`):
+  pause episodes with the measured change in available memory after 60 s, paused
+  footprint, time and regrets; a headroom-to-warning estimate with an interval; swap and
+  its 24-hour change. docs/CAPACITY.md explains what iClear can and cannot change.
+- **Wake-on-Data** (`wakeOnData.*`, off by default, opt-in per COMM/BROWSER app): a
+  paused app is resumed when data waits in its sockets' receive queues (libproc, polled
+  every 250 ms only while such an app is paused or awake) and paused again after 5 s of
+  quiet through the guarded path; above 20% resumed time it is left running; apps with no
+  sockets of their own are marked unsupported. `ic-hog --connect` now reads what arrives.
+- **Thrash Guard** (`thrash.*`, off by default): in a page-in storm with warning pressure
+  or a stall, pauses the background apps with the highest own page-in rate through the
+  journaled freeze path (`THRASH_PAGEIN`); every policy check except idle-by-CPU applies.
+  Page-ins and wakeups come from the collector's existing `proc_pid_rusage` call.
+  `ic-hog --waker` for the lab; a synthetic selftest check.
+- **Black Box** (`iclear blackbox`): the last ~5 minutes at 2 s, written only while the
+  Mac is not healthy, shown after an unclean restart.
+- ICBase: the Foundation-only parts (files, journal, signals, IPC, sampler, the brake)
+  as their own target, so the watchdog does not load AppKit.
+- Release criteria stage 5 (G1-G10, H1-H5) in docs/RELEASE_CRITERIA_v1.1.md, committed
+  before any measurement of these features.
 - The trace retention fix shipped in 1.0.1 (below).
+- Fix (also in 1.0.2): a freeze journal that could not be decoded was silently replaced by
+  the next write, and reading it moved it aside without the recovery fallback, so the
+  records of apps still paused could be lost and those apps left paused if the daemon then
+  died. A corrupt journal is now left for recovery, new pauses are refused on it, and the
+  daemon runs recovery when it meets one.
+- Persistence hardening: a state, context, capacity or Black Box file that does not decode
+  is kept aside as `<name>.corrupt-<time>` instead of being overwritten unseen; the daemon
+  and the Panic Brake rotate the shared action log under a lock; the capacity report
+  cannot show negative paused time after a clock jump. Fault-injection tests cover torn
+  files, concurrent writers, unwritable directories and clock jumps.
+- Red-team fixes: an automatic context switch due during a call, screen sharing or
+  fullscreen use ran anyway (Focus Safe Mode was not consulted); it is now only suggested.
+  Wake-on-Data paused a chat app again during a call in another app; it now waits like a
+  wake window does. The leak trend still listed an idle grower (and offered its quit
+  request) after the user brought it to the front; an app in use is no longer listed.
+  The canary probe counted a crash report of any process with the probed app's name
+  (found when a parallel test's fixture crashed); it now counts only reports of the
+  probed processes.
+- Daemon CPU, found by the 1.0 soak (daily averages of 0.73-0.97% of one core, above the
+  0.5% bound of W5): any slow decline of available memory gave the forecast an ETA and
+  switched the daemon to 5 s ticks, even for an ETA hours away; fast ticks now need an ETA
+  within three forecast horizons (30 min by default). The app scan re-read every app's
+  bundle path once per process (81 apps × 530 processes here); it now reads it once per
+  app. One tick on this Mac: 80 ms of CPU before, 39 ms after (`ic-lab cost`).
 - Release criteria: stage 4 (X1-X8, L1-L6) added before any v1.1 measurement
   (amendment 2).
 ## 1.0.2 (2026-10-03)

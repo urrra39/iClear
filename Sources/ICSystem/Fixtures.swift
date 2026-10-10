@@ -12,7 +12,7 @@ public final class GUIFixture {
     public let id: String
 
     /// `frame` is "x,y,width,height" in screen points.
-    public init(probe: String, dir: URL, name: String, frame: String, activate: Bool = false) throws {
+    public init(probe: String, dir: URL, name: String, frame: String, activate: Bool = false, extraArgs: [String] = []) throws {
         id = "io.github.urrra39.iclear.fixture.\(name)"
         bundle = dir.appendingPathComponent("\(name).app")
         outFile = dir.appendingPathComponent("\(name).log")  // *.log: ignored by Write Guard
@@ -25,7 +25,7 @@ public final class GUIFixture {
         ]
         (plist as NSDictionary).write(to: bundle.appendingPathComponent("Contents/Info.plist"), atomically: true)
         let cfg = NSWorkspace.OpenConfiguration()
-        cfg.arguments = ["--frame", frame, "--title", name, "--out", outFile.path, "--lifeline", "\(getpid())"]
+        cfg.arguments = ["--frame", frame, "--title", name, "--out", outFile.path, "--lifeline", "\(getpid())"] + extraArgs
         cfg.createsNewApplicationInstance = true
         cfg.activates = activate
         var got: NSRunningApplication?

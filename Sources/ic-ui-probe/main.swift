@@ -12,6 +12,7 @@ var title = "ic-ui-probe"
 var lockPath: String?
 var lifeline: pid_t?
 var heartbeat = false
+var onQuit = "quit"
 var it = CommandLine.arguments.dropFirst().makeIterator()
 while let a = it.next() {
     switch a {
@@ -27,6 +28,7 @@ while let a = it.next() {
         }
     case "--lifeline": lifeline = it.next().flatMap { pid_t($0) }  // exit when this process exits
     case "--heartbeat": heartbeat = true  // print every 5 ms tick (short tests only)
+    case "--on-quit": onQuit = it.next() ?? "quit"  // ignore | crash: how to answer a quit request
     default:
         FileHandle.standardError.write(Data("unknown option \(a)\n".utf8))
         exit(2)
@@ -38,6 +40,19 @@ let parent = getppid()
 let activity = ProcessInfo.processInfo.beginActivity(
     options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical], reason: "iClear lab probe")
 let app = NSApplication.shared
+
+/// Answers the app's own Quit (an Apple event): quit, refuse (`ignore`) or crash.
+final class QuitPolicy: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        switch onQuit {
+        case "ignore": return .terminateCancel
+        case "crash": abort()
+        default: return .terminateNow
+        }
+    }
+}
+let quitPolicy = QuitPolicy()
+app.delegate = quitPolicy
 app.setActivationPolicy(.regular)
 let window = NSWindow(
     contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable],

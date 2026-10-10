@@ -4,17 +4,19 @@ public enum Completions {
         "status", "why", "explain", "thaw", "freeze", "undo", "mode", "profile", "stats", "advise",
         "quarantine", "habits", "workspace", "simulate", "trace", "config", "doctor", "install",
         "uninstall", "migrate", "stash", "pop", "selftest", "battery", "beachball", "before", "compat", "shield", "hook", "context",
-        "leaks", "bench", "completions",
+        "leaks", "capacity", "probe", "brake", "blackbox", "bench", "completions",
         "version",
         "help",
     ]
     static let sub: [String: [String]] = [
-        "mode": ["observe", "active"], "profile": ["work", "batterySaver", "presentation", "dev", "auto"],
+        "mode": ["observe", "active"], "brake": ["observe", "on", "off", "status", "report", "resume", "quit"],
+        "profile": ["work", "batterySaver", "presentation", "dev", "auto"],
         "habits": ["show", "reset", "export"], "quarantine": ["release"], "trace": ["export"],
         "config": ["path", "show", "validate", "allow", "deny", "import", "export"], "thaw": ["--all"],
         "completions": ["zsh", "bash", "fish"], "doctor": ["--report"], "uninstall": ["--purge"], "migrate": ["--dry-run", "--remove-old"],
         "stash": ["list", "show", "drop", "--keep", "--include", "--include-heavy", "--force-unsaved", "--dry-run"],
-        "pop": ["--all", "--app"], "battery": ["target"], "selftest": ["--quick", "--report", "--json"], "beachball": ["stats", "log"],
+        "pop": ["--all", "--app"], "battery": ["target"], "selftest": ["--quick", "--no-mic", "--report", "--json"],
+        "beachball": ["stats", "log"],
     ]
 
     public static func script(for shell: String) -> String {

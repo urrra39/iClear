@@ -25,6 +25,8 @@ public struct Status: Codable, Sendable {
     /// Auto-Context: the current context and a switch waiting for the user.
     public var context: String?
     public var contextSuggested: String?
+    /// Apps whose resume did not take: still paused, retried (optional for older daemons).
+    public var unresolved: [UnresolvedThaw]?
 }
 
 extension Daemon {
@@ -54,7 +56,8 @@ extension Daemon {
             configError: configError, quarantined: engine.state.quarantine.values.sorted { $0.at < $1.at },
             observeSince: engine.state.startedAt,
             recentPressure: engine.recent.map(\.pressure.rawValue), recentSwapMB: engine.recent.map(\.swapUsedMB),
-            context: contextState.current, contextSuggested: contextState.suggested)
+            context: contextState.current, contextSuggested: contextState.suggested,
+            unresolved: engine.state.unresolved.map { $0.values.sorted { $0.since < $1.since } })
     }
 
     public func statusText() -> String {
@@ -65,7 +68,12 @@ extension Daemon {
         )
         if !s.focusSafe.isEmpty { l.append("Focus Safe Mode: paused (\(s.focusSafe.joined(separator: ", ")))") }
         if s.conservative { l.append("Conservative for 24 h: too many regretted freezes today.") }
-        if s.frozen.isEmpty { l.append("Nothing frozen.") }
+        if s.frozen.isEmpty, s.unresolved?.isEmpty ?? true { l.append("Nothing frozen.") }
+        for u in s.unresolved ?? [] {
+            l.append(
+                "Still paused, resume did not take: \(u.app.name) (\(u.processes.count) process(es), \(Int((clock() - u.since) / 60)) min). `iclear thaw --all` retries."
+            )
+        }
         for f in s.frozen {
             l.append(
                 "\(f.dryRun ? "Would be frozen" : "Frozen"): \(f.name) for \(Int((clock() - f.frozenAt) / 60)) min [\(f.reasons.map(\.code).joined(separator: ", "))]"
@@ -154,8 +162,13 @@ extension Daemon {
                     findApp(req.app!)?.id ?? engine.state.frozen.keys.first { $0.lowercased().contains(req.app!.lowercased()) } ?? req.app!
                 acts = engine.thaw(id, reason: Code.thawUser, at: now)
             }
-            execute(acts, immediate: true)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to thaw." : acts.map(\.summary).joined(separator: "\n"))
+            let outcomes = execute(acts, immediate: true)
+            var lines = zip(acts, outcomes).map { a, o in o.hasPrefix("failed") ? "\(a.name): \(o)" : a.summary }
+            // Everything else in the journal that no stash holds (earlier resumes that did not take).
+            let stuck = req.app == nil || req.app == "all" ? resumeJournal() : 0
+            if stuck > 0 { lines.append("\(stuck) process(es) are still paused; their records stay in the journal.") }
+            let ok = stuck == 0 && !outcomes.contains { $0.hasPrefix("failed") }
+            return Response(ok: ok, text: lines.isEmpty ? "Nothing to thaw." : lines.joined(separator: "\n"))
         case "freeze":
             // Collected now: audio, microphone and power assertions from the last tick can be
             // up to 30 s old, and a call or music that just started must still block the freeze.
@@ -167,8 +180,8 @@ extension Daemon {
             engine.noteAudio([app], at: now)
             let (a, refused) = engine.userFreeze(app, at: now)
             guard let a else { return Response(ok: false, text: "Not frozen: " + refused.map(\.description).joined(separator: ", ")) }
-            execute([a])
-            return Response(ok: true, text: a.summary)
+            let outcome = execute([a]).first ?? "ok"
+            return outcome.hasPrefix("failed") ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary)
         case "undo":
             let acts = engine.undo(at: now)
             execute(acts, immediate: true)
@@ -256,6 +269,27 @@ extension Daemon {
             return before(req.app ?? "")
         case "context":
             return handleContext(req)
+        case "probe":
+            if req.value == "status" { return probeStatus() }
+            return startProbe(req.app ?? "", cycles: req.value.flatMap(Int.init))
+        case "capacity":
+            let r = capacity.report(now: clock(), availableMB: SystemSampler.availableMB(), swapMB: engine.recent.last?.swapUsedMB ?? 0)
+            return Response(ok: true, text: r.text(), data: encode(r))
+        case "quitapp", "unsaved":
+            // For the Panic Brake, which has no AppKit: the app's own Quit (never forced), or
+            // the F7 unsaved-work signal. Same-user, unprotected, in-scope apps only.
+            guard let pid = Int32(req.value ?? ""), let info = Proc.info(pid), info.uid == getuid(),
+                !labMode || ScopeLock.permits(info.identity),
+                let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
+                !Protection.isProtectedID(app.bundleIdentifier ?? "")
+            else { return Response(ok: false, text: "unknown") }
+            if req.cmd == "unsaved" {
+                let u = UnsavedWork.check(pid)
+                return Response(ok: true, text: u == true ? "yes" : u == false ? "no" : "unknown")
+            }
+            let asked = app.terminate()
+            record("Panic Brake: asked \(app.localizedName ?? "pid \(pid)") to quit (\(asked ? "accepted" : "refused"))")
+            return Response(ok: asked, text: asked ? "asked" : "refused")
         case "leaks":
             let args = (req.value?.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
             return leaksReport(quit: args["quit"] as? String, confirm: args["yes"] as? Bool ?? false)

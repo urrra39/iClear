@@ -59,6 +59,23 @@ extension Lab {
             open();
             setInterval(() => report(state + ' connects=' + connects), 1000);
             """)
+        // Wake-on-Data: only the WebSocket, no polling, so the tab is quiet between messages.
+        files["chat.html"] =
+            """
+            <!doctype html><meta charset="utf-8"><title>iClear lab: chat</title><body><h3>iClear lab page: chat</h3>
+            <script>
+            let backoff = 1000;
+            function open() {
+              const ws = new WebSocket('ws://127.0.0.1:\(wsPort)');
+              ws.onopen = () => { backoff = 1000; ws.send(JSON.stringify({type: 'hello', name: location.hash.slice(1) || 'chrome'})); };
+              ws.onmessage = (e) => { const m = JSON.parse(e.data);
+                if (m.type === 'ping') ws.send(JSON.stringify({type: 'pong'}));
+                if (m.type === 'msg') ws.send(JSON.stringify({type: 'ack', seq: m.seq})); };
+              ws.onclose = () => { setTimeout(open, backoff); backoff = Math.min(backoff * 2, 30000); };
+            }
+            open();
+            </script></body>
+            """
         files["webrtc.html"] = page(
             "webrtc", "",
             """

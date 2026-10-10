@@ -23,6 +23,14 @@ func hog(_ args: [String] = []) throws -> SpawnedHog {
 
 func isStopped(_ pid: Int32) -> Bool { Proc.bsdInfo(pid)?.pbi_status == UInt32(SSTOP) }
 
+/// Signals only processes this test run started: its children (hogs) and GUI fixtures in
+/// a test home. Recovery's fallback scan (an unreadable journal) would otherwise resume
+/// every stopped app process of the user, including a running soak's fixtures.
+let testSender: Signals.Sender = { sig, id in
+    guard Proc.ancestors(of: id.pid).contains(getpid()) || Proc.path(id.pid).contains("/tmp/ic-t-") else { return .outOfScope }
+    return Signals.send(sig, to: id)
+}
+
 /// Waits until `cond` holds or the timeout passes.
 func eventually(_ timeout: Double = 5, _ cond: () -> Bool) -> Bool {
     let end = Date().addingTimeInterval(timeout)
@@ -40,9 +48,13 @@ final class FakeProbe: Probe {
     var session = SessionContext()
     var now = Date().timeIntervalSince1970
     var freeDiskGB = 100.0
+    var pageIns: UInt64?
 
     func sample(now: Double) -> SystemSample {
-        SystemSample(time: now, pressure: level, availablePercent: level == .normal ? 60 : 10, physicalMB: 16384, freeDiskGB: freeDiskGB)
+        var s = SystemSample(
+            time: now, pressure: level, availablePercent: level == .normal ? 60 : 10, physicalMB: 16384, freeDiskGB: freeDiskGB)
+        s.pageIns = pageIns
+        return s
     }
 
     func collect(now: Double) -> AppCollector.Result {
@@ -83,6 +95,7 @@ func testDaemon(
     let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
     d.clock = { probe.now }
     d.scheduleHealthChecks = false  // tests call healthCheck() themselves
+    d.sender = testSender
     try d.start(watchdogExecutable: nil, live: false)
     return d
 }
@@ -99,3 +112,8 @@ func run(_ exe: String, _ args: [String], env: [String: String] = [:]) -> (statu
     p.waitUntilExit()
     return (p.terminationStatus, String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
 }
+
+/// A restorer that reports every app as shown (hidden state only; the band is real).
+let shownRestorer = Signals.Restorer(
+    leaveBackground: Signals.Restorer.base.leaveBackground, inBackground: Signals.Restorer.base.inBackground,
+    requestUnhide: { _ in true }, isHidden: { _ in false })

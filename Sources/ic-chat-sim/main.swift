@@ -1,9 +1,9 @@
 // ic-chat-sim: a stand-in for a chat app and its server, on the loopback interface only.
 //
 //   ic-chat-sim server --ws-port P --http-port Q --root DIR --log FILE
-//       [--message-every 10] [--heartbeat-timeout 30]
+//       [--message-every 10] [--heartbeat-timeout 30] [--ping-every 5]
 //     WebSocket chat server: sends a numbered message to every client every N seconds,
-//     pings every 5 s, closes a client that sends nothing for the heartbeat timeout
+//     pings every 5 s (or as set), closes a client that sends nothing for the heartbeat timeout
 //     (as chat servers do), and re-sends unacknowledged messages on reconnect. It logs
 //     every send, acknowledgement (with delivery delay), connect and close as JSON lines.
 //     The HTTP port serves files from DIR, `/download?mb=N&secs=S` (a paced download)
@@ -35,6 +35,7 @@ final class ChatServer {
     let log: FileHandle
     let every: Double
     let timeout: Double
+    var pingEvery = 5
     var clients: [ObjectIdentifier: Client] = [:]
     var seq = 0
     /// Per client name: unacknowledged messages (seq, sent time).
@@ -74,7 +75,7 @@ final class ChatServer {
                 c.conn.cancel()
                 self.clients[k] = nil
             }
-            if tick % 5 == 0 { for c in self.clients.values { self.send(c.conn, ["type": "ping", "sent": n]) } }
+            if tick % self.pingEvery == 0 { for c in self.clients.values { self.send(c.conn, ["type": "ping", "sent": n]) } }
             if Double(tick).truncatingRemainder(dividingBy: self.every) == 0 {
                 self.seq += 1
                 var names = Set(self.clients.values.map(\.name))
@@ -333,6 +334,7 @@ case "server":
     let chat = ChatServer(
         logPath: opt("--log") ?? "chat.log", every: Double(opt("--message-every") ?? "10")!,
         timeout: Double(opt("--heartbeat-timeout") ?? "30")!)
+    chat.pingEvery = max(1, Int(opt("--ping-every") ?? "5")!)
     do {
         try chat.start(port: UInt16(opt("--ws-port") ?? "18765")!)
         if let hp = opt("--http-port") {

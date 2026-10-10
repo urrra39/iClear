@@ -15,6 +15,8 @@ public struct PolicyContext: Sendable {
     public var wakeRefreeze: Set<String>
     /// When each app last played audio (in memory; starts empty after a restart).
     public var lastAudioAt: [String: Double]
+    /// Apps whose resume did not take yet (still stopped); never paused automatically.
+    public var resumePending: Set<String> = []
 
     public init(
         now: Double, config: Config, profile: ProfileName = .work, lastActiveAt: [String: Double] = [:],
@@ -83,6 +85,7 @@ public enum Policy {
         if ctx.profile == .dev, devProtected(app) { r.append(Reason(Code.tierNever, "Dev profile")) }
         if app.partialTree, !allowed { r.append(Reason(Code.partialTree)) }
         if ctx.frozen.contains(app.id) { r.append(Reason(Code.alreadyFrozen)) }
+        if ctx.resumePending.contains(app.id) { r.append(Reason(Code.resumePending)) }
         if app.isFrontmost { r.append(Reason(Code.frontmost)) }
         if app.hasVisibleWindow { r.append(Reason(Code.visibleWindow)) }
 
@@ -117,9 +120,10 @@ public enum Policy {
     }
 
     /// True when only the expensive guard inspections are still unknown and everything
-    /// else passes, so the daemon knows which apps to inspect (S4 sampling cost cap).
-    public static func needsGuardInspection(_ app: AppSnapshot, _ ctx: PolicyContext) -> Bool {
-        skipReasons(app, ctx, requireInspection: false).isEmpty
+    /// else passes (apart from the codes in `ignoring`), so the daemon knows which apps to
+    /// inspect (S4 sampling cost cap).
+    public static func needsGuardInspection(_ app: AppSnapshot, _ ctx: PolicyContext, ignoring: Set<String> = []) -> Bool {
+        skipReasons(app, ctx, requireInspection: false).allSatisfy { ignoring.contains($0.code) }
             && (app.signals.activeConnection == nil || app.signals.recentWrite == nil)
     }
 

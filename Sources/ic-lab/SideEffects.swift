@@ -135,7 +135,7 @@ extension Lab {
         func reasonsOf(_ text: String) -> [String] {
             text.split(whereSeparator: { !($0.isLetter || $0 == "_") }).map(String.init).filter { $0.hasPrefix("SKIP_") }
         }
-        /// Waits until the daemon lists the app (it samples every 30 s at normal pressure).
+        /// Waits until the daemon lists the app (it samples every 60 s at normal pressure).
         func waitVisible(_ id: String) -> Bool {
             for _ in 0..<45 {
                 let r = IPC.send(Request("explain", app: id), path: paths.socket.path, timeout: 10)

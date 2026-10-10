@@ -174,8 +174,10 @@ extension Daemon {
     func contextCheck() {
         let now = Date().timeIntervalSince1970
         let mode: Mode = observeOnly ? .observe : engine.config.mode
+        // Fresh: a call or screen share may have started since the last tick.
+        let focus = !focusSafeReasons(session: probe.collect(now: now).session, profile: engine.lastProfile).isEmpty
         let decision = ContextTracker.decide(
-            &contextState, now: now, rules: engine.config.contexts, settings: engine.config.context, mode: mode)
+            &contextState, now: now, rules: engine.config.contexts, settings: engine.config.context, mode: mode, focusSafe: focus)
         switch decision {
         case .none:
             break

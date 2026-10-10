@@ -94,6 +94,8 @@ public enum LeakTrend {
     public static func analyze(appID: String, name: String, samples: [FootprintSample], now: Double, settings: LeakSettings)
         -> LeakFinding?
     {
+        // An app in use now is not reported (nor offered a quit request), however it grew before.
+        if samples.max(by: { $0.t < $1.t })?.active == true { return nil }
         let idle = samples.filter { !$0.active && now - $0.t <= 3 * 3600 }.sorted { $0.t < $1.t }
         guard idle.count >= settings.minSamples, let first = idle.first, let last = idle.last,
             last.t - first.t >= settings.minHours * 3600

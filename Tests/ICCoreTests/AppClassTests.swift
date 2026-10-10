@@ -10,6 +10,9 @@ import Testing
         #expect(AppClass.of("com.spotify.client") == .media)
         #expect(AppClass.of("com.google.Chrome") == .browser)
         #expect(AppClass.of("com.example.editor") == .other)
+        // The lab's chat fixtures; other fixtures stay "other".
+        #expect(AppClass.of("io.github.urrra39.iclear.fixture.comm.Chat") == .comm)
+        #expect(AppClass.of("io.github.urrra39.iclear.fixture.Waker") == .other)
         // Every COMM and MEDIA app is Tier S by default: observed, never paused.
         for id in AppClass.commIDs.union(AppClass.mediaIDs) { #expect(Protection.defaultTier(for: id) == .never, "\(id)") }
         #expect(Protection.defaultTier(for: "com.google.Chrome") == .auto)

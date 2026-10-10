@@ -29,8 +29,11 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
         "com.apple.Safari", "app.zen-browser.zen", "com.kagi.kagimacOS",
     ]
 
+    /// The lab's chat fixtures (a bundle-ID prefix this project owns) count as chat apps.
+    static let labCommPrefix = "io.github.urrra39.iclear.fixture.comm."
+
     public static func of(_ id: String) -> AppClass {
-        if commIDs.contains(id) { return .comm }
+        if commIDs.contains(id) || id.hasPrefix(labCommPrefix) { return .comm }
         if mediaIDs.contains(id) { return .media }
         if browserIDs.contains(id) { return .browser }
         return .other

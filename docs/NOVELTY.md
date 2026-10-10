@@ -155,6 +155,50 @@ samples when the app is not in use, with step and sawtooth rejection, an interva
 rate, and notifications that ship only after a pre-registered false-alarm check. Not
 found is not proof of absence.
 
+## Panic Brake and Black Box (2026-10-02)
+
+Queries run on 2026-10-02, each result's page read where it mattered: "earlyoom github
+README kill process low memory before OOM"; "macOS memory pressure watchdog pause runaway
+process SIGSTOP automatically swap death spiral"; "MemoryShield macOS memory app";
+"Canaryd macOS"; "macOS record system state before crash unclean restart black box
+diagnostic tool memory pressure timeline".
+
+| Project | What it does (from its README, gist or pull request) | Difference |
+|---|---|---|
+| [earlyoom](https://github.com/rfjakob/earlyoom) (Linux) | Checks available memory and swap up to 10 times a second; below 10% it sends SIGTERM to the process with the highest `oom_score`, SIGKILL at half that; locks its memory with `mlockall`; about 2 MiB resident. | The concept. macOS has no `mlockall`; the Panic Brake pauses (reversible, journaled) instead of killing. |
+| [memory_guard.py](https://gist.github.com/jlevy/5b43e0d44166b9c7fe8157ee938cb0d5) | macOS sidecar attached with `--pid` or `--pattern`: watches reclaimable memory, pressure level and compressor slope, confirms for 2 s, pauses spawners (SIGSTOP), then sheds workers (SIGTERM, SIGKILL); modes observe, rehearse, pause-only, full. | Closest in method. It acts on trees you name and can kill; the Panic Brake ranks all of your trees, does not kill, resumes a wrong guess, and records what it cannot reach. |
+| [turnstile](https://github.com/mcclowes/turnstile/pull/32) | Job runner (PR merged 2026-09-20): a job over its memory limit is paused with SIGSTOP under pressure, and terminated (SIGTERM, then SIGKILL) only if pressure lasts 15 s. | Its own jobs only. |
+| [mac-memory-guard](https://github.com/TomGranot/mac-memory-guard), [macos-ram-guardian](https://github.com/shadownrx/macos-ram-guardian) | Warn before a memory freeze and let you quit apps; quit allowlisted idle apps gracefully. | Quit, not pause; no culprit test. |
+| [Canaryd](https://github.com/ThaddeusJiang/canaryd) | A developer-Mac health monitor every 5 minutes: stalled services, Simulators, heat, idle memory, synthetic probes, quiet restarts. | Minutes, not seconds; restarts, not pauses. |
+| MemoryShield, user-written watchdog scripts | See the 1.0 audit above; ad-hoc scripts around `memory_pressure` or `vm_stat`. | No ranking, journal or recovery found in those we read. |
+| macOS itself | Panic reports and crash reports after a kernel panic. | Not a user-readable timeline of memory pressure and app growth before an unclean restart. |
+
+As of 2026-10-02, we did not find in these projects or searches a macOS tool that, in a
+memory stall, ranks all of the user's process trees, pauses the top one reversibly
+(journaled, with a watchdog), checks whether the stall clears and otherwise tries the
+next; nor a user-level black box of the minutes before an unclean restart. Not found is
+not proof of absence.
+
+## Re-check of every compared project (2026-10-03)
+
+Each page re-read on 2026-10-03; all were reachable and match the rows above and in the
+README: amphetamine (Apple Silicon; quit requests, reversible deprioritizing, cache
+clearing), ShiftPlus (hotkey workspaces that close or hide other apps), Bunch (text files
+that open and close apps, from a menu), Commute (profiles opening and closing apps by
+shortcut), Ikuna (close and restore workspaces by shortcut, "under three seconds" by the
+publisher), ContextResume (per-branch notes; no apps), direnv (per-directory environment),
+AppHalt (pause and resume chosen apps), MacFreeze (freezes apps after inactivity),
+wintertime (freezes background apps until you interact with them), SceneShift (Windows
+terminal tool), WattMate (per-app watts as battery minutes), MemoryShield (per-process
+memory, can terminate over thresholds), RamRadar (1 GB and 50% growth, then stops the
+program), Mac Performance Monitor (menu-bar logging and observations), Canaryd (developer
+Mac watchdog that recovers stalled services and simulators), Chrome
+([Energy Saver freezing](https://developer.chrome.com/blog/freezing-on-energy-saver): from
+Chrome 133, hidden and silent CPU-heavy tabs after five minutes). New conceptual reference:
+Windows [ControlChannelTrigger](https://learn.microsoft.com/en-us/uwp/api/Windows.Networking.Sockets.ControlChannelTrigger?view=winrt-22621)
+lets a suspended app keep a TCP connection and be woken when data arrives; Wake-on-Data
+follows the idea on macOS from outside the app. Absence of evidence is not proof.
+
 ## What the README may say
 
 Only dated, evidence-backed statements of the form "as of 2026-09-30, we did not find

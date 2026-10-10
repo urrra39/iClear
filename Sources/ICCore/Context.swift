@@ -186,10 +186,11 @@ public enum ContextTracker {
         return max(p.since + settings.dwellSeconds, cooldownEnd)
     }
 
-    /// Decides once the dwell time (and any cooldown) is over.
-    public static func decide(_ s: inout ContextState, now: Double, rules: [ContextRule], settings: ContextSettings, mode: Mode)
-        -> ContextDecision
-    {
+    /// Decides once the dwell time (and any cooldown) is over. During a call, screen
+    /// sharing or fullscreen use (`focusSafe`) an automatic switch is only suggested.
+    public static func decide(
+        _ s: inout ContextState, now: Double, rules: [ContextRule], settings: ContextSettings, mode: Mode, focusSafe: Bool = false
+    ) -> ContextDecision {
         guard let due = dueAt(s, settings: settings), now >= due, let p = s.pending,
             let rule = rules.first(where: { $0.name == p.name })
         else { return .none }
@@ -202,7 +203,7 @@ public enum ContextTracker {
             s.lastSwitch = ContextSwitchRecord(from: from, to: rule.name, at: now, stashed: [], popped: [])
             return .wouldSwitch(from: from, to: rule.name)
         case .active:
-            if rule.auto { return .switchNow(from: from, to: rule.name) }
+            if rule.auto && !focusSafe { return .switchNow(from: from, to: rule.name) }
             if s.suggested == rule.name { return .none }
             s.suggested = rule.name
             return .suggest(from: from, to: rule.name)

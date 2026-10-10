@@ -24,7 +24,7 @@
 | `ICSystem` | Sampler, process table, app collector, inspector, signals, journal store, IPC, daemon runtime, doctor, installer, bench | yes |
 | `icleard` | Daemon entry point; also the watchdog (`--watchdog <pid>`) | |
 | `iclear` | CLI | |
-| `iClearMenu` | Menu-bar app (macOS 13+ `MenuBarExtra`) | |
+| `iClearMenu` | Menu-bar app (macOS 13+ `MenuBarExtra`). All daemon traffic goes through `DaemonClient` (ICSystem), never on the main thread: refreshes are coalesced and bounded by a 4 s end-to-end deadline, actions run one at a time in order and are never retried, and "Resume all" has its own lane (3 s deadline, then the journals) | |
 | `ic-hog` | Test process: memory, CPU, sockets, files, locks, heartbeats, crash/hang after SIGCONT | |
 | `ic-ui-probe` | Test GUI app: a 5 ms main-thread timer that reports stalls, used by the selftest, GUI tests and the lab | |
 | `ic-call-sim` | Test "call": microphone input through AudioQueue plus a 10 ms timer whose jitter is reported | |
@@ -76,6 +76,39 @@
   lower 95% bound above zero, both halves growing at a third of the overall rate or
   more (a single step fails this), no sawtooth (two drops of over 20%), and growth in
   the last hour. Notifications (off by default) are limited to one per app per day.
+
+- **Canary probe** (`ICCore.ProbeVerdict`, `ICSystem` `ProbeOps`): the daemon checks the
+  conditions and `Engine.probeBlockers` on the main queue, then runs the cycles on a
+  background queue (journaled `freezeTree`/`thawTree`); an activation aborts it; the result
+  is stored in `EngineState.probes` and a failure becomes a quarantine entry.
+- **Capacity Report** (`ICCore.CapacityLedger`): the daemon records each successful
+  pause (with available memory before), samples available memory, swap and pressure each
+  tick, ends an episode when none of its apps is paused, and counts activations within
+  10 minutes as regrets; saved with the state as `capacity.json` (atomic write).
+- **Wake-on-Data** (`ICCore.WakeOnData`, `ICBase.Sockets`, `ICSystem` `WakeOps`): a main
+  queue timer at `wakeOnData.pollMs` runs only while a covered app is paused or awake;
+  each poll sums the receive queues of the app's TCP and UDP sockets; a wake is an engine
+  thaw (`WAKE_DATA_RX`, not a regret); the re-pause takes a fresh snapshot, inspects
+  guards and goes through `Engine.refreezeAfterWake` (all checks but idle time and the
+  post-thaw cooldown).
+- **Thrash Guard** (`ICCore.ThrashRates`, `Engine.thrashRound`): the engine feeds the
+  daemon's samples into the shared `StallDetector`; an episode is a page-in storm with
+  warning pressure or a stall on `thrash.sustainTicks` consecutive ticks. Per-app page-in
+  and wakeup rates come from counters the collector reads in its existing
+  `proc_pid_rusage` call. Offenders go through `Policy.skipReasons` (all codes except
+  idle-by-CPU) and the normal freeze action.
+- **Panic Brake** (`ICCore.StallDetector`, `CulpritRanker`, `BrakeLadder`;
+  `ICBase.BrakeAgent`; `icbrake`): a Foundation-only process with its own LaunchAgent
+  (`io.github.urrra39.iclear.brake`, ProcessType Interactive), journal
+  (`brake-journal.json`), socket (`icbrake.sock`) and watchdog child. A time-constraint
+  thread reads allocation-free signals every 250 ms into the one stall detector; the
+  main queue ranks process trees from the process table once a second while not
+  healthy, runs the ladder, releases pauses and flushes the Black Box. The daemon
+  forwards activations (front app) over IPC.
+- **Black Box** (`ICCore.BlackBoxRing`, `BlackBoxMarker`): 150 samples at 2 s, written to
+  `blackbox.json` atomically while the Mac is not healthy (≤ 1 MB); `blackbox-marker.json`
+  records the boot and whether it ended cleanly; after an unclean restart the file moves
+  to `blackbox-previous.json` and `blackbox-unclean.json` marks the notice.
 
 Floor: macOS 13 for everything (see [DECISIONS.md](DECISIONS.md) #19). Older MacBooks
 are limited to the macOS versions they can run; a MacBook that cannot run macOS 13

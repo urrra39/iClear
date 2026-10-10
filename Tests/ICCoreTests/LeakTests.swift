@@ -53,6 +53,11 @@ import Testing
         // Growth only while the app is in use.
         let used = series(hours: 3, active: { _ in true }, { 500 + 100 * $0 })
         #expect(LeakTrend.analyze(appID: "a", name: "A", samples: used, now: 3 * 3600, settings: settings) == nil)
+        // Red team: an idle grower the user suddenly brings to the front is no longer reported.
+        let suddenlyUsed = series(hours: 3, active: { $0 > 2.95 }, { 800 + 60 * $0 })
+        #expect(LeakTrend.analyze(appID: "a", name: "A", samples: suddenlyUsed, now: 3 * 3600, settings: settings) == nil)
+        let idleOnly = series(hours: 3) { 800 + 60 * $0 }
+        #expect(LeakTrend.analyze(appID: "a", name: "A", samples: idleOnly, now: 3 * 3600, settings: settings) != nil)
         // Too little data: under 2 hours, or under 12 samples.
         #expect(
             LeakTrend.analyze(appID: "a", name: "A", samples: series(hours: 1.5) { 500 + 100 * $0 }, now: 1.5 * 3600, settings: settings)

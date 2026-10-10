@@ -17,14 +17,6 @@ public final class LiveProbe: Probe {
     public func collect(now: Double) -> AppCollector.Result { collector.collect(now: now) }
 }
 
-/// A user-visible event for the menu app (notifications are posted there).
-public struct DaemonEvent: Codable, Sendable {
-    public var t: Double
-    public var title: String
-    public var body: String
-    public var appID: String?
-}
-
 /// The daemon runtime. Everything runs on the main queue; the engine is not thread-safe.
 public final class Daemon {
     public let paths: Paths
@@ -52,6 +44,8 @@ public final class Daemon {
     var observers: [NSObjectProtocol] = []
     var lastLevel: PressureLevel = .normal
     public var clock: () -> Double = { Date().timeIntervalSince1970 }
+    /// Signal sender for freezes and resumes (tests inject failures).
+    var sender: Signals.Sender = Signals.liveSender
     /// `ICLEAR_OBSERVE_ONLY=1`: this instance records what it would do and never acts,
     /// whatever its config says (the real-use trace during the soak).
     public var observeOnly = ProcessInfo.processInfo.environment["ICLEAR_OBSERVE_ONLY"] == "1"
@@ -80,11 +74,21 @@ public final class Daemon {
     var contextState = ContextState()
     var contextTimer: DispatchSourceTimer?
     var footprints = FootprintHistory()
+    /// Capacity Report: pause episodes and what they measurably changed (capacity.json).
+    var capacity = CapacityLedger()
+    /// Wake-on-Data state and its poll timer (only while a covered app is paused or awake).
+    var wake = WakeOnData(settings: WakeOnDataSettings())
+    var wakeTimer: DispatchSourceTimer?
+    var wakeUnsupported: Set<String> = []
+    /// The canary probe in progress or last finished.
+    var probeRun: ProbeRun?
     var lastLeakCheck = 0.0
     /// Tests run health checks by hand instead of on timers.
     public var scheduleHealthChecks = true
     /// Test hook: called after every executed action.
     public var onAction: ((Action, String) -> Void)?
+    /// Test hook: called before each app of a stash (index in hiding order).
+    var stashStepHook: ((Int) -> Void)?
 
     public init(paths: Paths = Paths(), probe: Probe = LiveProbe(), hardware: Hardware = SystemSampler.hardware()) throws {
         self.paths = paths
@@ -102,6 +106,7 @@ public final class Daemon {
         battery =
             ((try? Files.readJSON(BatteryState.self, from: paths.base.appendingPathComponent("battery.json"))) ?? nil) ?? BatteryState()
         contextState = ((try? Files.readJSON(ContextState.self, from: contextURL)) ?? nil) ?? ContextState()
+        capacity = ((try? Files.readJSON(CapacityLedger.self, from: paths.capacity)) ?? nil) ?? CapacityLedger()
     }
 
     /// Loads the config, creating the default (Observe mode) on first run. An invalid
@@ -112,7 +117,7 @@ public final class Daemon {
             return (Config(), nil)
         }
         do {
-            return (try Config.load(json: data).0, nil)
+            return (paths.gated(try Config.load(json: data).0).0, nil)
         } catch {
             return (Config(), "\(error)")
         }
@@ -138,11 +143,18 @@ public final class Daemon {
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { throw StartError.alreadyRunning }
         if labMode { ScopeLock.load(paths.labRegistry) }
         enforceObserveOnly()
-        let rec = Signals.recover(journal: journal)
-        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 {
+        let rec = Signals.recover(journal: journal, restorer: .appKit, send: sender)
+        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 || rec.unresolved > 0 {
             record(
                 "Recovered from a previous run: thawed \(rec.thawed), stale \(rec.stale), restored \(rec.restored)"
-                    + (rec.corrupt ? ", journal was corrupt" : ""))
+                    + (rec.unresolved > 0 ? ", \(rec.unresolved) record(s) unresolved and kept" : "")
+                    + (rec.corrupt ? ", journal was unreadable" : ""))
+        }
+        if rec.unresolved > 0 {
+            notify(
+                title: "Some processes could not be resumed",
+                body: "\(rec.unresolved) record(s) from the last run are still in the journal. `iclear thaw --all` tries again.",
+                appID: nil)
         }
         if rec.stashesDropped > 0 {
             notify(
@@ -151,10 +163,15 @@ public final class Daemon {
                     "\(rec.stashesDropped) stash(es) did not survive iClear stopping (restart, crash or reboot). Their apps were resumed.",
                 appID: nil)
         }
-        // Frozen entries in the saved state were just thawed by recovery.
+        // Frozen entries in the saved state were just thawed by recovery (what recovery
+        // could not resume is still stopped: those apps stay unresolved).
         for id in engine.state.frozen.keys.sorted() where engine.state.frozen[id]?.dryRun == false {
+            let f = engine.state.frozen[id]!
             engine.thaw(id, reason: Code.thawRecovery, at: clock())
+            let still = f.processes.filter { p in Proc.startTime(p.pid) == p.startTime && Proc.bsdInfo(p.pid)?.pbi_status == UInt32(SSTOP) }
+            if !still.isEmpty { engine.thawFailed(id, stillStopped: still, at: clock()) }
         }
+        reconcileUnresolved()
         self.watchdogExecutable = watchdogExecutable
         startWatchdog()
         ipc = IPCServer(path: paths.socket.path) { [weak self] in self?.handle($0) ?? Response(ok: false, text: "shutting down") }
@@ -173,7 +190,7 @@ public final class Daemon {
         pressureSource?.cancel()
         execute(engine.thawAll(reason: reason, at: clock()), immediate: true)
         // Anything the engine did not know about (should be nothing) is thawed from the journal.
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
         ipc?.stop()
         watchdog?.terminate()
@@ -230,7 +247,7 @@ public final class Daemon {
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
     }
 
@@ -270,9 +287,23 @@ public final class Daemon {
         pressureSource = m
     }
 
+    /// The ETA the policy may act on: none while the forecast is disarmed (off by default,
+    /// or over its false-alarm budget), when it is shown but never acted on.
+    var actionableETA: Double? { engine.lastForecast.armed ? engine.lastForecast.etaWarning : nil }
+
     func interval(for level: PressureLevel) -> Double {
+        Self.interval(
+            for: level, etaWarning: actionableETA, horizonMinutes: engine.config.forecast.horizonMinutes,
+            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty)
+    }
+
+    /// Fast ticks only while the forecast sees warning within three horizons: any slow
+    /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
+    /// Otherwise 30 s while something is paused (`holding`) and one tick a minute when not:
+    /// a change of pressure level still ticks at once (1 s poll).
+    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false) -> Double {
         switch level {
-        case .normal: return engine.lastForecast.etaWarning != nil ? 5 : 30
+        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : 60
         case .warning: return 3
         case .critical: return 2
         }
@@ -326,6 +357,7 @@ public final class Daemon {
         lastLevel = sample.pressure
         r.apps = visibleApps(r.apps)
         stashLifecycle()
+        reconcileUnresolved()
 
         if let pct = sample.batteryPercent, sample.onBattery, let last = lastBatteryPercent,
             last > engine.config.lowBatteryPercent, pct <= engine.config.lowBatteryPercent
@@ -337,12 +369,14 @@ public final class Daemon {
         // S4 guards cost syscalls per descriptor, so only inspect when iClear may act.
         let horizon = engine.config.forecast.horizonMinutes
         let mayAct =
-            sample.pressure >= .warning || (engine.lastForecast.etaWarning.map { $0 <= horizon } ?? false)
+            sample.pressure >= .warning || (actionableETA.map { $0 <= horizon } ?? false)
             || engine.state.wakeRefreezeAt.values.contains { $0 <= now }
+            || (engine.config.thrash.enabled && engine.thrashTicks > 0)
         if mayAct {
             let ctx = engine.eligibilityContext(at: now)
             var inspected = 0
-            for i in r.apps.indices where inspected < 12 && Policy.needsGuardInspection(r.apps[i], ctx) {
+            for i in r.apps.indices
+            where inspected < 12 && (Policy.needsGuardInspection(r.apps[i], ctx) || engine.needsThrashInspection(r.apps[i], ctx)) {
                 AppCollector.inspectGuards(&r.apps[i], engine: engine, now: now)
                 inspected += 1
             }
@@ -359,6 +393,10 @@ public final class Daemon {
         batteryTick(r.apps, now: now)
         leaksTick(now: now)
         execute(result.actions)
+        capacity.noteSample(
+            availableMB: SystemSampler.availableMB(), swapMB: sample.swapUsedMB, pressure: sample.pressure.rawValue,
+            frozen: Set(engine.state.frozen.filter { !$0.value.dryRun }.keys), now: now)
+        scheduleWakePoll()
         if now - lastSave >= 60 { saveState() }
         tickTimer?.schedule(deadline: .now() + interval(for: sample.pressure))
     }
@@ -382,7 +420,8 @@ public final class Daemon {
     public func reloadConfig() -> String? {
         guard let data = try? Data(contentsOf: paths.config) else { return "config file missing" }
         do {
-            let (c, warnings) = try Config.load(json: data)
+            let (loaded, warnings) = try Config.load(json: data)
+            let c = paths.gated(loaded).0
             engine.config = c
             enforceObserveOnly()
             traces.update(settings: c.trace)
@@ -400,15 +439,24 @@ public final class Daemon {
     public func saveState() {
         lastSave = clock()
         try? Files.writeJSON(engine.state, to: paths.state)
+        try? Files.writeJSON(capacity, to: paths.capacity)
     }
 
     // MARK: Thaw path
 
     /// Activation handler. SIGCONT goes out before any other work.
     public func handleActivation(pid: Int32, bundleID: String?, name: String) {
+        // The Panic Brake (no AppKit of its own) learns the front app and releases its pauses on activation.
+        let brakeSocket = paths.brakeSocket.path
+        DispatchQueue.global(qos: .utility).async { _ = IPC.send(Request("activated", value: "\(pid)"), path: brakeSocket, timeout: 1) }
         if let id = bundleID {
             ContextTracker.noteActivation(&contextState, appID: id)
             footprints.noteFront(id, at: clock())
+        }
+        if let id = bundleID { wake.forget(id) }
+        if let run = probeRun, run.result == nil, run.appID == bundleID || run.processes.contains(where: { $0.pid == pid }) {
+            run.abort()
+            for p in run.processes { _ = Signals.send(SIGCONT, to: p) }
         }
         if popOnActivation(pid: pid, bundleID: bundleID) { return }
         let frozen = engine.state.frozen
@@ -418,6 +466,8 @@ public final class Daemon {
         var thawStart: Double?
         if let appID, let f = frozen[appID], !f.dryRun {
             for id in f.processes { _ = Signals.send(SIGCONT, to: id) }
+            capacity.noteActivationThaw(appID: appID, now: clock())
+            wake.forget(appID)
             thawStart = clock()
             measureThawLatency(appID: appID, name: f.name, root: f.processes.first, since: thawStart!)
         }
@@ -448,28 +498,37 @@ public final class Daemon {
 
     // MARK: Executing actions
 
-    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) {
+    /// Runs actions; returns the outcomes of those run now (delayed thaws report later).
+    @discardableResult
+    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) -> [String] {
+        var out: [String] = []
         for a in actions {
             if a.kind == .thaw, a.delaySeconds > 0, !immediate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + a.delaySeconds) { [weak self] in self?.perform(a, thawStartedAt: nil) }
             } else {
-                perform(a, thawStartedAt: thawStartedAt)
+                out.append(perform(a, thawStartedAt: thawStartedAt))
             }
         }
+        return out
     }
 
-    func perform(_ a: Action, thawStartedAt: Double?) {
+    @discardableResult
+    func perform(_ a: Action, thawStartedAt: Double?) -> String {
         let now = clock()
         var outcome = a.dryRun ? "observe" : "ok"
         if !a.dryRun {
             switch a.kind {
             case .freeze:
-                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal)
-                if !r.ok, r.error?.contains("corrupt") == true {
+                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal, send: sender)
+                if r.ok {
+                    let mb = lastApps.first { $0.id == a.appID }?.footprintMB ?? 0
+                    capacity.noteFreeze(appID: a.appID, footprintMB: mb, availableMB: SystemSampler.availableMB(), now: now)
+                }
+                if !r.ok, r.error?.contains("corrupt") == true || r.error?.contains("cannot be read") == true {
                     // Nothing new is paused on a journal that cannot be read; recovery resumes
-                    // every stopped app process and moves the damaged file aside.
-                    let rec = Signals.recover(journal: journal)
-                    record("The freeze journal was corrupt: resumed \(rec.thawed) process(es) and kept the file aside.")
+                    // every stopped app process and moves a damaged file aside.
+                    let rec = Signals.recover(journal: journal, restorer: .appKit, send: sender)
+                    record("The freeze journal could not be read: resumed \(rec.thawed) process(es); the file was kept.")
                 }
                 if !r.ok {
                     outcome = "failed: \(r.error ?? "unknown")"
@@ -477,13 +536,24 @@ public final class Daemon {
                 }
             case .thaw:
                 let before = lastApps.first { $0.id == a.appID }?.residentMB
-                let results = Signals.thawTree(a.processes, journal: journal)
-                if results.allSatisfy({ $0 == .stale }) { outcome = "already gone" }
+                let results = Signals.thawTree(a.processes, journal: journal, send: sender)
+                let stuck = zip(a.processes, results).filter { !$0.1.resolved }.map(\.0)
+                if !stuck.isEmpty {
+                    outcome = "failed: \(stuck.count) process(es) still paused; kept in the journal, retrying"
+                    let g = engine.thawFailed(a.appID, stillStopped: stuck, at: now)
+                    retryResume(stuck, appID: a.appID, name: a.name, generation: g, attempt: 0)
+                } else if results.allSatisfy({ $0 == .stale }) {
+                    outcome = "already gone"
+                }
                 if outcome == "ok", scheduleHealthChecks { scheduleHealthCheck(a, startedAt: thawStartedAt ?? now, residentBefore: before) }
             case .deprioritize:
-                outcome = "\(Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                do {
+                    outcome = "\(try Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                } catch {
+                    outcome = "failed: journal write failed: \(error)"
+                }
             case .restorePriority:
-                outcome = "\(Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) processes"
+                outcome = "\((try? Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) ?? 0) processes"
             case .requestQuit:
                 let root = a.processes.first?.pid ?? 0
                 outcome = NSRunningApplication(processIdentifier: root)?.terminate() == true ? "requested" : "refused"
@@ -494,6 +564,75 @@ public final class Daemon {
         ActionLog.append(ActionLogEntry(t: now, action: a, outcome: outcome), paths: paths)
         traces.write(.action(a, at: now))
         onAction?(a, outcome)
+        return outcome
+    }
+
+    /// Delays before retrying a resume that did not take (bounded; then recovery's turn).
+    static let resumeRetryDelays = [1.0, 5, 30]
+
+    /// Retries a resume that did not take, while `generation` is still the engine's
+    /// current one for the app (a new deliberate pause or a stash replaces it). After the
+    /// last attempt the app stays unresolved: shown in status, kept in the journal, and
+    /// retried by `iclear thaw --all`, recovery and a restart; the user is told once.
+    func retryResume(_ ids: [ProcessIdentity], appID: String, name: String, generation: Int, attempt: Int) {
+        guard attempt < Self.resumeRetryDelays.count else {
+            record("Could not resume \(ids.count) process(es) of \(name); they stay in the journal.")
+            notify(
+                title: "Could not resume \(name)",
+                body: "\(ids.count) process(es) are still paused. `iclear thaw --all` tries again; so does restarting iClear.",
+                appID: appID)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resumeRetryDelays[attempt]) { [weak self] in
+            self?.retryResumeNow(ids, appID: appID, name: name, generation: generation, attempt: attempt)
+        }
+    }
+
+    func retryResumeNow(_ ids: [ProcessIdentity], appID: String, name: String, generation: Int, attempt: Int) {
+        guard engine.state.unresolved?[appID]?.generation == generation, !stashedAppIDs.contains(appID) else { return }
+        let results = Signals.thawTree(ids, journal: journal, send: sender)
+        let stuck = zip(ids, results).filter { !$0.1.resolved }.map(\.0)
+        if stuck.isEmpty {
+            engine.thawResolved(appID, at: clock())
+            record("Resumed \(name) on retry \(attempt + 1).")
+        } else {
+            let g = engine.thawFailed(appID, stillStopped: stuck, at: clock())
+            retryResume(stuck, appID: appID, name: name, generation: g, attempt: attempt + 1)
+        }
+    }
+
+    /// Brings unresolved resumes up to date by looking only (no signal): an app none of
+    /// whose recorded processes is still stopped (resumed by someone, or gone) is resolved,
+    /// and the journal forgets those processes. Runs at start, on every tick while any is
+    /// pending, and after "thaw all".
+    func reconcileUnresolved() {
+        guard let pending = engine.state.unresolved, !pending.isEmpty else { return }
+        for (id, u) in pending {
+            let still = u.processes.filter { p in
+                Proc.bsdInfo(p.pid).map { b in
+                    UInt64(b.pbi_start_tvsec) * 1_000_000 + UInt64(b.pbi_start_tvusec) == p.startTime && b.pbi_status == UInt32(SSTOP)
+                } ?? false
+            }
+            if still.isEmpty {
+                try? journal.update { $0.remove(Set(u.processes)) }
+                engine.thawResolved(id, at: clock())
+            } else if still.count < u.processes.count {
+                engine.updateUnresolved(id, stillStopped: still)
+            }
+        }
+    }
+
+    /// "Thaw all": after the engine's own thaws, every journal entry no stash holds is
+    /// resumed too (earlier resumes that did not take, a probe's pause). Returns the
+    /// number still paused.
+    func resumeJournal() -> Int {
+        probeRun?.abort()
+        let j = journal.read()
+        let live = Set(j.stashes.map(\.name))
+        let ids = j.entries.filter { e in e.stash.map { !live.contains($0) } ?? true }.map(\.identity)
+        let stuck = Signals.thawTree(ids, journal: journal, send: sender).filter { !$0.resolved }.count
+        reconcileUnresolved()
+        return stuck
     }
 
     /// S5: after a thaw, check the app is alive and (with Accessibility) responsive.
@@ -564,25 +703,9 @@ public final class Daemon {
     }
 }
 
-/// The watchdog: a separate process that thaws everything in the journal if the
-/// daemon disappears for any reason, including SIGKILL.
-public enum Watchdog {
+extension Watchdog {
+    /// The daemon's watchdog: also shows apps a stash hid.
     public static func run(parent: pid_t, paths: Paths) -> Never {
-        setsid()  // own process group, so killing the daemon's group does not take it down
-        let journal = JournalStore(url: paths.journal)
-        let kq = kqueue()
-        var ev = kevent(
-            ident: UInt(parent), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT),
-            fflags: NOTE_EXIT, data: 0, udata: nil)
-        if kevent(kq, &ev, 1, nil, 0, nil) == 0 {
-            var out = kevent()
-            // Also wake every 5 s in case the parent vanished before registration.
-            var ts = timespec(tv_sec: 5, tv_nsec: 0)
-            while kill(parent, 0) == 0 || errno == EPERM {
-                if kevent(kq, nil, 0, &out, 1, &ts) > 0 { break }
-            }
-        }
-        _ = Signals.recover(journal: journal)
-        exit(0)
+        run(parent: parent, journal: JournalStore(url: paths.journal), restorer: .appKit)
     }
 }

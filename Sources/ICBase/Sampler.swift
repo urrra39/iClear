@@ -48,7 +48,7 @@ public enum SystemSampler {
         case .critical: thermal = .critical
         @unknown default: thermal = .nominal
         }
-        return SystemSample(
+        var sample = SystemSample(
             time: now,
             pressure: PressureLevel(sysctlValue: Sysctl.int("kern.memorystatus_vm_pressure_level") ?? 1),
             availablePercent: Sysctl.int("kern.memorystatus_level") ?? 100,
@@ -59,6 +59,8 @@ public enum SystemSampler {
             swapOuts: stats.swapouts, swapIns: stats.swapins,
             thermal: thermal, onBattery: power.onBattery, batteryPercent: power.percent,
             lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled, freeDiskGB: disk)
+        sample.pageIns = stats.pageins
+        return sample
     }
 
     /// Memory other work could use without paging: free + inactive + speculative + purgeable, MB.

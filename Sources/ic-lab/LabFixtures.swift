@@ -145,9 +145,14 @@ enum LabApps {
     }
 
     /// Starts every installed fixture type. Missing apps are reported, not substituted silently.
-    static func startAll(base: URL, hide: Bool, log: (String) -> Void) -> [AppFixture] {
+    static func startAll(base: URL, hide: Bool, log: @escaping (String) -> Void) -> [AppFixture] {
+        starters(base: base, hide: hide, log: log).compactMap { $0.start() }
+    }
+
+    /// One starter per installed fixture type (Chrome, VS Code, TextEdit, Preview), in that order.
+    static func starters(base: URL, hide: Bool, log: @escaping (String) -> Void) -> [(name: String, start: () -> AppFixture?)] {
         let s = scratch(base.appendingPathComponent("docs"))
-        var out: [AppFixture] = []
+        var out: [(name: String, start: () -> AppFixture?)] = []
         let fm = FileManager.default
         func wait(_ a: NSRunningApplication) {
             for _ in 0..<100 where Windows.frames()[a.processIdentifier] == nil { usleep(100_000) }
@@ -158,54 +163,67 @@ enum LabApps {
         let chrome = URL(fileURLWithPath: "/Applications/Google Chrome.app")
         if fm.fileExists(atPath: chrome.path) {
             let data = base.appendingPathComponent("chrome-profile")
-            if let a = open(
-                chrome,
-                args: [
-                    "--user-data-dir=\(data.path)", "--no-first-run", "--no-default-browser-check", "--disable-sync",
-                    "--disable-background-networking", "--new-window", s.html.absoluteString,
-                ], hide: hide)
-            {
-                wait(a)
-                if Proc.startTime(a.processIdentifier) != nil {
-                    out.append(AppFixture(kind: "chromium", name: "Google Chrome", app: a, dataDir: data, docs: [s.html]))
-                }
-            }
+            out.append(
+                (
+                    "Google Chrome",
+                    {
+                        guard
+                            let a = open(
+                                chrome,
+                                args: [
+                                    "--user-data-dir=\(data.path)", "--no-first-run", "--no-default-browser-check", "--disable-sync",
+                                    "--disable-background-networking", "--new-window", s.html.absoluteString,
+                                ], hide: hide)
+                        else { return nil }
+                        wait(a)
+                        guard Proc.startTime(a.processIdentifier) != nil else { return nil }
+                        return AppFixture(kind: "chromium", name: "Google Chrome", app: a, dataDir: data, docs: [s.html])
+                    }
+                ))
         } else {
             log("not installed: Google Chrome (Chromium-family fixture)")
         }
         let code = URL(fileURLWithPath: "/Applications/Visual Studio Code.app")
         if fm.fileExists(atPath: code.path) {
             let data = base.appendingPathComponent("vscode-data")
-            if let a = open(
-                code,
-                args: [
-                    "--user-data-dir=\(data.path)", "--extensions-dir=\(data.appendingPathComponent("ext").path)",
-                    "--disable-extensions", "--disable-workspace-trust", "--skip-release-notes", "--skip-welcome",
-                    "--new-window", s.folder.path,
-                ], hide: hide)
-            {
-                wait(a)
-                out.append(
-                    AppFixture(
-                        kind: "electron", name: "Visual Studio Code", app: a, dataDir: data,
-                        docs: [s.folder.appendingPathComponent("main.swift")]))
-            }
+            out.append(
+                (
+                    "Visual Studio Code",
+                    {
+                        guard
+                            let a = open(
+                                code,
+                                args: [
+                                    "--user-data-dir=\(data.path)", "--extensions-dir=\(data.appendingPathComponent("ext").path)",
+                                    "--disable-extensions", "--disable-workspace-trust", "--skip-release-notes", "--skip-welcome",
+                                    "--new-window", s.folder.path,
+                                ], hide: hide)
+                        else { return nil }
+                        wait(a)
+                        return AppFixture(
+                            kind: "electron", name: "Visual Studio Code", app: a, dataDir: data,
+                            docs: [s.folder.appendingPathComponent("main.swift")])
+                    }
+                ))
         } else {
             log("not installed: Visual Studio Code (Electron fixture)")
         }
-        if let a = open(
-            URL(fileURLWithPath: "/System/Applications/TextEdit.app"), args: ["-ApplePersistenceIgnoreState", "YES"], docs: [s.txt],
-            hide: hide)
-        {
-            wait(a)
-            out.append(AppFixture(kind: "native", name: "TextEdit", app: a, dataDir: base.appendingPathComponent("none-te"), docs: [s.txt]))
-        }
-        if let a = open(
-            URL(fileURLWithPath: "/System/Applications/Preview.app"), args: ["-ApplePersistenceIgnoreState", "YES"], docs: [s.pdf],
-            hide: hide)
-        {
-            wait(a)
-            out.append(AppFixture(kind: "native", name: "Preview", app: a, dataDir: base.appendingPathComponent("none-pv"), docs: [s.pdf]))
+        for (name, path, doc) in [
+            ("TextEdit", "/System/Applications/TextEdit.app", s.txt), ("Preview", "/System/Applications/Preview.app", s.pdf),
+        ] {
+            out.append(
+                (
+                    name,
+                    {
+                        guard
+                            let a = open(
+                                URL(fileURLWithPath: path), args: ["-ApplePersistenceIgnoreState", "YES"], docs: [doc], hide: hide)
+                        else { return nil }
+                        wait(a)
+                        let none = base.appendingPathComponent(name == "TextEdit" ? "none-te" : "none-pv")
+                        return AppFixture(kind: "native", name: name, app: a, dataDir: none, docs: [doc])
+                    }
+                ))
         }
         return out
     }
@@ -246,4 +264,9 @@ func dist(_ xs: [Double]) -> String {
         : String(
             format: "p50 %.1f, p95 %.1f, p99 %.1f, max %.1f ms (N=%d)",
             percentileOf(xs, 0.5), percentileOf(xs, 0.95), percentileOf(xs, 0.99), xs.max()!, xs.count)
+}
+
+/// Median and range of plain counts or minutes (no unit implied).
+func spread(_ xs: [Double]) -> String {
+    xs.isEmpty ? "none" : String(format: "median %.1f (%.1f-%.1f, n %d)", percentileOf(xs, 0.5), xs.min()!, xs.max()!, xs.count)
 }

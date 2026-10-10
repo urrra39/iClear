@@ -45,6 +45,8 @@ public struct SystemSample: Codable, Equatable, Sendable {
     public var batteryPercent: Int?
     public var lowPowerMode: Bool
     public var freeDiskGB: Double
+    /// Cumulative system page-ins since boot (`vm_statistics64`; Thrash Guard).
+    public var pageIns: UInt64?
 
     public init(
         time: Double, pressure: PressureLevel = .normal, availablePercent: Int = 60,
@@ -139,6 +141,9 @@ public struct AppSnapshot: Codable, Equatable, Sendable {
     /// True for the daemon, its ancestors and descendants.
     public var isDaemonLineage: Bool
     public var signals: ActivitySignals
+    /// Page-ins and wakeups of the whole tree since its processes started (Thrash Guard).
+    public var pageIns: UInt64?
+    public var wakeups: UInt64?
 
     public init(
         id: String, name: String, processes: [ProcessIdentity] = [], residentMB: Double = 0,

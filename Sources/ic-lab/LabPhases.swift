@@ -202,14 +202,14 @@ extension Lab {
             for h in load { _ = h.waitReady() }
             let ids = load.compactMap(\.identity)
             ScopeLock.set(Set(ids))
-            if on { Signals.setBackground(ids, true, appID: "contention", journal: journal) }
+            if on { _ = try? Signals.setBackground(ids, true, appID: "contention", journal: journal) }
             sleep(2)
             _ = statsAfter(probe)
             let c0 = ids.map { Proc.info($0.pid)?.cpuNanos ?? 0 }
             sleep(seconds)
             let line = statsAfter(probe)
             let work = zip(ids, c0).map { Double((Proc.info($0.0.pid)?.cpuNanos ?? 0) &- $0.1) / 1e9 }.reduce(0, +) / Double(seconds)
-            if on { Signals.setBackground(ids, false, journal: journal) }
+            if on { _ = try? Signals.setBackground(ids, false, journal: journal) }
             for h in load { h.kill() }
             log("\(name) \(on ? "on" : "off"): \(line); contention work \(String(format: "%.2f", work)) cores")
             // Side-effect probe: the probe's median timer lateness (user-facing smoothness).
@@ -225,10 +225,14 @@ extension Lab {
     }
 
     /// C12: an Observe-only instance on this Mac's real apps (it can never act), idle, sampled.
-    func overhead(minutes: Double, tools: URL) {
+    /// With `thrash`, Thrash Guard is on (T4).
+    func overhead(minutes: Double, thrash: Bool = false, tools: URL) {
         let home = labHome("over")
         let paths = Paths(environment: ["ICLEAR_HOME": home.path, "ICLEAR_INSTANCE": "overhead"])
         try? paths.ensure()
+        var c = Config()
+        c.thrash.enabled = thrash
+        try? c.encoded().write(to: paths.config)
         let d = Process()
         d.executableURL = tools.appendingPathComponent("icleard")
         d.environment = ProcessInfo.processInfo.environment.merging(
@@ -267,10 +271,10 @@ extension Lab {
         let r = Row(minutes: minutes, cpuAveragePercent: avg, cpuSamples: cpu, rssMB: rss, axTrusted: AXIsProcessTrusted())
         let md = String(
             format:
-                "## Daemon overhead (Observe-only instance on this Mac's real apps, %.0f min, stall probe %@)\n\nCPU average %.3f%% of one core (10 s windows: p50 %.3f%%, p95 %.3f%%, max %.3f%%); resident memory p50 %.1f MB, max %.1f MB.",
-            minutes, AXIsProcessTrusted() ? "on" : "off (no Accessibility)", avg, percentileOf(cpu, 0.5), percentileOf(cpu, 0.95),
-            cpu.max() ?? 0, percentileOf(rss, 0.5), rss.max() ?? 0)
-        save("overhead", r, md)
+                "## Daemon overhead (Observe-only instance on this Mac's real apps, %.0f min, stall probe %@%@)\n\nCPU average %.3f%% of one core (10 s windows: p50 %.3f%%, p95 %.3f%%, max %.3f%%); resident memory p50 %.1f MB, max %.1f MB.",
+            minutes, AXIsProcessTrusted() ? "on" : "off (no Accessibility)", thrash ? ", Thrash Guard on" : "", avg, percentileOf(cpu, 0.5),
+            percentileOf(cpu, 0.95), cpu.max() ?? 0, percentileOf(rss, 0.5), rss.max() ?? 0)
+        save(thrash ? "overhead-thrash" : "overhead", r, md)
     }
 
     /// C11 combined run: an Active, scope-locked lab daemon with every feature on, driven
