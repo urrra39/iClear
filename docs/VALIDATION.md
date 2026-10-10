@@ -336,26 +336,119 @@ Full `iclear selftest` from a release build of the final code, 2026-10-02 01:28,
 | stall probe | 2,567 samples, p99 1.15 ms, 0 stalls |
 | pressure sensor, battery readings, battery logic, migration, permissions | PASS |
 
-## 7-day soak on 1.0.0, status on 2026-10-09 (W1-W7)
+## 7-day soak on 1.0.0: final result (W1-W7)
 
-Read from `ic-lab soak-status` on 2026-10-09; the soak is still running and no criterion was changed.
+Started 2026-10-01 20:28:56 UTC, stopped 2026-10-10 17:3x UTC with `scripts/soak-stop.sh`
+(0 soak processes left stopped). Numbers from `ic-lab soak-status` at the stop. Both
+instances ran the **1.0.0** binaries; nothing here is evidence for v1.1. No criterion
+was changed.
 
-| Criterion | Result | Met |
+| Criterion | Threshold | Result | Met |
+|---|---|---|---|
+| W1 elapsed time | ≥ 7 days | 8.88 days | yes |
+| W2 awake time (lab daemon running, Mac awake on AC) | ≥ 40 h | 41.9 h | yes |
+| W3 volume | ≥ 5,000 freeze/thaw and ≥ 300 stash/pop | freeze/thaw 5,148 (239 counted as failed); stash/pop **160** (1 failed) | **no** (stash/pop short) |
+| W4 safety | 0 data loss, 0 left stopped, 0 new crash reports from lab fixtures | 0 left stopped, 0 hangs; 1 crash report, from a v1.1 test fixture, not a soak fixture | yes |
+| W5 overhead | daily CPU mean p95 ≤ 0.5% and RSS p95 ≤ 60 MB, both instances | CPU p95 **1.26%** (lab) and **2.03%** (Observe); RSS p95 43.4 / 38.3 MB | **no** (CPU) |
+| W6 reporting | a daily report for every awake day | 2026-10-02 to 2026-10-10, all present | yes |
+| W7 real-use Observe trace | reviewed and reported | see below | reported |
+
+**W3.** The Mac was on AC and awake for 41.9 h of the 8.9 days; the lab part paused on
+battery (39.2 h). At its rate (about 3.8 stash cycles per awake hour) 300 would have
+needed about 79 awake hours. Of the 239 failed freezes, at least 122 were refusals by the
+quarantine after one soak probe went unresponsive after a thaw on 2026-10-02; the
+quarantine worked as designed, but they count as failures. The quarantine entry was
+removed by hand so the remaining cycles could run.
+
+**W5.** Daily means of 1-minute samples, % of one core:
+
+| Day | Lab (Active, 3 fixtures, pressure cycles) | Observe (this Mac's real apps) |
 |---|---|---|
-| W1 elapsed days | 7.39 d | yes |
-| W2 awake hours on AC | 29.1 h of 40 | no |
-| W3 cycles | freeze/thaw 3,497 of 5,000 (238 counted as failed); stash/pop 112 of 300 (1 failed) | no |
-| W4 apps left stopped / hangs | 0 / 0; 1 crash report, from a v1.1 test fixture (not a soak app) | yes |
-| W5 daemon CPU | daily p95 1.26% and 1.19% of one core, bound 0.5% | no (1.0.0 only; v1.1 measured separately, see below) |
-| W5 RSS | within bound (at most 40.5 MB) | yes |
-| W6 daily reports | present for 2026-10-02 to 2026-10-09 | yes |
+| 10-02 | 0.93 | 0.97 |
+| 10-03 | 0.94 | 0.73 |
+| 10-04 | (paused on battery) | 0.86 |
+| 10-05 | 1.02 | 0.87 |
+| 10-06 | 1.26 | 1.19 |
+| 10-07 | (paused on battery) | 1.08 |
+| 10-08 | 0.81 | 0.79 |
+| 10-09 | 1.01 | 0.87 |
+| 10-10 | 0.92 | 2.03 |
 
-- Of the 238 failed freezes, at least 122 were refusals by the quarantine after
-  one soak probe went unresponsive after a thaw on 2026-10-02 (the rest not yet analyzed); the
-  quarantine worked as designed, but they count as failures. The entry was removed by
-  hand so the remaining cycles could run (the original state is kept locally).
-- v1.1 daemon tick cost: 40.2 ms CPU per 30 s = 0.134% of one core (N=1, owner active);
-  to be re-measured on an idle Mac.
+Every day of both instances is above 0.5%. The Observe instance's two highest days
+(10-06, 10-10) were days of heavy compiling and testing on this Mac, but a later
+build-load run did not raise the daemon's CPU. The main cause found afterwards, and the
+re-measurement of 1.0.0, 1.1.0-rc.1 and the fix side by side: "Daemon overhead after the
+soak" below.
+
+**W7, real-use Observe trace (10 days, the owner's own apps, 1.0.0 policy).** From the
+Observe instance's digest (`iclear stats --days 10`):
+- yellow/red pressure: 23 / 3 minutes;
+- would-be freezes: 1 (Google Chrome), regretted 1 of 1 (100%). The optional real-app
+  Active trial is proposed only at a would-be regret rate of 20% or less, so it is not
+  proposed;
+- forecast: 9 hits, 79 false alarms, 6 misses, median lead 9 min; the daemon switched
+  forecast-driven actions off by itself because of the false alarms;
+- guard saves: `SKIP_LOCKFILE` 3, `SKIP_CONN_ACTIVE` 1, `SKIP_WRITE_RECENT` 1;
+- call detections: 0 since the Observe daemon's last start (the counter is not kept
+  across restarts, so earlier days are not counted).
+
+Replaying the archived trace (11,867 ticks, 6,170 activations) through the v1.1 policy
+with `iclear simulate` gives the same picture: 1 freeze (Chrome), regretted, and the
+same forecast counts.
+
+## Daemon overhead after the soak (W5 follow-up)
+
+Measured 2026-10-10/11 on the same Mac (M3 Pro, 18 GB, macOS 27.0.1, on AC). Every run
+is an Observe-only daemon (it cannot act) in an isolated home, watching this Mac's real
+apps (about 320-460 own processes, 94 running apps); CPU is the daemon's own user + system
+time from `ps`, start-up (30 s) excluded, sampled every minute. "From the soak's data"
+means the daemon started from a copy of the soak's Observe instance directory (state,
+forecast history, traces). Several runs shared each window, so they saw the same
+conditions. Scripts and logs: `.work/w5/` (not in the repo).
+
+**Cause.** The forecast had learned a warning level of 75% available memory (the median
+of the 17 transitions it recorded, many of them during the lab instance's induced pressure
+episodes on the same Mac). At this Mac's ordinary 72-74% available it reported warning as
+imminent (ETA 0). The forecast is off by default and had
+switched itself off for false alarms (82 of 93), so nothing ever acted on that ETA, but
+the daemon still used it to tick every 5 s instead of every 30 s and to inspect the
+sockets and files of up to 12 apps on each tick. Both 1.0.0 and 1.1.0-rc.1 did this.
+Profiles of the remaining cost put about half in the per-tick app collection (process
+table, LaunchServices queries, CoreAudio), a quarter in the 5 s call poll (a scan of every
+process for screen sharing) and most of the rest in the 2 s stall probe.
+
+**Fix** (commit 916868c): only an armed forecast (enabled and within its false-alarm
+budget) changes the tick or the guard inspections; at normal pressure with nothing paused
+the daemon samples once a minute (30 s while something is paused; a change of pressure
+level still ticks within a second); rusage and path only for the user's own processes,
+paths kept per process, the LaunchServices copy count only for apps with launchd-started
+helpers, the Electron check once per app, the screen-sharing scan reused for 15 s.
+
+| Run | Window | Length | CPU, % of one core | RSS at end |
+|---|---|---|---|---|
+| 1.0.0, fresh | 10-10 22:35, quiet | 120 min | 0.429 | 38 MB |
+| 1.0.0, from the soak's data | 10-10 22:42, quiet | 30 min | **1.347** (5 s ticks) | 46 MB |
+| rc.1, fresh | 10-10 22:32, quiet | 125 min | 0.308 | 39 MB |
+| rc.1, from the soak's data | 10-10 22:55, quiet | 30 min | **0.952** (5 s ticks) | 44 MB |
+| rc.1, fresh | 10-11 00:45, quiet | 120 min | 0.249 | 43 MB |
+| rc.1, from the soak's data | 10-11 00:45, quiet | 120 min | 0.256 | 46 MB |
+| fixed build, fresh | 10-11 00:45, quiet | 120 min | **0.140** | 42 MB |
+| fixed build, from the soak's data | 10-11 00:45, quiet | 120 min | **0.132** | 45 MB |
+| rc.1, fresh | 10-11 02:47, busy | 30 min | 0.103 | 43 MB |
+| rc.1, from the soak's data | 10-11 02:47, busy | 30 min | 0.108 | 46 MB |
+| fixed build, fresh | 10-11 02:47, busy | 30 min | 0.055 | 42 MB |
+| fixed build, from the soak's data | 10-11 02:47, busy | 30 min | 0.060 | 45 MB |
+
+"Quiet": night, the owner away, real apps open but idle. In the 00:45 window about 82%
+of memory was free, above the learned warning level, so rc.1 had no imminent ETA there
+and ticked normally; the 22:55 run shows what it did below it. These are short windows
+on one Mac, not a week: the 7-day bound (W5, daily means ≤ 0.5%) has not been re-run on
+the fixed build, and daytime use with app switching was not measured on it.
+
+"Busy": 26 clean release builds of this project in a loop during the 30 minutes (about
+384 own processes on average). Every daemon used less CPU than in the quiet window, so
+compiling alone does not explain the soak's high days; what else differed on those days
+(app switching, the lab instance's pressure cycles) was not reproduced here.
 
 ## Leak trend retrospective on the archived Observe trace (L5)
 

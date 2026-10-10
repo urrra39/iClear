@@ -1,210 +1,229 @@
 # iClear (avvalgi nomi iClean)
 
+Xotirasi tugayotgan Mac'da fonda bo'sh turgan ilovalarni pauza qiladi va siz qaysi
+biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi.
+
 [![CI](https://github.com/urrra39/iClear/actions/workflows/ci.yml/badge.svg)](https://github.com/urrra39/iClear/actions/workflows/ci.yml)
+[![Oxirgi reliz](https://img.shields.io/github/v/release/urrra39/iClear)](https://github.com/urrra39/iClear/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey)
+![Swift 6](https://img.shields.io/badge/Swift-6-orange)
 
-> **1.0.0 versiyasi (2026-10-02).** Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya ishga
-> tushirgan haqiqiy ilovalar (Chrome, VS Code, TextEdit, Preview) va simulyatorlar bilan
-> tasdiqlangan, hech qachon shaxsiy akkauntlar bilan emas. 7 kunlik uzoq sinov (soak)
-> 2026-10-01 20:29 UTC dan beri davom etmoqda; natijalari ma'lumot yig'ilgach e'lon qilinadi.
-> iClear **Kuzatish rejimida** boshlanadi, u faqat nima qilgan bo'lardi, shuni yozib
-> boradi. Avvalgi nomi iClean; "iClean dan o'tish" bo'limiga qarang.
-
-iClear xotirasi tugayotgan Mac'da fonda bo'sh turgan ilovalarni pauza qiladi va siz
-qaysi biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Pauza qilingan ilova
-oynalari, tablari va saqlanmagan holatini saqlab qoladi. U shunchaki ishlashdan
-to'xtaydi, shunda macOS u bilan RAM uchun kurashish o'rniga uning xotirasini siqishi
-yoki svopga chiqarishi mumkin. Xotira bosimi me'yorida bo'lsa, iClear hech narsa
-qilmaydi.
-
-**iClear hech qachon fayllaringizni o'chirmaydi.** U faqat pauza qiladi, davom ettiradi
-va maslahat beradi. Kesh, log yoki yuklanmalarni o'chirmaydi. Apple Inc. bilan bog'liq
-emas va shunga o'xshash nomli tozalagich ilovalar bilan aloqasi yo'q
-([NAMING.md](docs/NAMING.md)).
-
-[English](README.md) · [Qanday ishlaydi](docs/ARCHITECTURE.md) · [Xavfsizlik](docs/SAFETY.md) ·
-[Tasdiqlash natijalari](docs/VALIDATION.md) · [Savol-javob](docs/FAQ.md) (hujjatlar ingliz tilida)
+> **Oxirgi reliz: 1.0.2.** Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
+> ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech qachon shaxsiy akkauntlar bilan
+> emas. `main` tarmog'ida **1.1.0-rc.1** ishi ham bor, u **chiqarilmagan**: quyida "faqat
+> main" deb belgilangan narsa yuklab olinadigan versiyada yo'q. CI belgisi qizil, chunki
+> 2026-10-06 dan beri GitHub birorta ham ishni ishga tushirmadi (akkauntdagi to'lov
+> blokirovkasi), test yiqilgani uchun emas; mahalliy natijalar [QUALITY.md](docs/QUALITY.md)
+> da. iClear **Kuzatish rejimida** boshlanadi: u faqat nima qilgan bo'lardi, shuni yozadi.
+> [English](README.md) · [Holat va cheklovlar](#holat-va-cheklovlar) (hujjatlar ingliz tilida)
 
 <p align="center"><img src="docs/images/menu-uz.png" width="360" alt="iClear menyusi: Mac salomatligi 100/100, xotira me'yorida, Kuzatish rejimi"></p>
 
+```text
+$ iclear status
+iClear observe mode, profile work. Mac Health 100/100 (good).
+Memory pressure normal, 74% available, 2260 MB compressed, 0 MB swap. Forecast: stable.
+Nothing frozen.
+Observe mode: iClear only records what it would do.
+$ iclear why
+Mac Health: 100/100 (good). Forecast: stable.
+Your Mac is healthy; iClear is idle.
+```
+
+Pauza qilingan ilova oynalari, tablari va saqlanmagan holatini saqlab qoladi; u
+shunchaki ishlashdan to'xtaydi, shunda macOS u bilan RAM uchun kurashish o'rniga uning
+xotirasini siqishi yoki svopga chiqarishi mumkin. Xotira bosimi me'yorida bo'lsa, iClear
+hech narsa qilmaydi. U kesh, log yoki yuklanmalarni o'chirmaydi va xotira qo'shmaydi:
+faqat mavjud xotirani qaysi ilovalar ishlatishini o'zgartiradi.
+
+## Nega iClear
+
+Har bir qator bitta Mac'dagi laboratoriya o'lchovi; N va sharoitlar havolada.
+
+- **Ishdan chiqishga chidamli.** Har bir pauza amalga oshishidan oldin jurnalga yoziladi,
+  xizmat to'xtab qolsa alohida kuzatuvchi (watchdog) hammasini davom ettiradi: `kill -9`
+  dan keyin ilovalar pauzada bo'lgan 100/100 sinovda (p99 83 ms) va stash faol bo'lgan
+  50/50 sinovda (p99 98 ms) har bir ilova 2 soniya ichida yana ishladi.
+  [Dalil](docs/VALIDATION.md#crash-recovery-c2)
+- **Haqiqiy ilovalarda sinalgan.** Chrome, VS Code, TextEdit va Preview'ning 1 200 pauza
+  va davom ettirish sikli, 400 tasi sun'iy xotira bosimi ostida: 0 qotish, 0 crash hisobot,
+  0 hujjat o'zgarishi. [Dalil](docs/VALIDATION.md#soak-on-real-apps-c1-c3-c4-c5-c6)
+- **Tez davom etadi.** O'sha sikllarda ilova p99 da 15.1 ms ichida (maksimum 47.3 ms) yana
+  javob berdi. [Dalil](docs/VALIDATION.md#soak-on-real-apps-c1-c3-c4-c5-c6)
+- **Stash joylashuvni saqlaydi.** 4 ilovaning 50 stash/pop sikli: 350/350 oyna joyiga
+  qaytdi, oldingi faol ilova 50/50 holatda oldinga qaytdi. [Dalil](docs/VALIDATION.md#stash-and-pop-c7)
+- **Har bir pauzadan oldin himoyalar.** Audio ijro etilayotganda, qo'ng'iroq mikrofondan foydalanganda yoki
+  yuklab olish ketayotganda 123 ta pauza urinishining 123 tasi rad etildi.
+  [Dalil](docs/VALIDATION.md#guards-e2-every-freeze-attempt-during-audio-a-call-or-a-download-was-blocked)
+- **Tuzilishidan maxfiy.** Root yo'q, yadro kengaytmasi yo'q, tarmoqqa ulanmaydi,
+  telemetriya yo'q, ekranni yozib olmaydi; testlar mahsulot kodida tarmoq va imtiyoz
+  API'lari yo'qligini tekshiradi. [Xavfsizlik modeli](docs/SAFETY.md)
+- **Kuzatish rejimida boshlanadi va o'zini tushuntiradi.** Siz yoqmaguningizcha hech narsa qilmaydi;
+  `iclear why`, `iclear explain <ilova>` va `iclear stats` nimani ko'rgani va nima qilgan
+  bo'lishini aytadi. `iclear selftest` Mac'ingizda o'z sinov jarayonlari bilan 19 ta
+  tekshiruv o'tkazadi (main; 1.0.2 da 13 ta). [Tasdiqlash](docs/VALIDATION.md#selftest-c13)
+- **Ingliz va o'zbek tillarida**, menyuda ham, hujjatlarda ham.
+
+## 60 soniyada boshlash
+
+```sh
+iclear selftest --quick # pauza va davom ettirish shu Mac'da ishlashini tez tekshiradi
+iclear install          # foydalanuvchi xizmatini Kuzatish rejimida ishga tushiradi
+iclear status           # u nimani ko'rmoqda va nima qilgan bo'lardi
+iclear why              # Mac nega hozir sekin?
+# ...Mac'ingizdan bir kun foydalaning, keyin:
+iclear stats --days 1   # u nima qilgan bo'lardi va taxminiy afsus darajasi
+iclear mode active      # unga amal qilishga ruxsat bering
+```
+
+Ilova bilan: iClear'ni Applications'dan oching; "iClear'ni ishga tushirish" xizmatni
+o'rnatadi. **Favqulodda holat:** menyudagi "Hammasini davom ettirish", menyu ilovasi
+ishlaganda Control-Option-Command-T yoki `iclear thaw --all`. Uchalasi ham iClear pauza
+qilgan har bir ilovani davom ettiradi, xizmatsiz ham. `iclear selftest` bitta tekshiruv
+uchun mikrofondan foydalanadi (o'z sinov vositasi, bir necha soniya, darhol tashlab
+yuboriladi); `main` da `--no-mic` bu tekshiruvni o'tkazib yuboradi.
+
+## Imkoniyatlar
+
+| Imkoniyat | Sukut bo'yicha | Holati |
+|---|---|---|
+| Xotira bosimi ostida bo'sh fon ilovalarini pauza qilish va davom ettirish | `iclear mode active` gacha Kuzatish rejimi | chiqarilgan, tasdiqlangan (laboratoriya) |
+| Stash: `iclear stash <nom>`, `iclear pop` | siz so'raganingizda | chiqarilgan, tasdiqlangan (laboratoriya) |
+| Ilova sinflari va himoyalar (`iclear compat <ilova>`): chat, pochta, taqvim va media sukut bo'yicha pauza qilinmaydi; audio ijro etayotgan, mikrofon yoki kameradan foydalanayotgan, yuklab olayotgan yoki yozayotgan ilova pauza qilinmaydi | yoqilgan | chiqarilgan, tasdiqlangan (laboratoriya) |
+| `iclear why`, Mac salomatligi bahosi, runaway himoyasi (faqat xabar beradi) | yoqilgan | chiqarilgan |
+| `iclear selftest`, `iclear doctor`, `iclear before <ilova>`, hisobot, explain, Bekor qilish, profillar, Fokus xavfsiz rejimi | yoqilgan | chiqarilgan |
+| Beachball tahlili (`iclear beachball`) | yoqilgan, Accessibility kerak | chiqarilgan |
+| Batareya taxminlari (`iclear battery`) | "taxmin" belgisi bilan; maqsad rejimi o'chiq | chiqarilgan, **tasdiqlanmagan** |
+| Qo'ng'iroq rejimi, Beachball yumshatish, issiqlik himoyasi | **o'chiq** | chiqarilgan, yoqish qoidalari bo'yicha o'chiq ([VALIDATION](docs/VALIDATION.md#paired-runs-c8)) |
+| Auto-Context Stash (`iclear context`, `iclear hook`) | taklif rejimi | **faqat main**, tasdiqlanmagan |
+| Xotira o'sishi tendensiyasi (`iclear leaks`) | faqat ro'yxat; bildirishnomalar o'chiq | **faqat main**, L5 qoidasi bo'yicha bildirishnomalar o'chiq |
+| Panic Brake (`iclear brake`) | **faqat kuzatadi** | **faqat main**, laboratoriya mezonlari o'tmaguncha harakat qila olmaydi |
+| Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **o'chiq** | **faqat main**, laboratoriya mezonlari o'tmaguncha o'chiq |
+| Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | siz so'raganingizda | **faqat main**, tasdiqlanmagan |
+
+Faqat main'dagi imkoniyatlar va ular nima qila olmasligi: [quyida](#maindagi-imkoniyatlar-chiqarilmagan).
+
+## Xavfsizlik modeli
+
+```mermaid
+flowchart LR
+  A["Xotira bosimi; ilova bo'sh,<br/>barcha himoyalardan o'tgan"] --> B["Jurnalga yozuv<br/>(PID + boshlanish vaqti, fsync + rename)"]
+  B --> C["Butun jarayon daraxti pauza qilinadi<br/>(SIGSTOP)"]
+  C --> D{"Qanday davom ettiriladi"}
+  D -->|"ilovaga qaytasiz"| E["SIGCONT<br/>(PID, boshlanish vaqti, egasi qayta tekshiriladi)"]
+  D -->|"Hammasini davom ettirish / iclear thaw --all"| E
+  D -->|"xizmat to'xtaydi, hatto kill -9"| W["Kuzatuvchi jarayon<br/>jurnalni qayta o'qiydi"] --> E
+  D -->|"xizmat keyingi safar ishga tushganda"| R["Tiklash jurnalni<br/>qayta o'qiydi"] --> E
+  E --> F["Jurnal yozuvi o'chiriladi"]
+```
+
+Himoyalangan to'plamni (tizim ilovalari, terminallar, dasturlash agentlari ishlaydigan
+ilovalar, parol menejerlari, sinxronlash, VPN, kiritish va maxsus imkoniyat vositalari)
+hech qanday qoida bilan pauza qilib bo'lmaydi. Daraxtlar "hammasi yoki hech biri"
+tamoyili bilan pauza qilinadi; pauza 4 soat va RAM ning 50% bilan cheklangan; ustuvorlik
+va yashirish o'zgarishlari jurnalga yoziladi va aynan qaytariladi. `main` da jurnal
+barcha iClear jarayonlari bo'lishadigan qulfni ham oladi, yozuv esa jarayon yana ishlayotgani
+ko'ringandagina yoki u yo'q bo'lgandagina o'chiriladi. Tafsilotlar va har bir qoidaning testi:
+[SAFETY.md](docs/SAFETY.md).
+
+```mermaid
+flowchart LR
+  S["iclear stash work"] --> P["Reja: audio ijro etayotgan, qo'ng'iroqdagi,<br/>quvvat tasdig'ini ushlab turgan ilovalar chetda"]
+  P --> J["Stash jurnalga yoziladi"]
+  J --> H["Har bir ilova yashiriladi (jurnalga yozilib),<br/>oynalari ekranda yo'qligi tekshiriladi"]
+  H --> Z["Uning daraxti pauza qilinadi (jurnalga yozilib)"]
+  Z --> Q["iclear pop, ilovani ochish<br/>yoki xizmat to'xtashi"]
+  Q --> U["Davom ettiriladi, ko'rsatiladi, oynalar tartibi<br/>va faol ilova tiklanadi"]
+```
+
 ## Tasdiqlangan doira
+
+<details>
+<summary><b>1.0.0 uchun 16 ta majburiy mezonning 16 tasi bitta Mac'da bajarildi; CI o'shanda macOS 15 (Apple Silicon va Intel) va macOS 26 da yashil edi.</b> Raqamlar uchun oching.</summary>
 
 | Tasdiqlangan (laboratoriya, bitta Mac) | Natija |
 |---|---|
 | Haqiqiy ilovalarni (Chrome, VS Code, TextEdit, Preview) pauza qilish va davom ettirish: har biriga 300 sikl, 100 tasi 8 GB sun'iy bosim ostida | 0 qotish, 0 pauzada qolgan, 0 hujjat o'zgarishi, 0 crash hisobot; 15.1 ms ichida yana javob beradi (p99) |
-| Ilovalar pauzada (100 marta) yoki stash'da (50 marta) turganda xizmat `kill -9` bilan o'chirildi | 150/150 holatda 2 soniya ichida davom ettirildi va ko'rsatildi; p99 98 ms |
+| Ilovalar pauzada turganda xizmat `kill -9` bilan o'chirildi (100 marta) | 100/100 holatda 2 soniya ichida yana ishladi; p50 76 ms, p99 83 ms |
+| Stash faol turganda xizmat `kill -9` bilan o'chirildi (50 marta) | 50/50 holatda 2 soniya ichida yana ishladi va ko'rsatildi; p50 85 ms, p99 98 ms |
 | Stash va pop, 4 ilovaning 50 sikli | oynalar 0.0 nuqta aniqlikda joyida (350/350); oldingi faol ilova 50/50 holatda qaytdi; pauzada yoki yashirin qolgan yo'q |
 | Pleyer ijro etganda, qo'ng'iroq mikrofondan foydalanganda yoki Chrome yuklab olganda himoyalar | 123 ta muzlatish urinishining 123 tasi rad etildi |
 | 10-300 soniyalik pauzalar: Chrome tablari, chat mijozlari | ma'lumot yo'qolmadi; Chrome va heartbeat'li chat mijozi taxminan 1.1 soniyada tiklandi; heartbeat'siz mijoz oflayn qoldi (shuning uchun chat ilovalari himoyalangan) |
-| Barcha imkoniyatlar yoqilgan 60 daqiqalik sinov, Faol laboratoriya xizmati | 60 daqiqa, 0 xato: 12/12 stash/pop sikli, 6 bosim epizodi, 6/6 simulyatsiya qilingan qo'ng'iroq aniqlandi, 0 qotish |
-| Xizmat yuki, 10 daqiqa, haqiqiy ilovalar, Kuzatish rejimi | protsessorning bitta yadrosidan 0.48%, 40 MB |
-| `iclear selftest` (to'liq) | 13 ta tekshiruvdan 13 tasi o'tdi, o'tkazib yuborilgani yo'q |
+| "Sariq" (warning) bosimda muzlatilgan haqiqiy ilovalar qaytargan xotira (birinchi epizod) | Chrome 1 203 → 803 MB (−33%), VS Code 1 709 → 1 046 MB (−39%), Preview 130 → 84 MB (−35%); "me'yoriy" bosimda macOS kam qaytaradi (mediana −1% dan −4% gacha) |
+| Pop: barcha yashirilgan ilovalar ko'ringuncha | p50 1.34 s, p99 1.36 s |
+| Barcha imkoniyatlar yoqilgan 60 daqiqalik sinov, Faol laboratoriya xizmati | 0 xato: 12/12 stash/pop sikli, 6 bosim epizodi, 6/6 simulyatsiya qilingan qo'ng'iroq aniqlandi, 0 qotish |
+| `iclear selftest` (to'liq) | 1.0.0: 13 tadan 13; main (1.1.0-rc.1 build): 19 tadan 19, o'tkazib yuborilgani yo'q |
+| Testlar | 1.0.x: 188 ta, uchta CI runnerida yashil; main: 328 ta, mahalliy o'tadi (CI ishlamadi, yuqoriga qarang); ICCore qatorlarini qamrab olish 97.3% |
 
-**Tasdiqlanmagan:** haqiqiy Slack, Spotify yoki istalgan shaxsiy akkaunt (qo'lda
-tekshirish ro'yxati [MANUAL_TESTS_APPS.md](docs/MANUAL_TESTS_APPS.md) da); Intel Mac'lar
-(u yerda faqat CI testlari ishlaydi); macOS 13 va 14; 8 GB va undan kam xotirali Mac'lar;
-batareya taxminlari (batareyadan ishlagan holda yaroqli sinovlar yo'q; maqsad rejimi
-tajribaviy va o'chirilgan); 7 kunlik soak (davom etmoqda); Safari, Docker, Xcode va
-virtual mashinalarni muzlatish; saqlanmagan o'zgarishlar signali (laboratoriyada hech bir ilova uni bermadi); pauzadagi pleyerga yuborilgan media tugmalari; issiqlik himoyasi. Testi yo'q hamma narsa
+Barcha mezon va natijalar: [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
+[VALIDATION.md](docs/VALIDATION.md), [QUALITY.md](docs/QUALITY.md). Testi yo'q hamma narsa
 [TEST_MATRIX.md](docs/TEST_MATRIX.md) da sanab o'tilgan.
 
-## Qachon yordam beradi va qachon bermaydi
+</details>
 
-**Yordam beradi:** xotira bosimi sariq yoki qizil, siz ishlatmayotgan bir nechta og'ir
-ilova ochiq (brauzerlar, Electron ilovalari, dizayn vositalari, muharrirlar) va ular
-fonda tez-tez uyg'onib turadi.
+## Holat va cheklovlar
 
-**Yordam bermaydi:**
+**Tasdiqlangan** (laboratoriya, bitta Mac): haqiqiy ilovalarni pauza qilish va davom
+ettirish, ishdan chiqqandan keyin tiklash, stash va pop, himoyalar va quyidagi yon
+ta'sirlar. Raqamlar: [Tasdiqlangan doira](#tasdiqlangan-doira).
 
-- Xotira bosimi yashil. macOS buni o'zi yaxshi uddalaydi va iClear hech narsa qilmaydi.
-- Xotirani siz hozir ishlayotgan ilova egallagan.
-- Xotira to'xtamasligi kerak bo'lgan narsaga tegishli (build, model, virtual mashina,
-  qo'ng'iroq). iClear ularni pauza qilmaydi.
-- Uyg'onmasdan jim turgan ilovalar. macOS ularni baribir siqadi, muzlatilgan yoki
-  muzlatilmaganidan qat'i nazar.
-- Kundalik ishingiz uchun RAM shunchaki yetmaydi. Bir haftalik ma'lumot yig'ilgach,
-  `iclear advise` buni aytib beradi.
+**Tajribaviy yoki o'chiq, o'lchangan sababi bilan:**
+- Qo'ng'iroq rejimi: qo'ng'iroq taymeri tebranishini kamaytirdi (p99 0.32 → 0.08 ms),
+  lekin boshqa ilovalar ishini ikki baravar kamaytirdi, shuning uchun o'chiq.
+- Beachball yumshatish: UI sinovini 3.4% yomonlashtirdi, shuning uchun o'chiq.
+- Issiqlik himoyasi: sinab bo'lmadi, shuning uchun o'chiq.
+- Batareya maqsad rejimi: batareyadan ishlagan holda yaroqli sinovlar yo'q, shuning
+  uchun tajribaviy va o'chiq.
+- `main` da: Panic Brake faqat kuzatadi; Black Box, Thrash Guard, Wake-on-Data va xotira
+  o'sishi bildirishnomalari o'chiq, har biri oldindan belgilangan laboratoriya mezonlari
+  o'tmaguncha ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
 
-## Nima qiladi
+**O'lchangan zaif tomon: xizmatning protsessor yuki.** 1.0 ning 10 daqiqalik laboratoriya
+sinovi bitta yadroning 0.48% va 40 MB ni o'lchadi (chegara 0.5%). 1.0.0 ning 7 kunlik
+soak sinovi bu chegarani bajarmadi: kunlik o'rtacha bitta yadroning 0.73-2.03%
+([soak W5](docs/VALIDATION.md#7-day-soak-on-100-final-result-w1-w7)). Asosiy sabab:
+faqat ko'rsatiladigan, hech qachon amal qilinmaydigan prognoz bahosi bo'sh xotira prognoz
+o'rgangan ogohlantirish darajasidan past bo'lganda xizmatni har 5 soniyada tekshirishga va
+ilovalarning soket va fayllarini ko'rib chiqishga majbur qilardi. 1.0.2 va 1.1.0-rc.1 da
+shunday; `main` da tuzatilgan (chiqarilmagan). O'sha Mac, Kuzatish rejimi, haqiqiy
+ilovalar, kechasi 2 soat: rc.1 0.25%, `main` bitta yadroning 0.13-0.14%, soak
+ma'lumotlaridan boshlanganda ham (rc.1 o'sha darajadan past 30 daqiqalik sinovda 0.95%
+ishlatgan). Bir haftalik chegara `main` da qayta o'lchanmagan
+([o'lchovlar](docs/VALIDATION.md#daemon-overhead-after-the-soak-w5-follow-up)).
 
-| Imkoniyat | Sukut bo'yicha | Izoh |
-|---|---|---|
-| Xotira bosimi ostida bo'sh fon ilovalarini pauza qilish va davom ettirish | `iclear mode active` gacha Kuzatish rejimi (faqat yozib boradi) | Butun jarayonlar daraxti, ko'rinadigan oyna yo'q, barcha tekshiruvlardan o'tgan; ilova faollashtirilganda birinchi bo'lib davom ettiriladi |
-| Ish stolini yig'ib qo'yish (Stash): `iclear stash <nom>`, `iclear pop` | siz so'raganingizda | Bir nechta ilovani yashirib pauza qiladi va xuddi o'sha oynalar va oldingi faol ilova bilan qaytaradi; audio, mikrofon, quvvat tasdig'i (power assertion) yoki kamerada qo'ng'iroq qilayotgan ilovalarni hech qachon pauza qilmaydi |
-| Ilova sinflari, `iclear compat <ilova>` | yoqilgan | Chat, pochta, taqvim va media ilovalari sukut bo'yicha hech qachon pauza qilinmaydi; audio ijro etayotgan yoki mikrofondan foydalanayotgan ilova, undan keyin ham 10 daqiqa davomida pauza qilinmaydi; brauzerlar ikki baravar uzoqroq kutadi |
-| `iclear why`, Mac salomatligi bahosi, runaway himoyasi | yoqilgan | O'lchangan ma'lumotdan oddiy tildagi javoblar; runaway himoyasi faqat xabar beradi |
-| `iclear selftest` | yoqilgan | Mac'ingizda iClear'ning o'z sinov jarayonlari bilan taxminan 2 daqiqalik tekshiruv |
-| `iclear before <ilova>` | yoqilgan | "Buni ochsam xotira sariqqa o'tadimi?" Mac'ingiz tarixidan; 30 tadan kam o'lchov bo'lsa javob bermaydi |
-| Beachball tahlili: `iclear beachball` | yoqilgan, Accessibility kerak | Oldingi ilova qotib qolishlarini va o'sha paytda Mac nima qilayotganini yozadi |
-| Batareya taxminlari: `iclear battery` | taxminlar "taxmin" belgisi bilan ko'rsatiladi; **maqsad rejimi tajribaviy va o'chirilgan** | Tasdiqlanmagan |
-| Qo'ng'iroq rejimi (Call Mode), Beachball yumshatish, issiqlik himoyasi | **o'chirilgan** | Yoqish qoidalari [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) da (C8); laboratoriyada Qo'ng'iroq rejimi taymer tebranishini kamaytirdi, lekin boshqa ilovalar ishini ikki baravar kamaytirdi, Beachball yumshatish esa natijani biroz yomonlashtirdi ([VALIDATION.md](docs/VALIDATION.md)) |
-| Profillar, Fokus xavfsiz rejimi, Bekor qilish, Hammasini davom ettirish, favqulodda tugmalar (menyu ilovasi ishlaganda Control-Option-Command-T), hisobot, explain | yoqilgan | 0.1 dagidek |
+**1.0.0 ning 7 kunlik soak sinovi** (2026-10-01 dan 2026-10-10 gacha): W1 o'tgan vaqt, W2
+uyg'oq soatlar, W4 xavfsizlik (0 pauzada qolgan, 0 qotish) va W6 hisobotlar bajarildi;
+**W3 bajarilmadi** (5 000 ta muzlatish/davom ettirishdan 5 148 tasi, lekin 300 ta
+stash/pop'dan 160 tasi); **W5 bajarilmadi** (protsessor, yuqorida). Egasining 10 kunlik
+haqiqiy ishida u bitta ilovani bir marta pauza qilgan bo'lardi, va o'sha pauza afsusga
+sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-result-w1-w7)
 
-Har birining holati va dalillari: [SIGNATURE_FEATURES.md](docs/SIGNATURE_FEATURES.md).
-
-## v1.1 uchun ishlab chiqilmoqda (chiqarilmagan, tasdiqlanmagan)
-
-Bular `v1.1` tarmog'ida. Ularning laboratoriya sinovlari ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
-4-bosqich) 7 kunlik soak tugagandan keyin boshlanadi; ungacha faqat
-[FEASIBILITY.md](docs/FEASIBILITY.md#11-spikes-2026-10-02) dagi dastlabki tajribalar o'lchangan.
-
-- **Auto-Context Stash** (`iclear hook zsh|bash|fish`, `iclear context add | list |
-  remove | status | pause | resume | undo | suggest`). Kichik shell hook iClear'ga
-  terminalingiz qaysi papkada ekanini aytadi. Boshqa loyihada 20 soniya o'tgach, iClear
-  bitta almashtirishni *taklif qiladi*: tark etilgan loyiha ilovalarini yashiradi
-  (`context:<nom>` sifatida) va yangi loyiha ilovalarini qaytaradi. Ikkala loyiha
-  ishlatadigan ilovalar, shuningdek pauza qilib bo'lmaydigan ilovalar (audio, mikrofon,
-  qo'ng'iroq) ishlashda davom etadi; qat'iy to'siq (masalan, diskda joy yetmasligi)
-  butun almashtirishni to'xtatadi. Avtomatik almashtirish har bir kontekst uchun alohida
-  yoqiladi va faqat Faol rejimda ishlaydi; Kuzatish rejimi faqat "almashtirgan bo'lardi"
-  deb yozadi. Loyiha ichidagi ko'chishlar, `cd ~` va `/tmp` almashtirmaydi; har bir
-  almashtirishdan keyin 5 daqiqalik tanaffus bor; `iclear context undo` oxirgisini bekor
-  qiladi. Almashtirish bir zumda bo'lmaydi: taxminan qaytarish (pop) qancha vaqt olsa,
-  shuncha oladi (1.0 laboratoriyasida p50 1.34 s). Cheklovlar: faqat terminallarni
-  ko'radi, shuning uchun faqat IDE ichida qilingan ish ko'rinmaydi; turli loyihalardagi
-  terminallar kutish vaqti ichida xabar bersa, joriy kontekst o'zgarmaydi; fish, tmux
-  va boshqa multiplekserlar sinalmagan. Dastlabki tajribada hook har bir papka
-  almashishiga taxminan 1-2 ms qo'shdi (zsh va bash).
-- **Xotira o'sishi tendensiyasi** (`iclear leaks`; menyuda: O'sish). Har bir ilovaning
-  xotira hajmini daqiqasiga bir marta o'lchaydi va ilova ishlatilmayotganda (oxirgi 10
-  daqiqada oldingi planda bo'lmagan) barqaror o'sishni kamida 2 soat va 12 o'lchovdan
-  keyin xabar qiladi: "soatiga X MB o'sish (oraliq), shu tezlikda HH:MM atrofida Y GB",
-  ishonch darajasi bilan. Bu tendensiya, xotira oqishi tashxisi emas: keshlar va loglar
-  ham o'sadi. Bir martalik sakrash (hujjat ochilgan) va to'lib-bo'shaydigan keshlar
-  xabar qilinmaydi. Xotira bosimi bilan faqat tizim prognozi orqali bog'lanadi va u
-  "taxmin" deb belgilanadi. Tarix xotirada saqlanadi va daemon qayta ishga tushganda
-  qaytadan boshlanadi. Bildirishnomalar o'chirilgan va yolg'on signal tekshiruvi (L5)
-  o'tmaguncha o'chiq qoladi. `iclear leaks quit <ilova>` avval nima bo'lishini
-  ko'rsatadi; `--yes` bilan ilovadan o'zining Quit buyrug'i orqali yopilishni so'raydi
-  va uni majburan yopmaydi. "Tozalash" tugmasi yo'q: macOS'da boshqa ilovani xotira
-  bo'shatishga yoki axlat yig'ishga majburlash usuli yo'q.
-
-- **Panic Brake** (`iclear brake observe | on | off | status | report | resume | quit`).
-  Alohida kichik kuzatuvchi (`icbrake`, o'z LaunchAgent'i, AppKit'siz, aniq vaqtli
-  oqim) har 250 ms da xotira bosimi, svopdan qaytarishlar, siqilgan xotirani ochish,
-  sahifa yuklanishlari, navbat va o'z taymeri kechikishini o'qiydi. Mac xotira tufayli
-  qotib qolsa (xotira belgisi va javob berish muammosi birga, yoki kritik bosim), u sizning
-  jarayon daraxtlaringizni xotira o'sishi, sahifa yuklanishi va protsessor bo'yicha
-  saralaydi va eng yuqorisini pauza qiladi (avval jurnalga yozib); qotish o'tsa, uni
-  pauzada qoldiradi, aks holda davom ettirib keyingisini sinaydi (3 tagacha), 10 s da
-  to'xtab xabar beradi. Oldingi plandagi ilova faqat 10 s dan keyin va faqat eng
-  yuqorida bo'lsa nomzod bo'ladi. U **kuzatish** rejimida boshlanadi: faqat "pauza
-  qilgan bo'lardim" deb yozadi; pauzalar bosim normal bo'lganda, ilovani ochganingizda
-  yoki 4 soatda tugaydi. Majburan o'chirmaydi.
-  Ixtiyoriy, har bir ilova uchun alohida va standart holatda o'chiq: `brake.autoQuitApps`
-  ro'yxatidagi ilova `brake.autoQuitSeconds` (30 s) davomida tasdiqlangan sababchi bo'lib
-  qolsa, undan o'zining Quit buyrug'i bilan yopilish so'raladi (saqlash va tiklash jarayoni
-  ishlaydi); ilova saqlanmagan ish borligini bildirsa (bu signal mavjud bo'lsa), bu qadam
-  o'tkazib yuboriladi, so'rovni e'tiborsiz qoldirgan ilova esa yana pauza qilinadi.
-  `iclear brake status` har bir pauzadagi ilova bilan nima bo'lishini ko'rsatadi. 1.0
-  laboratoriyasida hech bir ilova saqlanmagan o'zgarishlar signalini bermadi, shuning
-  uchun ishonchli signali yo'q ilova yopilganda saqlanmagan ishni yo'qotishi mumkin: faqat
-  avtomatik saqlaydigan va oynalarini tiklaydigan ilovalarni yoqing. Sahifa almashtirmaydigan og'ir ish (kompilyatsiya,
-  nusxalash, eksport) uni ishga tushirmasligi kerak; bu oldindan belgilangan sinov,
+**Tasdiqlanmagan** (yordamingiz kerak):
+- Intel Mac'lar: u yerda faqat CI testlari ishladi ([#3](https://github.com/urrra39/iClear/issues/3)).
+- macOS 13 va 14 ([#4](https://github.com/urrra39/iClear/issues/4)).
+- 8 GB va undan kam xotirali Mac'lar ([#5](https://github.com/urrra39/iClear/issues/5)).
+- Pauza nishoni sifatida Safari ([#6](https://github.com/urrra39/iClear/issues/6)), Docker va Xcode ([#7](https://github.com/urrra39/iClear/issues/7)) hamda virtual mashinalar.
+- Haqiqiy Slack, Spotify yoki istalgan shaxsiy akkaunt ([#9](https://github.com/urrra39/iClear/issues/9)); [MANUAL_TESTS_APPS.md](docs/MANUAL_TESTS_APPS.md).
+- Auto-Context hook bilan fish va tmux ([#8](https://github.com/urrra39/iClear/issues/8)).
+- Batareya taxminlari; saqlanmagan o'zgarishlar signali (laboratoriyada hech bir ilova
+  uni bermadi); pauzadagi pleyerga yuborilgan media tugmalari; issiqlik himoyasi.
+- Faqat main'dagi imkoniyatlarning laboratoriya bosqichlari (4-6) va sig'im benchmarki:
   hali o'tkazilmagan.
-- **Black Box** (`iclear blackbox`). Oxirgi ~5 daqiqa, 2 s oralig'ida (bosim, svop,
-  sahifa yuklanishlari, harorat va quvvat holati, eng shubhali ilovalar nomi), faqat Mac
-  sog'lom bo'lmaganda yoziladi. To'g'ri o'chirilmasdan qayta ishga tushgandan keyin menyu
-  va `iclear blackbox` o'sha vaqt chizig'ini ko'rsatadi. Oxirgi bir necha soniya
-  yo'qolishi mumkin. macOS'ning "Previous shutdown cause" yozuvi faqat foydalanuvchi uni
-  o'qiy olsa ko'rsatiladi; sinov Mac'ida o'qib bo'lmaydi.
+- Developer ID imzosi va notarizatsiya: qilinmagan ("O'rnatish" ga qarang).
 
-- **Canary probe** (`iclear probe <ilova> [--cycles N]`). Sizning roziligingiz bilan
-  (so'rovda), faqat ilova yashirin, oldingi planda emas, barcha himoyalardan o'tgan va Mac
-  zaryadda bo'lganda: bir necha qisqa jurnalli pauza (standart 5 ta, har biri ko'pi bilan
-  5 s); har bir davom ettirishdan keyin ilova tirikligini, javob berishini (Accessibility
-  bilan, oynasi bor ilovalar uchun) va ulanishlari saqlanganini tekshiradi, yangi
-  nosozlik hisobotlarini qidiradi. Muvaffaqiyatsizlik ilovani karantinga oladi;
-  `probe.requirePassed` (o'chiq) avtomatik pauzalarni faqat sinovdan o'tgan ilovalarga
-  cheklaydi. Ilovani oldinga chiqarsangiz sinov to'xtaydi va ilova davom etadi.
-- **Capacity Report** (`iclear capacity [--json]`, menyu qatori). Har bir pauza uchun
-  60 s dan keyin bo'sh xotiraning o'lchangan o'zgarishi, pauzadagi hajm, vaqt va
-  afsuslar; ogohlantirishgacha qolgan zaxira taxmini (oraliq bilan); svop va uning
-  24 soatlik o'zgarishi; pauza bo'lmasa "xabar qiladigan narsa yo'q". Nimani o'zgartira
-  oladi va nimani yo'q: [CAPACITY.md](docs/CAPACITY.md). Laboratoriya natijasi hali e'lon
-  qilinmagan.
-- **Wake-on-Data** (`wakeOnData`, **o'chiq**, faqat tanlangan chat yoki brauzer ilovasi
-  uchun). Bunday ilova pauzada bo'lganda iClear har 250 ms da uning soketlaridagi qabul
-  navbatini tekshiradi (libproc, root kerak emas); ma'lumot kutayotgan bo'lsa ilovani
-  davom ettiradi (`WAKE_DATA_RX`) va ma'lumot to'xtagach 5 s dan keyin yana pauza qiladi
-  (`REFREEZE_QUIET`), agar qo'ng'iroq, audio yoki boshqa himoya to'sqinlik qilmasa. Vaqtning
-  20% dan ko'pida davom ettirilgan ilova ishlab turaveradi. Qamrab olinmaydi: Apple push
-  bildirishnomalari, trafigi boshqa jarayon orqali o'tadigan ilovalar (VPN, proksi, tarmoq
-  kengaytmasi; qo'llab-quvvatlanmaydi deb belgilanadi), tizim ko'rmaydigan QUIC. Hali
-  o'lchanmagan.
-- **Thrash Guard** (`thrash.enabled`, **o'chiq**). Fon ilovalari tez-tez uyg'onib sovuq
-  xotiraga tegsa, Mac doimiy sahifa yuklaydi va oldingi plandagi ilova qotadi. Bunday
-  holatda (sahifa yuklanish bo'roni va ogohlantiruvchi bosim yoki qotish, ketma-ket
-  o'lchovlarda) o'z sahifa yuklanishi eng yuqori bo'lgan fon ilovalari odatdagi jurnalli
-  yo'l bilan pauza qilinadi (`THRASH_PAGEIN`); "protsessor bo'yicha bo'sh" shartidan
-  boshqa barcha himoyalar amal qiladi. Oldindan belgilangan laboratoriya mezonlari (T1-T4)
-  o'tmaguncha o'chiq qoladi; hali o'lchanmagan.
+**Qachon yordam bermaydi:** xotira bosimi yashil (macOS o'zi uddalaydi, iClear hech narsa
+qilmaydi); xotirani siz ishlatayotgan ilova yoki to'xtamasligi kerak bo'lgan narsa (build,
+model, virtual mashina, qo'ng'iroq) egallagan; uyg'onmasdan jim turgan ilovalar (macOS
+ularni baribir siqadi); yoki kundalik ishingiz uchun RAM shunchaki yetmaydi (bir haftalik
+ma'lumotdan keyin `iclear advise` buni aytadi).
 
-### Panic Brake nimani tuzata olmaydi
+<details>
+<summary><b>Pauza ilovalarga nima qiladi</b> (o'lchangan yon ta'sirlar va ular sabab bo'lgan sukut sozlamalari)</summary>
 
-U faqat sizning foydalanuvchi ilovalaringiz va jarayonlaringiz bilan ishlaydi. Yadro,
-GPU/drayver yoki WindowServer qotishlari, apparat nosozliklari va root jarayonlari
-(Spotlight `mds`, Time Machine `backupd`, `kernel_task`) uning qo'lidan kelmaydi: bunda u
-faqat ko'rganini yozib qo'yadi. To'liq qotib qolgan Mac'ni hech qanday ilova qutqara
-olmaydi. Mac'ni qanchalik tez tiklashi hali o'lchanmagan; mezonlar va raqamlar
-[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) da.
-
-Ikkalasi uchun mavjud ishlar ([NOVELTY.md](docs/NOVELTY.md#v11-re-audit-2026-10-02),
-2026-10-02 da qidirilgan): ish muhiti vositalari ilovalar guruhini tugma bilan ochadi va
-yopadi (Bunch, Commute, Ikuna, ShiftPlus), autohide esa ishlatilmayotgan ilovalarni
-yashiradi; xotira o'sishi tendensiyasining statistikasi (Mann-Kendall va Sen qiyaligi)
-ma'lum usul, boshqa Mac vositalari ham o'sayotgan ilovalarni belgilaydi (RamRadar, Memory
-Monitor, Mac Performance Monitor). Panic Brake uchun: earlyoom Linux'da eng katta jarayonni
-o'chirib xuddi shu vazifani bajaradi; memory_guard.py macOS'da siz ko'rsatgan jarayon
-daraxtlarining yaratuvchilarini pauza qiladi, keyin ishchilarni o'chiradi; turnstile
-bosim ostida o'z vazifalarini o'chirishdan oldin pauza qiladi.
-
-## Ma'lum yon ta'sirlar
-
-Pauza ilovaga nima qilishi simulyatorlar va mahalliy sahifalardagi Chrome bilan
-o'lchangan ([VALIDATION.md](docs/VALIDATION.md), "Side effects"). Yuqoridagi sukut
-sozlamalari shular sababli bor; `iclear compat <ilova>` ularni bitta ilova uchun
-ko'rsatadi.
+Simulyatorlar va mahalliy sahifalardagi Chrome bilan o'lchangan
+([VALIDATION.md](docs/VALIDATION.md), "Side effects"); `iclear compat <ilova>` ularni
+bitta ilova uchun ko'rsatadi.
 
 - **Chat, pochta va taqvim ilovalari** siz o'zingiz yoqmaguningizcha hech qachon pauza
   qilinmaydi. Pauzadagi ilova hech narsa qabul qilmaydi, u javob bermay qo'ygach esa
@@ -245,37 +264,25 @@ ko'rsatadi.
 - Pauza paytiga to'g'ri kelgan **bildirishnomalar** kechikib chiqadi yoki umuman chiqmaydi
   (o'lchanmagan).
 
-## O'lchangan natijalar
+</details>
 
-| Nima (bitta Mac, laboratoriya, tafsilotlar [VALIDATION.md](docs/VALIDATION.md) da) | Natija |
-|---|---|
-| Davom ettirishdan javob berishgacha (asosiy oqim Accessibility so'roviga javob beradi), haqiqiy ilovalarning 1 200 sikli | p50 2.5-3.6 ms, p99 ≤ 15.1 ms, maksimum 47.3 ms |
-| "Sariq" (warning) bosimda muzlatilgan haqiqiy ilovalar qaytargan xotira (birinchi epizod) | Chrome 1 203 → 803 MB (−33%), VS Code 1 709 → 1 046 MB (−39%), Preview 130 → 84 MB (−35%); "me'yoriy" bosimda macOS kam qaytaradi (mediana −1% dan −4% gacha) |
-| Xizmat `kill -9` bilan o'chirilgandan keyin davom ettirish (watchdog), 150 sinov | p50 76-85 ms, p99 98 ms |
-| Pop: barcha yashirilgan ilovalar ko'ringuncha, 50 sikl | p50 1.34 s, p99 1.36 s (pop oldingi faol ilova 0.5 soniya oldinda turishini kutadi) |
-| 24 ta raqobatchi jarayon ostida qo'ng'iroq taymeri tebranishi, Qo'ng'iroq rejimi o'chiq / yoqiq | p99 0.32 / 0.08 ms (Qo'ng'iroq rejimi o'chiq qoladi: u boshqa ilovalar ishini ikki baravar kamaytiradi) |
-| Xizmat, bo'sh holatda, Kuzatish rejimi, haqiqiy ilovalar, 10 daqiqa | protsessorning bitta yadrosidan 0.48%, 40 MB |
-
-Eski sintetik o'lchovlar: [BENCHMARKS.md](docs/BENCHMARKS.md).
-
-## Ruxsatlar
+### Ruxsatlar
 
 | Ruxsat | Majburiymi? | Nima uchun | Rad etilsa |
 |---|---|---|---|
 | hech qanday | | pauza, davom ettirish, stash, `why`, salomatlik bahosi, himoyalar, qo'ng'iroqni aniqlash (iClear mikrofon yoki kamera *ishlatilayotganini* biladi, xolos; ovoz yoki tasvirni hech qachon olmaydi) | hammasi ishlaydi |
 | Maxsus imkoniyatlar (Accessibility) | ixtiyoriy | davom ettirilgan ilova javob berishini tekshirish; kechikish; qotib qolish tahlili; pop'dan keyin aynan oldingi ilovani oldinga chiqarish. Stash shu yo'l bilan saqlanmagan o'zgarishlarni ham so'raydi, lekin laboratoriyada hech bir ilova ularni bildirmadi (har biri "noma'lum" bo'ldi), shuning uchun bu tekshiruv tasdiqlanmagan | davom ettirishdan keyingi qotish aniqlanmaydi; kechikish va qotishlar "o'lchanmagan" |
 | Kiritishni kuzatish (Input Monitoring) | ixtiyoriy | tajribaviy oldindan davom ettirish (o'chirilgan) | hech narsa o'zgarmaydi |
-| Mikrofon | faqat `iclear selftest` uchun | uning qo'ng'iroq tekshiruvi iClear'ning o'z sinov vositasini ishga tushiradi, u bir necha soniya yozib, darhol tashlab yuboradi | o'sha tekshiruv o'tkazib yuboriladi |
+| Mikrofon | faqat `iclear selftest` uchun | uning qo'ng'iroq tekshiruvi iClear'ning o'z sinov vositasini ishga tushiradi, u bir necha soniya yozib, darhol tashlab yuboradi | o'sha tekshiruv o'tkazib yuboriladi (main'da `--no-mic`) |
 | Ekranni yozib olish, Kamera | ishlatilmaydi | | |
-
-Root kerak emas, yadro kengaytmasi yo'q, SIP o'zgartirilmaydi, tarmoqqa ulanmaydi,
-telemetriya yo'q.
 
 ## O'rnatish
 
-macOS 13 va undan yangilari, Apple Silicon va Intel uchun qurilgan (universal ikkilik fayl).
+macOS 13 va undan yangilari, Apple Silicon va Intel uchun qurilgan (universal ikkilik
+fayl); faqat [COMPATIBILITY.md](docs/COMPATIBILITY.md) da sanab o'tilgan sharoitlarda
+sinalgan.
 
-[Oxirgi relizni](https://github.com/urrra39/iClear/releases) **yuklab oling**:
+[Oxirgi relizni](https://github.com/urrra39/iClear/releases/latest) **yuklab oling**:
 `iClear-<versiya>.zip` (menyu ilovasi; buyruq qatori vositalari
 `iClear.app/Contents/Helpers` ichida) yoki `iclear-<versiya>-macos.tar.gz` (faqat buyruq
 qatori vositalari). Tekshiring:
@@ -291,7 +298,7 @@ da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Op
 tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
 iclear-<versiya>`, keyin uning ichida `./iclear install`.
 
-**Manba koddan:**
+**Manba koddan** (Swift 6; `main` chiqarilmagan 1.1.0-rc.1 ishini quradi):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear
@@ -299,45 +306,142 @@ scripts/build-release.sh           # universal ikkilik fayllar, dist/iClear.app
 cp -R dist/iClear.app /Applications/
 ```
 
-Homebrew tap rejalashtirilgan, lekin hali chiqarilmagan; shablonlar
-[`packaging/homebrew/`](packaging/homebrew/) da.
+Homebrew tap hali chiqarilmagan ([#11](https://github.com/urrra39/iClear/issues/11));
+shablonlar [`packaging/homebrew/`](packaging/homebrew/) da.
 
-## Tez boshlash (60 soniya)
+### O'chirib tashlash
 
 ```sh
-iclear selftest --quick # 12 soniyada pauza va davom ettirish shu Mac'da ishlashini tekshiradi
-iclear install          # foydalanuvchi xizmatini Kuzatish rejimida ishga tushiradi
-iclear status           # u nimani ko'rmoqda va nima qilgan bo'lardi
-iclear why              # Mac nega hozir sekin?
-iclear compat Chrome    # pauza ilovaga nima qilishi
-# ...Mac'ingizdan bir kun foydalaning, keyin:
-iclear stats --days 1   # u nima qilgan bo'lardi va taxminiy afsus darajasi
-iclear mode active      # unga amal qilishga ruxsat bering
+iclear uninstall --purge   # xizmatni to'xtatadi (hammasini davom ettiradi), LaunchAgent ni
+                           # olib tashlaydi va ~/Library/Application Support/iClear ni o'chiradi
+rm -rf /Applications/iClear.app
 ```
 
-Ilova bilan: iClear ni Applications dan oching; "iClear'ni ishga tushirish" xizmatni
-o'rnatadi. Favqulodda holat: **Control-Option-Command-T** yoki `iclear thaw --all`
-hammasini davom ettiradi.
+### iClean dan o'tish
 
-## Xavfsizlik modeli
+iClear bu iClean ning yangi nomi. Agar iClean 0.1.0 o'rnatilgan bo'lsa, `iclear install`
+(yoki `iclear migrate`) avval iClean pauza qilgan hamma narsani davom ettiradi (agar
+uning xizmati ishlayotgan bo'lsa u orqali, keyin muzlatish jurnalini qayta o'qib), faqat
+shundan keyin eski LaunchAgent ni to'xtatadi va o'chirib qo'yadi hamda sozlamalar, holat
+va izlarni nusxalaydi. Agar eski jurnaldagi jarayon hali ham pauzada bo'lsa, hech narsani
+o'zgartirmasdan to'xtaydi. Eski fayllar `iclear migrate --remove-old` ni ishga
+tushirmaguningizcha joyida qoladi. `iclear migrate --dry-run` avval rejani ko'rsatadi.
 
-Har bir pauzadan oldin muzlatish jurnali yoziladi, va xizmat ishdan chiqsa (hatto
-`kill -9` bilan ham), alohida kuzatuvchi (watchdog) jarayon hammasini davom ettiradi
-(laboratoriya: 100/100 tiklanish, p99 83 ms). Har bir signal oldidan PID, boshlanish
-vaqti va egasi qayta tekshiriladi. Himoyalangan to'plamni (tizim, terminallar, AI
-dasturlash agentlari, parol menejerlari, sinxronlash, VPN, kiritish va maxsus imkoniyat
-vositalari) hech qanday qoida bilan pauza qilib bo'lmaydi. Daraxtlar "hammasi yoki hech
-biri" tamoyili bilan pauza qilinadi. Pauza vaqti (4 soat) va umumiy hajmi (RAM ning 50%)
-cheklangan. Ustuvorlik va yashirish o'zgarishlari jurnalga yoziladi va aynan qaytariladi.
-Stash xizmatdan uzoq yashamaydi. Qo'ng'iroq rejimi, uni o'zingiz yoqsangiz, qo'ng'iroq
-paytida harakat qiladigan yagona narsa, va qo'ng'iroqning o'ziga hech qachon tegmaydi
-([SAFETY.md](docs/SAFETY.md)).
+## Main'dagi imkoniyatlar (chiqarilmagan)
+
+<details>
+<summary>Auto-Context Stash, xotira o'sishi tendensiyasi, Panic Brake, Black Box, canary probe, Capacity Report, Wake-on-Data, Thrash Guard: har biri nima qiladi va nima qila olmaydi</summary>
+
+Ularning laboratoriya sinovlari ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) 4-bosqich,
+[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) 5 va 6-bosqichlar) hali
+o'tkazilmagan. Imkoniyat mezonlari o'tmaguncha, standart o'rnatish uni sozlamadan qat'i
+nazar faqat kuzatish rejimida yoki o'chiq holda ishlatadi.
+
+- **Auto-Context Stash** (`iclear hook zsh|bash|fish`, `iclear context add | list |
+  remove | status | pause | resume | undo | suggest`). Kichik shell hook iClear'ga
+  terminalingiz qaysi papkada ekanini aytadi. Boshqa loyihada 20 soniya o'tgach, iClear
+  bitta almashtirishni *taklif qiladi*: tark etilgan loyiha ilovalarini yashiradi
+  (`context:<nom>` sifatida) va yangi loyiha ilovalarini qaytaradi. Ikkala loyiha
+  ishlatadigan ilovalar, shuningdek pauza qilib bo'lmaydigan ilovalar (audio, mikrofon,
+  qo'ng'iroq) ishlashda davom etadi; qat'iy to'siq (masalan, diskda joy yetmasligi)
+  butun almashtirishni to'xtatadi. Avtomatik almashtirish har bir kontekst uchun alohida
+  yoqiladi va faqat Faol rejimda ishlaydi; Kuzatish rejimi faqat "almashtirgan bo'lardi"
+  deb yozadi. Loyiha ichidagi ko'chishlar, `cd ~` va `/tmp` almashtirmaydi; har bir
+  almashtirishdan keyin 5 daqiqalik tanaffus bor; `iclear context undo` oxirgisini bekor
+  qiladi. Almashtirish bir zumda bo'lmaydi: taxminan qaytarish (pop) qancha vaqt olsa,
+  shuncha oladi (1.0 laboratoriyasida p50 1.34 s). Cheklovlar: faqat terminallarni
+  ko'radi, shuning uchun faqat IDE ichida qilingan ish ko'rinmaydi; turli loyihalardagi
+  terminallar kutish vaqti ichida xabar bersa, joriy kontekst o'zgarmaydi; fish, tmux
+  va boshqa multiplekserlar sinalmagan. Dastlabki tajribada hook har bir papka
+  almashishiga taxminan 1-2 ms qo'shdi (zsh va bash).
+- **Xotira o'sishi tendensiyasi** (`iclear leaks`; menyuda: O'sish). Har bir ilovaning
+  xotira hajmini daqiqasiga bir marta o'lchaydi va ilova ishlatilmayotganda (oxirgi 10
+  daqiqada oldingi planda bo'lmagan) barqaror o'sishni kamida 2 soat va 12 o'lchovdan
+  keyin xabar qiladi: "soatiga X MB o'sish (oraliq), shu tezlikda HH:MM atrofida Y GB",
+  ishonch darajasi bilan. Bu tendensiya, xotira oqishi tashxisi emas: keshlar va loglar
+  ham o'sadi. Bir martalik sakrash (hujjat ochilgan) va to'lib-bo'shaydigan keshlar
+  xabar qilinmaydi. Xotira bosimi bilan faqat tizim prognozi orqali bog'lanadi va u
+  "taxmin" deb belgilanadi. Tarix xotirada saqlanadi va daemon qayta ishga tushganda
+  qaytadan boshlanadi. Bildirishnomalar o'chiq: soak'ning 10 kunlik izidagi orqaga
+  qaytib tekshiruv hech bir ilovani belgilamadi, shuning uchun L5 qoidasi undan o'ta
+  olmaydi. `iclear leaks quit <ilova>` avval nima bo'lishini
+  ko'rsatadi; `--yes` bilan ilovadan o'zining Quit buyrug'i orqali yopilishni so'raydi
+  va uni majburan yopmaydi. "Tozalash" tugmasi yo'q: macOS'da boshqa ilovani xotira
+  bo'shatishga yoki axlat yig'ishga majburlash usuli yo'q.
+- **Panic Brake** (`iclear brake observe | on | off | status | report | resume | quit`).
+  Alohida kichik kuzatuvchi (`icbrake`, o'z LaunchAgent'i, AppKit'siz) har 250 ms da
+  xotira bosimi, svopdan qaytarishlar, siqilgan xotirani ochish, sahifa yuklanishlari,
+  navbat va o'z taymeri kechikishini o'qiydi. Mac xotira tufayli qotib qolsa, u sizning
+  jarayon daraxtlaringizni xotira o'sishi, sahifa yuklanishi va protsessor bo'yicha
+  saralaydi va eng yuqorisini pauza qilgan bo'lardi (avval jurnalga yozib); qotish o'tsa,
+  uni pauzada qoldiradi, aks holda davom ettirib keyingisini sinaydi (3 tagacha), 10 s da
+  to'xtab xabar beradi. Oldingi plandagi ilova faqat 10 s dan keyin va faqat eng yuqorida
+  bo'lsa nomzod bo'ladi. **Bu versiyada u faqat kuzatadi:** `iclear brake on` saqlanadi,
+  lekin mezonlari o'tmaguncha uni harakatga keltirmaydi. Ixtiyoriy, har bir ilova uchun
+  alohida va standart holatda o'chiq: `brake.autoQuitApps` ro'yxatidagi ilova 30 s
+  davomida tasdiqlangan sababchi bo'lib qolsa, undan o'zining Quit buyrug'i bilan
+  yopilish so'raladi (xizmat orqali boshidan oxirigacha sinalgan); ilova saqlanmagan ish
+  borligini bildirsa, bu qadam o'tkazib yuboriladi, lekin 1.0 laboratoriyasida hech bir
+  ilova bu signalni bermadi, shuning uchun ishonchli signali yo'q ilova saqlanmagan ishni
+  yo'qotishi mumkin: faqat avtomatik saqlaydigan va oynalarini tiklaydigan ilovalarni
+  yoqing. Yadro, GPU/drayver yoki WindowServer qotishlari, apparat nosozliklari va root
+  jarayonlari (Spotlight `mds`, Time Machine `backupd`, `kernel_task`) uning qo'lidan
+  kelmaydi, to'liq qotib qolgan Mac'ni hech qanday ilova qutqara olmaydi. Mac'ni
+  qanchalik tez tiklashi hali o'lchanmagan.
+- **Black Box** (`iclear blackbox`). Oxirgi ~5 daqiqa, 2 s oralig'ida (bosim, svop,
+  sahifa yuklanishlari, harorat va quvvat holati, eng shubhali ilovalar nomi), faqat Mac
+  sog'lom bo'lmaganda yoziladi. To'g'ri o'chirilmasdan qayta ishga tushgandan keyin menyu
+  va `iclear blackbox` o'sha vaqt chizig'ini ko'rsatadi. Oxirgi bir necha soniya
+  yo'qolishi mumkin. macOS'ning "Previous shutdown cause" yozuvi faqat foydalanuvchi uni
+  o'qiy olsa ko'rsatiladi; sinov Mac'ida o'qib bo'lmaydi.
+
+- **Canary probe** (`iclear probe <ilova> [--cycles N]`). Sizning roziligingiz bilan
+  (so'rovda), faqat ilova yashirin, oldingi planda emas, barcha himoyalardan o'tgan va Mac
+  zaryadda bo'lganda: bir necha qisqa jurnalli pauza (standart 5 ta, har biri ko'pi bilan
+  5 s); har bir davom ettirishdan keyin ilova tirikligini, javob berishini (Accessibility
+  bilan, oynasi bor ilovalar uchun) va ulanishlari saqlanganini tekshiradi, yangi
+  nosozlik hisobotlarini qidiradi. Muvaffaqiyatsizlik ilovani karantinga oladi;
+  `probe.requirePassed` (o'chiq) avtomatik pauzalarni faqat sinovdan o'tgan ilovalarga
+  cheklaydi. Ilovani oldinga chiqarsangiz sinov to'xtaydi va ilova davom etadi.
+- **Capacity Report** (`iclear capacity [--json]`, menyu qatori). Har bir pauza uchun
+  60 s dan keyin bo'sh xotiraning o'lchangan o'zgarishi, pauzadagi hajm, vaqt va
+  afsuslar; ogohlantirishgacha qolgan zaxira taxmini (oraliq bilan); svop va uning
+  24 soatlik o'zgarishi; pauza bo'lmasa "xabar qiladigan narsa yo'q". Nimani o'zgartira
+  oladi va nimani yo'q: [CAPACITY.md](docs/CAPACITY.md). Laboratoriya natijasi hali e'lon
+  qilinmagan.
+- **Wake-on-Data** (`wakeOnData`, **o'chiq**, faqat tanlangan chat yoki brauzer ilovasi
+  uchun). Bunday ilova pauzada bo'lganda iClear har 250 ms da uning soketlaridagi qabul
+  navbatini tekshiradi (libproc, root kerak emas); ma'lumot kutayotgan bo'lsa ilovani
+  davom ettiradi (`WAKE_DATA_RX`) va ma'lumot to'xtagach 5 s dan keyin yana pauza qiladi
+  (`REFREEZE_QUIET`), agar qo'ng'iroq, audio yoki boshqa himoya to'sqinlik qilmasa. Vaqtning
+  20% dan ko'pida davom ettirilgan ilova ishlab turaveradi. Qamrab olinmaydi: Apple push
+  bildirishnomalari, trafigi boshqa jarayon orqali o'tadigan ilovalar (VPN, proksi, tarmoq
+  kengaytmasi; qo'llab-quvvatlanmaydi deb belgilanadi), tizim ko'rmaydigan QUIC. Hali
+  o'lchanmagan.
+- **Thrash Guard** (`thrash.enabled`, **o'chiq**). Fon ilovalari tez-tez uyg'onib sovuq
+  xotiraga tegsa, Mac doimiy sahifa yuklaydi va oldingi plandagi ilova qotadi. Bunday
+  holatda (sahifa yuklanish bo'roni va ogohlantiruvchi bosim yoki qotish, ketma-ket
+  o'lchovlarda) o'z sahifa yuklanishi eng yuqori bo'lgan fon ilovalari odatdagi jurnalli
+  yo'l bilan pauza qilinadi (`THRASH_PAGEIN`); "protsessor bo'yicha bo'sh" shartidan
+  boshqa barcha himoyalar amal qiladi. Oldindan belgilangan laboratoriya mezonlari (T1-T4)
+  o'tmaguncha o'chiq qoladi; hali o'lchanmagan.
+
+Ikkalasi uchun mavjud ishlar ([NOVELTY.md](docs/NOVELTY.md#v11-re-audit-2026-10-02),
+2026-10-02 da qidirilgan): ish muhiti vositalari ilovalar guruhini tugma bilan ochadi va
+yopadi (Bunch, Commute, Ikuna, ShiftPlus), autohide esa ishlatilmayotgan ilovalarni
+yashiradi; xotira o'sishi tendensiyasining statistikasi (Mann-Kendall va Sen qiyaligi)
+ma'lum usul, boshqa Mac vositalari ham o'sayotgan ilovalarni belgilaydi (RamRadar, Memory
+Monitor, Mac Performance Monitor). Panic Brake uchun: earlyoom Linux'da eng katta jarayonni
+o'chirib xuddi shu vazifani bajaradi; memory_guard.py macOS'da siz ko'rsatgan jarayon
+daraxtlarining yaratuvchilarini pauza qiladi, keyin ishchilarni o'chiradi; turnstile
+bosim ostida o'z vazifalarini o'chirishdan oldin pauza qiladi.
+
+</details>
 
 ## Boshqalar bilan taqqoslash
 
-Bu loyihalar o'xshash muammolarni hal qiladi va ularning bir nechtasi buni ilgariroq
-qilgan. Ularning README fayllari va sahifalari o'qib chiqildi (har bir qator
-2026-10-03 da qayta o'qildi):
+<details>
+<summary>O'xshash muammolarni hal qiladigan loyihalar, ularning bir nechtasi ilgariroq (har bir qator 2026-10-03 da qayta o'qildi)</summary>
 
 | Loyiha | Yondashuv | iClear dan farqi |
 |---|---|---|
@@ -376,40 +480,25 @@ ovozsiz va protsessorni ko'p ishlatadigan tablarni muzlatadi (Chrome 133 dan) va
 Saver rejimida tablarni o'chiradi, brauzer ichida. Dalil yo'qligi isbot emas: topilmagani
 mavjud emasligini anglatmaydi.
 
-## Qayerda sinalgan
+</details>
 
-Yuqoridagi laboratoriya natijalari: bitta Mac (Apple M3 Pro, 18 GB, macOS 27.0.1).
-Avtomatik testlar (188 ta test) GitHub'ning macOS 15 (Apple Silicon va Intel)
-va macOS 26 runnerlarida ham o'tadi. iClear chegaralarini RAM hajmi, disk turi va
-batareyaga moslaydi, lekin "har qanday MacBook'ga moslashadi" degani "har bir MacBook'da
-sinalgan" degani emas. `iclear doctor --report` ni ishga tushiring va Mac'ingizni
-[COMPATIBILITY.md](docs/COMPATIBILITY.md) ga qo'shing.
-
-## iClean dan o'tish
-
-iClear bu iClean ning yangi nomi. Agar iClean 0.1.0 o'rnatilgan bo'lsa, `iclear install`
-(yoki `iclear migrate`) avval iClean pauza qilgan hamma narsani davom ettiradi (agar
-uning xizmati ishlayotgan bo'lsa u orqali, keyin muzlatish jurnalini qayta o'qib), faqat
-shundan keyin eski LaunchAgent ni to'xtatadi va o'chirib qo'yadi hamda sozlamalar, holat
-va izlarni nusxalaydi. Agar eski jurnaldagi jarayon hali ham pauzada bo'lsa, hech narsani
-o'zgartirmasdan to'xtaydi. Eski fayllar `iclear migrate --remove-old` ni ishga
-tushirmaguningizcha joyida qoladi. `iclear migrate --dry-run` avval rejani ko'rsatadi.
-
-## O'chirib tashlash
-
-```sh
-iclear uninstall --purge   # xizmatni to'xtatadi (hammasini davom ettiradi), LaunchAgent ni
-                           # olib tashlaydi va ~/Library/Application Support/iClear ni o'chiradi
-rm -rf /Applications/iClear.app
-```
-
-## Batafsil
+## Hujjatlar
 
 [Arxitektura](docs/ARCHITECTURE.md) · [Xavfsizlik](docs/SAFETY.md) ·
 [Tasdiqlash natijalari](docs/VALIDATION.md) · [Reliz mezonlari](docs/RELEASE_CRITERIA.md) ·
-[Testlar xaritasi](docs/TEST_MATRIX.md) · [Imkoniyatlarni o'rganish](docs/FEASIBILITY.md) ·
-[Qarorlar](docs/DECISIONS.md) · [Sifat](docs/QUALITY.md) · [Hissa qo'shish](CONTRIBUTING.md) ·
-[Xavfsizlik siyosati](SECURITY.md) · [O'zgarishlar](CHANGELOG.md)
+[v1.1 mezonlari](docs/RELEASE_CRITERIA_v1.1.md) · [Testlar xaritasi](docs/TEST_MATRIX.md) ·
+[Moslik](docs/COMPATIBILITY.md) · [Sifat](docs/QUALITY.md) ·
+[Imkoniyatlarni o'rganish](docs/FEASIBILITY.md) · [Qarorlar](docs/DECISIONS.md) ·
+[Savol-javob](docs/FAQ.md) · [O'zgarishlar](CHANGELOG.md)
+
+## Hissa qo'shish
+
+Xato haqida xabarlar, moslik hisobotlari va kichik, aniq pull request'lar mamnuniyat bilan
+qabul qilinadi; eng foydalisi Mac'ingizda `iclear selftest --report` ni ishga tushirib,
+natijani yuborish ([ochiq vazifalar](https://github.com/urrra39/iClear/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)).
+[CONTRIBUTING.md](CONTRIBUTING.md) va [SECURITY.md](SECURITY.md) ga qarang.
+
+## Litsenziya
 
 MIT litsenziyasi. Apple Inc. bilan bog'liq emas. macOS va MacBook Apple Inc.ning
 savdo belgilaridir. iClear shunga o'xshash nomli kesh va disk tozalagichlar bilan
