@@ -7,7 +7,7 @@ decision, DECISIONS.md #36). Results: [VALIDATION.md](VALIDATION.md).
 
 ## Verdict
 
-**v1.0.0.** Every must-pass criterion of stage 1 (lab gate) and stage 3 (side-effect gate) is met on the reference machine. The 7-day soak (stage 2) started on 2026-10-01 at 20:29 UTC and is reported after release, as the owner decided before any soak data existed.
+**v1.0.0.** Every must-pass criterion of stage 1 (lab gate) and stage 3 (side-effect gate) is met on the reference machine. The 7-day soak (stage 2) ran from 2026-10-01 20:29 UTC to 2026-10-10 and was reported after release, as the owner decided before any soak data existed. It did **not** pass: W1, W2, W4 and W6 were met; W3 (160 of 300 stash/pop cycles) and W5 (daemon CPU, daily means 0.73-2.03% of one core against a 0.5% bound) were not ([VALIDATION.md](VALIDATION.md#7-day-soak-on-100-final-result-w1-w7)). Per the owner's policy 1.0.0 stays released; the soak result is published as measured (DECISIONS.md #42).
 
 | # | Criterion | Result | Verdict |
 |---|---|---|---|
@@ -38,7 +38,7 @@ decision, DECISIONS.md #36). Results: [VALIDATION.md](VALIDATION.md).
 | Safety | 9 | Every invariant in SAFETY.md has a passing test; lab: 100/100 kill -9 recoveries while frozen and 50/50 with a stash (p99 < 100 ms), 0 processes left stopped, 0 document changes, guards blocked every freeze attempt during audio, calls and downloads. |
 | Side effects | 8 | Measured with simulators and Chrome; chat, mail, calendar and media apps protected by default; "Known side effects" in the README. Not measured with real Slack or Spotify. |
 | UX | 7 | Menu with health, stash, battery line, stalls and calls views, English and Uzbek. No onboarding beyond the status line. |
-| Performance | 8 | Idle daemon 0.479% of one core and 40 MB over 10 minutes (limit 0.5%, 60 MB); real apps responsive again within 15.1 ms (p99) after a thaw; pop p99 1.36 s. Below 9: little CPU headroom under the limit. |
+| Performance | 6 | Idle daemon 0.479% of one core and 40 MB over 10 minutes (limit 0.5%, 60 MB), but the 7-day soak of 1.0.0 measured daily means of 0.73-2.03% of one core (W5 not met; cause and re-measurement in VALIDATION.md); real apps responsive again within 15.1 ms (p99) after a thaw; pop p99 1.36 s. Below 9: the released 1.0.x does not meet its own CPU bound over a week. |
 | Docs | 8 | README (English and Uzbek) with validated scope and not-validated list, release criteria, validation results, test matrix, safety, manual tests. Architecture docs English only. |
 | Honesty | 9 | Pre-registered criteria, one documented amendment, negative results kept (Anti-Beachball mitigation, staged thaw, battery trials invalidated), every number traced to VALIDATION.md or BENCHMARKS.md. |
 
@@ -48,7 +48,7 @@ decision, DECISIONS.md #36). Results: [VALIDATION.md](VALIDATION.md).
 - Intel Macs beyond the CI test suite; macOS 13 and 14; Macs with 8 GB or less;
   rotational disks.
 - Battery estimates and target mode (no valid unplugged trials; experimental and off).
-- The 7-day soak (in progress; reported after release).
+- The 7-day soak passed only in part: W3 (stash/pop cycles) and W5 (CPU) were not met.
 - Thermal shield (the lab cannot heat the Mac safely).
 - Safari, Docker, Xcode and virtual machines as freeze targets.
 - Media keys sent to a paused player; notifications due during a pause.
@@ -111,7 +111,7 @@ files. **C14 met.**
 | Menu interaction (dismissal, Command-T, global hotkey, live use) | NOT RUN | — | The test icon's position was hit-tested to another app; synthetic clicks were not sent | MANUAL_TESTS 9-11 |
 | Signing and first launch | PARTLY | 657e1e0 | Ad-hoc signature valid; Gatekeeper `spctl` rejects a quarantined copy, as expected; no Developer ID or notarization (none configured; release notes say so) | MANUAL_TESTS 12 (Open Anyway) |
 | Compatibility | — | — | Tested: Mac15,6, macOS 27.0.1, arm64 only. The x86_64 slice is built, not run; macOS 13-15 untested | CI or other Macs |
-| 7-day soak (W1-W7) | ongoing (v1.0.0) | 1.0.0 | Attributed to 1.0.0; not evidence for rc.1 | Wrap-up after 2026-10-09 01:30 |
+| 7-day soak (W1-W7) | FAILED (W3, W5) | 1.0.0 | Stopped 2026-10-10: W1, W2, W4, W6 met; W3 160/300 stash/pop; W5 CPU daily means 0.73-2.03% of one core; W7 1 would-be pause, regretted. Attributed to 1.0.0, not evidence for rc.1 | W5 cause and fix: VALIDATION.md, "Daemon overhead after the soak" |
 
 ## Recovery and menu hardening (branch `hardening/correctness-recovery`, 2026-10-06)
 
