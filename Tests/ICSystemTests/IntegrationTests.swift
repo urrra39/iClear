@@ -480,6 +480,7 @@ import Testing
         let host = ProcessInfo.processInfo.hostName
         #expect(!report.contains(user) && !report.contains(host))
         #expect(run("iclear", ["completions", "zsh"]).out.contains("#compdef iclear"))
+        #expect(run("iclear", ["help"]).out.contains("--no-mic") && run("iclear", ["completions", "zsh"]).out.contains("--no-mic"))
         #expect(run("iclear", ["completions", "bash"]).out.contains("complete -F"))
         #expect(run("iclear", ["completions", "fish"]).out.contains("complete -c iclear"))
         #expect(run("iclear", ["nonsense"]).status == 1)

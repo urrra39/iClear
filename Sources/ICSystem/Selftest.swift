@@ -67,7 +67,9 @@ public enum Selftest {
 
     /// Runs every check. `tools` is the directory holding ic-hog, ic-ui-probe,
     /// ic-call-sim and icleard. `progress` receives one line per check as it starts.
-    public static func run(tools: URL, quick: Bool, progress: (String) -> Void) -> Report {
+    /// `noMic` skips the one check that records from the microphone (call detection), so no
+    /// microphone permission prompt appears.
+    public static func run(tools: URL, quick: Bool, noMic: Bool = false, progress: (String) -> Void) -> Report {
         let start = Date()
         let hw = SystemSampler.hardware()
         let home = URL(fileURLWithPath: "/tmp/iclear-selftest-\(getpid())")
@@ -527,6 +529,7 @@ public enum Selftest {
         }
 
         check("call detection") {
+            if noMic { return (.skip, "not run (--no-mic): it records from the microphone", 0) }
             guard let sim = try? SpawnedHog(path: tool("ic-call-sim"), args: ["--audio"]), sim.waitReady() else {
                 return (.fail, "could not start ic-call-sim", 0)
             }

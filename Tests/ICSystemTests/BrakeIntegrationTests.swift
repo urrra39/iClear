@@ -119,7 +119,12 @@ import Testing
 
     /// Auto graceful quit on probe apps that quit cleanly, ignore the request or crash,
     /// and one that reports unsaved work. The quit request is the app's own Quit.
-    func autoQuitRun(onQuit: String, unsaved: Bool? = nil) throws -> (fx: GUIFixture, agent: BrakeAgent, feed: Feed) {
+    /// `daemon` true: the quit request and the unsaved-work question go through a real
+    /// `icleard` (lab mode; `inScope` decides whether the fixture is in its registry),
+    /// exactly as the Panic Brake sends them, instead of injected functions.
+    func autoQuitRun(onQuit: String, unsaved: Bool? = nil, daemon: Bool = false, inScope: Bool = true) throws -> (
+        fx: GUIFixture, agent: BrakeAgent, feed: Feed, daemon: Process?
+    ) {
         let dir = tempHome().home
         let fx = try GUIFixture(
             probe: products.appendingPathComponent("ic-ui-probe").path, dir: dir, name: "Quit\(onQuit)", frame: "200,200,300,200",
@@ -131,8 +136,27 @@ import Testing
         a.settings.autoQuitApps = [fx.id]
         a.settings.autoQuitSeconds = 5
         a.ladder.settings = a.settings
-        a.quitApp = { NSRunningApplication(processIdentifier: $0)?.terminate() ?? false }
-        a.unsavedWork = { _ in unsaved }
+        var d: Process?
+        if daemon {
+            // Shared config, as in a real install: the agent reloads it, and the daemon would
+            // otherwise write the default (brake observe, no auto quit).
+            var c = Config()
+            c.brake = a.settings
+            try c.encoded().write(to: a.paths.config)
+            try JSONEncoder().encode(inScope ? [fx.identity!] : []).write(to: a.paths.labRegistry)
+            let p = Process()
+            p.executableURL = products.appendingPathComponent("icleard")
+            p.environment = ProcessInfo.processInfo.environment.merging(["ICLEAR_HOME": a.paths.home.path, "ICLEAR_LAB": "1"]) { _, n in n }
+            try p.run()
+            d = p
+            guard eventually(10, { IPC.send(Request("ping"), path: a.paths.socket.path, timeout: 1)?.ok == true }) else {
+                p.terminate()
+                throw POSIXError(.ETIMEDOUT)
+            }
+        } else {
+            a.quitApp = { NSRunningApplication(processIdentifier: $0)?.terminate() ?? false }
+            a.unsavedWork = { _ in unsaved }
+        }
         let f = Feed()
         a.clock = { f.t }
         f.next(a, storm: false)
@@ -144,13 +168,13 @@ import Testing
         #expect(a.pauses[fx.id] != nil && isStopped(fx.pid))
         #expect(a.status().plans.first?.contains("will be asked to quit") == true)
         for _ in 0..<5 { f.next(a, storm: false) }  // 5 s after confirmation: the auto quit
-        return (fx, a, f)
+        return (fx, a, f, d)
     }
 
     func codes(_ a: BrakeAgent) -> [String] { ActionLog.read(paths: a.paths).flatMap { $0.action.message.map { [$0] } ?? [] } }
 
     @Test func autoQuitQuitsCleanly() throws {
-        let (fx, a, f) = try autoQuitRun(onQuit: "quit")
+        let (fx, a, f, _) = try autoQuitRun(onQuit: "quit")
         defer { fx.kill() }
         #expect(eventually(10) { kill(fx.pid, 0) != 0 })
         f.next(a, storm: false)
@@ -159,7 +183,7 @@ import Testing
     }
 
     @Test func autoQuitIgnoredLeavesItPaused() throws {
-        let (fx, a, f) = try autoQuitRun(onQuit: "ignore")
+        let (fx, a, f, _) = try autoQuitRun(onQuit: "ignore")
         defer { fx.kill() }
         #expect(!isStopped(fx.pid))  // resumed to answer the request
         usleep(1_000_000)
@@ -172,7 +196,7 @@ import Testing
     }
 
     @Test func autoQuitCrashIsRecordedAsExited() throws {
-        let (fx, a, f) = try autoQuitRun(onQuit: "crash")
+        let (fx, a, f, _) = try autoQuitRun(onQuit: "crash")
         defer { fx.kill() }
         #expect(eventually(10) { kill(fx.pid, 0) != 0 })
         f.next(a, storm: false)
@@ -181,13 +205,46 @@ import Testing
     }
 
     @Test func autoQuitSkippedWhenTheAppReportsUnsavedWork() throws {
-        let (fx, a, _) = try autoQuitRun(onQuit: "quit", unsaved: true)
+        let (fx, a, _, _) = try autoQuitRun(onQuit: "quit", unsaved: true)
         defer {
             _ = a.handle(Request("resume", app: "all"))
             fx.kill()
         }
         #expect(isStopped(fx.pid) && kill(fx.pid, 0) == 0 && a.pauses[fx.id] != nil)
         #expect(codes(a).contains { $0.contains("auto quit skipped: it reports unsaved work") })
+    }
+
+    /// End to end through the real daemon: the brake asks `icleard` (no injected functions),
+    /// the daemon checks scope and unsaved work, and the app quits through its own Quit.
+    @Test func autoQuitGoesThroughTheRealDaemon() throws {
+        let (fx, a, f, d) = try autoQuitRun(onQuit: "quit", daemon: true)
+        defer {
+            fx.kill()
+            d?.terminate()
+            d?.waitUntilExit()
+        }
+        #expect(eventually(10) { kill(fx.pid, 0) != 0 })
+        f.next(a, storm: false)
+        #expect(a.pauses.isEmpty && a.journal.read().isEmpty)
+        #expect(codes(a).contains { $0.contains("asked to quit (its own Quit)") })
+        #expect(codes(a).contains { $0.contains("exited after the quit request") })
+    }
+
+    /// The daemon refuses an app outside the lab scope: no quit request is sent, the app
+    /// stays paused and journaled, and Resume all brings it back.
+    @Test func autoQuitThroughTheDaemonRespectsTheScope() throws {
+        let (fx, a, f, d) = try autoQuitRun(onQuit: "quit", daemon: true, inScope: false)
+        defer {
+            _ = a.handle(Request("resume", app: "all"))
+            fx.kill()
+            d?.terminate()
+            d?.waitUntilExit()
+        }
+        usleep(1_000_000)
+        for _ in 0..<11 { f.next(a, storm: false) }
+        #expect(kill(fx.pid, 0) == 0)
+        #expect(codes(a).contains { $0.contains("could not send the quit request") })
+        #expect(isStopped(fx.pid) && a.journal.read().entries.contains { $0.pid == fx.pid })
     }
 
     /// The real watchdog process in lab mode: a simulated stall pauses the registered

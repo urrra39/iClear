@@ -78,7 +78,9 @@ let usage = """
       stash <name> [--keep a,b] [--include a,b] [--include-heavy] [--force-unsaved] [--dry-run]
       stash [list | show <name> | drop <name>]
       pop [<name> | --all | --app <app>]
-      selftest [--quick] [--report] [--json]   check that iClear works on this Mac (2-5 min; --quick 30 s)
+      selftest [--quick] [--no-mic] [--report] [--json]
+                                       check that iClear works on this Mac (2-5 min; --quick 30 s;
+                                       --no-mic skips the call check, which uses the microphone)
       battery [target <2h30m | off>]   battery minutes per app (estimates)
       beachball [stats | log]          recorded stalls of the frontmost app and their causes
       before <app>                     will launching this app push memory pressure up?
@@ -345,7 +347,7 @@ case "pop":
 
 case "selftest":
     let tools = installer.daemonPath.replacingOccurrences(of: "/icleard", with: "")
-    let r = Selftest.run(tools: URL(fileURLWithPath: tools), quick: rest.contains("--quick")) { line in
+    let r = Selftest.run(tools: URL(fileURLWithPath: tools), quick: rest.contains("--quick"), noMic: rest.contains("--no-mic")) { line in
         if !json { FileHandle.standardError.write(Data((line + "\n").utf8)) }
     }
     if json {
