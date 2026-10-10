@@ -12,8 +12,19 @@ struct IClearMenuApp: App {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             MainActor.assumeIsolated {
+                let model = Model()
+                // `--message key1,key2` shows those strings as the message line (layout checks of
+                // action results, which a one-shot render cannot trigger).
+                if let j = args.firstIndex(of: "--message"), j + 1 < args.count {
+                    model.message = args[j + 1].split(separator: ",").map { k in
+                        String(format: localized(String(k)), 2)
+                    }.joined(separator: "\n")
+                }
+                // The first refresh arrives asynchronously.
+                let end = Date().addingTimeInterval(6)
+                while model.reach == nil, Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
                 let view = NSHostingView(
-                    rootView: MenuView().environmentObject(Model())
+                    rootView: MenuView().environmentObject(model)
                         .background(Color(nsColor: .windowBackgroundColor)))
                 view.frame.size = view.fittingSize
                 let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -37,7 +48,9 @@ struct IClearMenuApp: App {
         } label: {
             Image(systemName: model.icon)
                 .accessibilityLabel(
-                    Text(model.status.map { String(format: localized("a11y.icon"), $0.health.score) } ?? localized("daemon.notRunning")))
+                    Text(
+                        model.status.map { String(format: localized("a11y.icon"), $0.health.score) }
+                            ?? model.reach.map(Model.text) ?? localized("daemon.connecting")))
         }
         .menuBarExtraStyle(.window)
     }
@@ -48,6 +61,10 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !model.onboardingDone {
+                onboarding
+                Divider()
+            }
             if let s = model.status {
                 header(s)
                 Divider()
@@ -57,9 +74,12 @@ struct MenuView: View {
                 brakeSection
                 Divider()
                 stashSection(s)
+            } else if let r = model.reach {
+                Text(Model.text(r)).font(.headline).fixedSize(horizontal: false, vertical: true)
+                // Starting a second daemon next to one that does not answer would only fail.
+                if r == .absent { Button(localized("daemon.start")) { model.startDaemon() } }
             } else {
-                Text(localized("daemon.notRunning")).font(.headline)
-                Button(localized("daemon.start")) { model.startDaemon() }
+                Text(localized("daemon.connecting")).font(.headline)
             }
             Divider()
             actions
@@ -71,7 +91,9 @@ struct MenuView: View {
                 Button(localized("close")) { model.detail = nil }
             }
             if let m = model.message {
-                Text(m).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                // Never cut short: an emergency report can be several lines (what was resumed,
+                // what is still paused, a change still in progress).
+                Text(m).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             permissions
@@ -79,6 +101,18 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 360)
+    }
+
+    /// Shown once, before anything else: Observe first, what pausing costs, what is never
+    /// paused, the optional permission and the emergency exit.
+    var onboarding: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(localized("onboarding.title")).font(.headline)
+            ForEach(["observe", "pause", "protect", "permissions", "exit"], id: \.self) { k in
+                Text(localized("onboarding." + k)).font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+            Button(localized("onboarding.done")) { model.finishOnboarding() }
+        }
     }
 
     func header(_ s: Status) -> some View {
@@ -110,7 +144,7 @@ struct MenuView: View {
             }
             // Zero-surprise: the last action is always visible.
             Text(s.lastAction.map { String(format: localized("lastAction"), $0) } ?? localized("lastAction.none"))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if s.frozen.isEmpty && s.pressure == "normal" {
                 Text(localized("healthyIdle")).font(.caption)
             }
@@ -133,8 +167,15 @@ struct MenuView: View {
 
     func frozen(_ s: Status) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if s.frozen.isEmpty {
+            if s.frozen.isEmpty && (s.unresolved ?? []).isEmpty {
                 Text(localized("frozen.none")).foregroundStyle(.secondary)
+            }
+            // A resume that did not take: still paused, retried; Resume all tries again.
+            ForEach(s.unresolved ?? [], id: \.app.id) { u in
+                HStack {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).accessibilityHidden(true)
+                    Text(String(format: localized("frozen.unresolved"), u.app.name)).fixedSize(horizontal: false, vertical: true)
+                }
             }
             ForEach(s.frozen, id: \.id) { f in
                 HStack {
@@ -153,10 +194,16 @@ struct MenuView: View {
     @ViewBuilder var brakeSection: some View {
         if let b = model.brake {
             if b.mode == .observe && !model.brakePromptDone {
-                Text(localized("brake.prompt")).font(.caption).fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button(localized("brake.turnOn")) { model.setBrake(.on) }
-                    Button(localized("brake.keepObserving")) { model.setBrake(.observe) }
+                if model.brakeActingOffered {
+                    Text(localized("brake.prompt")).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button(localized("brake.turnOn")) { model.setBrake(.on) }
+                        Button(localized("brake.keepObserving")) { model.setBrake(.observe) }
+                    }
+                } else {
+                    // Its lab criteria have not passed: this build only lets it observe.
+                    Text(localized("brake.observeOnly")).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Button(localized("onboarding.done")) { model.setBrake(.observe) }
                 }
             }
             ForEach(b.pauses, id: \.appID) { p in

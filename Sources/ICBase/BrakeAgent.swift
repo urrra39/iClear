@@ -222,7 +222,7 @@ public final class BrakeAgent {
         self.paths = paths
         self.source = source
         journal = JournalStore(url: paths.brakeJournal)
-        let config = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()
+        let config = paths.gated((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()).0
         settings = config.brake
         let calibration = (try? Files.readJSON(StallCalibration.self, from: paths.brakeCalibration)) ?? StallCalibration()
         detector = StallDetector(calibration: calibration)
@@ -235,7 +235,7 @@ public final class BrakeAgent {
     public func start(watchdogExecutable: URL?) throws {
         try paths.ensure()
         // Anything a previous brake process left paused is resumed first.
-        _ = Signals.recover(journal: journal, unhide: { _ in false })
+        _ = Signals.recover(journal: journal, restorer: .base)
         checkUncleanRestart()
         if let exe = watchdogExecutable {
             let w = Process()
@@ -380,7 +380,8 @@ public final class BrakeAgent {
         let m = (try? FileManager.default.attributesOfItem(atPath: paths.config.path))?[.modificationDate] as? Date
         guard m != configMTime else { return }
         configMTime = m
-        guard let c = (try? Data(contentsOf: paths.config)).flatMap({ try? Config.load(json: $0).0 }) else { return }
+        guard let loaded = (try? Data(contentsOf: paths.config)).flatMap({ try? Config.load(json: $0).0 }) else { return }
+        let c = paths.gated(loaded).0
         settings = c.brake
         ladder.settings = c.brake
         if c.brake.mode != .on { resumeAll(reason: Code.panicReleased) }
@@ -485,7 +486,7 @@ public final class BrakeAgent {
     public func resumeAll(reason: String) {
         for id in Array(pauses.keys) { release(id, reason: reason, note: "resumed") }
         if let c = ladder.current, let t = trees[c] { Signals.thawTree(t.processes, journal: journal) }
-        _ = Signals.recover(journal: journal, unhide: { _ in false })
+        _ = Signals.recover(journal: journal, restorer: .base)
     }
 
     /// Auto graceful quit (opt-in per app): skipped when the app reports unsaved work;

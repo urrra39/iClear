@@ -5,7 +5,10 @@ requests are all welcome.
 
 ## Build and test
 
-Requires macOS 13+ and Swift 5.9+ (Xcode or the Command Line Tools).
+Runs on macOS 13+ (the deployment target). Building needs a Swift 6 toolchain (Xcode 16+
+or matching Command Line Tools): the code uses `nonisolated(unsafe)` (Swift 5.10+) and the
+tests use Swift Testing. Tested with Swift 6.4 Command Line Tools and, until CI was
+blocked, the toolchains of GitHub's macOS 15 and 26 runners; others are untested.
 
 ```sh
 swift build

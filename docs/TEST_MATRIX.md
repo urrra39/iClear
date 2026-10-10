@@ -47,6 +47,17 @@ The menu calls the same daemon commands as the CLI; those commands are covered a
 The SwiftUI wiring of each button is checked by hand (M-steps) and by the `--snapshot`
 render used for the screenshots.
 
+The menu's transport (`DaemonClient`) is tested without a GUI: `DaemonClientTests`
+(refresh off the main thread, coalescing, deadline, distinct outcomes for absent, not
+answering, unreadable reply and declined; actions in order, never retried, not behind a
+refresh; a refresh from before an action is not shown; Resume all not queued behind an
+action, dropping actions not started, falling back to the journals when the daemon is
+absent or hung), `IPCCallTests` (end-to-end deadline against a peer that dribbles bytes,
+stale socket, garbage reply) and `LocalizationParityTests` (English and Uzbek keys and
+placeholders). The three daemon states were also rendered with `--snapshot` against an
+isolated observe-only daemon: answering, stopped with SIGSTOP (shown as "not answering"
+after about 4 s), and absent.
+
 | Action | Command | Wiring |
 |---|---|---|
 | Mode and profile pickers | `mode`, `profile` | manual M4 |
@@ -56,6 +67,8 @@ render used for the screenshots.
 | Growth (v1.1) | `leaks` | **NOT TESTED** by hand yet |
 | Panic Brake: first-run prompt, paused apps (Resume, Quit), unclean-restart notice (v1.1) | brake config, `resume`, `quit` | **NOT TESTED** by hand yet |
 | Context suggestion: Switch, Not now (v1.1) | `context accept`, `context dismiss` | **NOT TESTED** by hand yet |
+| First-run card (Observe first, pausing side effects, never paused, optional permission, emergency exit; v1.1) | none (local) | `--snapshot` render in English and Uzbek of the packaged app; strings: `LocalizationParityTests` |
+| Unresolved resume row, "not answering", "busy" and pending/emergency reports (v1.1) | `status` | `StateAgreementIntegrationTests` (status JSON), `DaemonClientTests`; rendered from the rc.1 menu binary against real daemon states in English and Uzbek; clicking through: MANUAL_TESTS 9-11 |
 | Start daemon | `launchctl` | manual M1 |
 | Open Accessibility settings | system URL | manual M6 |
 | Global hotkeys ⌃⌥⌘T (always), ⌃⌥⌘S / ⌃⌥⌘P (`stash.hotkeys`) | `thaw all`, `stash`, `pop` | manual M5; **NOT TESTED** automatically |
@@ -194,3 +207,16 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | Wake-on-Data during a call | woken on data, not paused again until the call ends (was: paused again; fixed) | `noRefreezeDuringACall` |
 | Disk full during a stash or switch | refused before anything changes; the switch does not happen | `refusesWithoutDiskHeadroom`, `hardBlockStopsTheSwitch` |
 | Permission revoked mid-run | as in 1.0 | revocation itself **NOT TESTED** (needs a TCC change) |
+
+## Recovery and state (v1.1 hardening branch)
+
+| Area | Tests |
+|---|---|
+| Journal lock fails closed, bounded wait | `JournalLockTests` (4) |
+| Record and change in one transaction (hide, band) | `RecordActionTests` (3), cross-process with `iclear thaw --all` |
+| Restorations observed, not assumed | `RestorationTests` (5), including real GUI fixtures |
+| Recovery token: late writers and stashes undo themselves | `EmergencyOrderTests` (4), `StashEmergencyTests` (1, real daemon and IPC) |
+| Engine, journal, status and menu agree on unresolved resumes | `StateAgreementTests` (4), `StateAgreementIntegrationTests` (4) |
+| Transport deadlines, bounded queues, distinct outcomes | `IPCCallTests` (5), `DaemonClientTests` (11) |
+| Capacity analysis (censoring, verdict) | `BenchDesignTests` (8); the lab report itself was rendered from synthetic rows only |
+

@@ -280,8 +280,14 @@ extension Daemon {
             var ids: [ProcessIdentity] = []
             for a in targets {
                 let act = Action(kind: .deprioritize, appID: a.id, name: a.name, processes: a.processes, reasons: [reason], dryRun: dry)
-                if !dry { Signals.setBackground(a.processes, true, appID: a.id, journal: journal, at: now) }
-                ActionLog.append(ActionLogEntry(t: now, action: act, outcome: dry ? "observe" : "ok"), paths: paths)
+                var outcome = dry ? "observe" : "ok"
+                if !dry {
+                    do { try Signals.setBackground(a.processes, true, appID: a.id, journal: journal, at: now) } catch {
+                        outcome = "failed: journal write failed: \(error)"
+                    }
+                }
+                ActionLog.append(ActionLogEntry(t: now, action: act, outcome: outcome), paths: paths)
+                if outcome != "observe", outcome != "ok" { continue }
                 ids += a.processes
             }
             shieldBackground[trigger] = ids
@@ -304,7 +310,7 @@ extension Daemon {
             shieldFrozen[trigger] = []
         }
         if to < .background, from >= .background {
-            if !dry { Signals.setBackground(shieldBackground[trigger] ?? [], false, journal: journal, at: now) }
+            if !dry { _ = try? Signals.setBackground(shieldBackground[trigger] ?? [], false, journal: journal, at: now) }
             shieldBackground[trigger] = []
         }
         record("Shield \(trigger.rawValue): level \(from.rawValue) -> \(to.rawValue)" + (dry ? " (observe only)" : ""))

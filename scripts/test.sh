@@ -7,7 +7,13 @@ cd "$(dirname "$0")/.."
 tries=0
 # SCRATCH selects the build directory (the v1.1 work uses .build-v11).
 S=${SCRATCH:-.build}
-until swift build --build-tests -j 2 --scratch-path "$S" >/tmp/iclear-build.$$ 2>&1; do
+# With the Command Line Tools, naming the Swift Testing plugin directory explicitly avoids
+# the random "not found" (the retries below stay for other toolchains).
+P=/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
+X=""
+if [ -d "$P" ]; then X="-Xswiftc -plugin-path -Xswiftc $P"; fi
+# shellcheck disable=SC2086
+until swift build --build-tests -j 2 --scratch-path "$S" $X >/tmp/iclear-build.$$ 2>&1; do
     tries=$((tries + 1))
     if [ "$tries" -ge 10 ] || ! grep -q "TestingMacros" /tmp/iclear-build.$$; then
         cat /tmp/iclear-build.$$

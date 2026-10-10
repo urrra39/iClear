@@ -106,8 +106,8 @@ import Testing
         kill(appHog.pid, SIGSTOP)
         kill(plain.pid, SIGSTOP)
         try Data("{ this is not json".utf8).write(to: paths.journal)
-        let r = Signals.recover(journal: JournalStore(url: paths.journal))
-        #expect(r.corrupt && r.thawed >= 1)
+        let r = Signals.recover(journal: JournalStore(url: paths.journal), restorer: .base, send: testSender)
+        #expect(r.corrupt && r.thawed == 1)
         #expect(eventually { !isStopped(appHog.pid) })
         #expect(isStopped(plain.pid))
         kill(plain.pid, SIGCONT)
@@ -118,7 +118,7 @@ import Testing
     @Test func backgroundPriorityCrossProcess() throws {
         let h = try hog(["--cpu"])
         defer { h.kill() }
-        #expect(Signals.setBackground([h.identity!], true) == 1)
+        #expect(try Signals.setBackground([h.identity!], true) == 1)
         let ps = Process()
         ps.executableURL = URL(fileURLWithPath: "/bin/ps")
         ps.arguments = ["-M", "-p", "\(h.pid)"]
@@ -131,7 +131,7 @@ import Testing
             .split(whereSeparator: \.isWhitespace).filter { $0.last?.isLetter == true && Int($0.dropLast()) != nil }
             .compactMap { Int($0.dropLast()) }
         #expect(!pris.isEmpty && pris.allSatisfy { $0 <= 4 })
-        #expect(Signals.setBackground([h.identity!], false) == 1)
+        #expect(try Signals.setBackground([h.identity!], false) == 1)
     }
 }
 

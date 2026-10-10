@@ -5,61 +5,74 @@ import ICCore
 
 /// The parts of `Signals` that need AppKit: hiding, unhiding, and recovery that also
 /// shows apps a stash hid.
+extension Signals.Restorer {
+    /// The band through the kernel, hidden state through AppKit. `unhide()` returns
+    /// whether the request was sent (false if the app quit or cannot be unhidden), not
+    /// that it is visible; `restore` checks `isHidden` on a fresh instance afterwards
+    /// (a kept instance only updates on the main run loop).
+    public static let appKit = Signals.Restorer(
+        leaveBackground: base.leaveBackground, inBackground: base.inBackground,
+        requestUnhide: { NSRunningApplication(processIdentifier: $0)?.unhide() ?? false },
+        isHidden: { NSRunningApplication(processIdentifier: $0)?.isHidden })
+}
+
 extension Signals {
-    static func appKitUnhide(_ pid: Int32) -> Bool { NSRunningApplication(processIdentifier: pid)?.unhide() != nil }
-
-    /// Thaws everything in the journal (identity-checked), shows apps iClear hid, and clears it.
-    public static func recover(journal: JournalStore) -> (thawed: Int, stale: Int, corrupt: Bool, restored: Int, stashesDropped: Int) {
-        recover(journal: journal, unhide: appKitUnhide)
-    }
-
-    @discardableResult
-    static func apply(_ r: Restoration) -> Bool { apply(r, unhide: appKitUnhide) }
+    /// Thaws everything in the journal (identity-checked), shows apps iClear hid, and keeps
+    /// only what could not be resolved.
+    public static func recover(journal: JournalStore) -> RecoveryResult { recover(journal: journal, restorer: .appKit) }
 
     /// Hides an app (journaled first) and waits until it has no on-screen windows.
-    /// Returns false if windows were still visible after `timeout`.
-    public static func hide(_ root: ProcessIdentity, appID: String, journal: JournalStore, at now: Double, timeout: Double = 3) -> Bool {
-        guard ScopeLock.permits(root), Proc.startTime(root.pid) == root.startTime,
-            let app = NSRunningApplication(processIdentifier: root.pid)
-        else { return false }
-        try? journal.update {
-            $0.record(Restoration(kind: .hidden, pid: root.pid, startTime: root.startTime, appID: appID, previous: app.isHidden, at: now))
+    /// Returns false if windows were still visible after `timeout`. If the journal cannot
+    /// be written or locked, the app is not hidden and the error is thrown. The record,
+    /// the hide and its check run under the journal lock, so a recovery in another process
+    /// either sees the hide recorded and puts it back, or runs before anything happened.
+    public static func hide(
+        _ root: ProcessIdentity, appID: String, journal: JournalStore, at now: Double, timeout: Double = 3,
+        since: String? = nil, request: (NSRunningApplication) -> Void = { _ = $0.hide() }
+    ) throws -> Bool {
+        try journal.locked {
+            guard ScopeLock.permits(root), Proc.startTime(root.pid) == root.startTime,
+                let app = NSRunningApplication(processIdentifier: root.pid)
+            else { return false }
+            let token = since ?? journal.recoveryToken()
+            try journal.update {
+                $0.record(
+                    Restoration(kind: .hidden, pid: root.pid, startTime: root.startTime, appID: appID, previous: app.isHidden, at: now))
+            }
+            // hide() reports false even when it works (FEASIBILITY 1.0 a); the window list decides.
+            request(app)
+            // Done when the app reports itself hidden and none of its windows is on screen
+            // (a window on another Space is not on screen even before the hide completes).
+            func done() -> Bool {
+                NSRunningApplication(processIdentifier: root.pid)?.isHidden == true && !Windows.facts().visiblePIDs.contains(root.pid)
+            }
+            let end = Date().addingTimeInterval(timeout)
+            var hidden = false
+            while !hidden, Date() < end {
+                hidden = done()
+                if !hidden { usleep(10_000) }
+            }
+            if journal.recoveryToken() != token {
+                // A recovery ran meanwhile: show it again (checked); forget it only if shown.
+                _ = unhide(root, journal: journal)
+                throw RecoveryIntervened()
+            }
+            return hidden || done()
         }
-        // hide() reports false even when it works (FEASIBILITY 1.0 a); the window list decides.
-        _ = app.hide()
-        // Done when the app reports itself hidden and none of its windows is on screen
-        // (a window on another Space is not on screen even before the hide completes).
-        func done() -> Bool {
-            NSRunningApplication(processIdentifier: root.pid)?.isHidden == true && !Windows.facts().visiblePIDs.contains(root.pid)
-        }
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if done() { return true }
-            usleep(10_000)
-        }
-        return done()
     }
 
     /// Unhides an app only if iClear hid it, then forgets the record. An unhide request
-    /// sent right after a resume is sometimes ignored, so it is checked and retried.
+    /// sent right after a resume is sometimes ignored, so it is checked and retried; if
+    /// the app is still hidden, or cannot be inspected, the record stays for recovery.
     @discardableResult
-    public static func unhide(_ root: ProcessIdentity, journal: JournalStore) -> Bool {
-        let r = journal.read().restorations.first { $0.kind == .hidden && $0.identity == root }
-        var shown = true
-        if let r, !r.previous {
-            shown = false
-            for _ in 0..<3 where !shown {
-                apply(r)
-                for _ in 0..<25 {
-                    if NSRunningApplication(processIdentifier: root.pid)?.isHidden == false {
-                        shown = true
-                        break
-                    }
-                    usleep(20_000)
-                }
-            }
+    public static func unhide(_ root: ProcessIdentity, journal: JournalStore, restorer: Restorer = .appKit) -> Bool {
+        func run(write: Bool) -> Bool {
+            guard let r = journal.read().restorations.first(where: { $0.kind == .hidden && $0.identity == root }) else { return true }
+            let o = restore(r, with: restorer)
+            if o.resolved, write { try? journal.update { $0.removeRestorations(.hidden, [root]) } }
+            return o.resolved
         }
-        try? journal.update { $0.removeRestorations(.hidden, [root]) }
-        return shown
+        // Restore and forget in one transaction; without the lock, show it anyway and keep the record.
+        return (try? journal.locked { run(write: true) }) ?? run(write: false)
     }
 }

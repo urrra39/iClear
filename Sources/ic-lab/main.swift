@@ -286,7 +286,11 @@ case "validate":
             seconds: Double(opt("--seconds", 120)),
             tools: products)
     case "wake": lab.wakeLab(pairs: opt("--pairs", 30), seconds: Double(opt("--seconds", 300)), tools: products)
-    case "capacity": lab.capacityLab(budgetGB: Double(opt("--budget", 16)), pairs: opt("--pairs", 10), tools: products)
+    case "capacity":
+        let family = args.firstIndex(of: "--family").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        lab.capacityLab(
+            budgetGB: Double(opt("--budget", 16)), blocks: opt("--blocks", 12), families: family.map { [$0] } ?? Lab.capacityFamilies,
+            pilot: args.contains("--pilot"), tools: products)
     case "probe": lab.probeLab(runs: opt("--runs", 30), tools: products)
     case "combined": lab.combined(minutes: Double(opt("--minutes", 60)), tools: products)
     case "callmode":

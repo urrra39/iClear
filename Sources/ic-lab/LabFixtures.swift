@@ -265,3 +265,8 @@ func dist(_ xs: [Double]) -> String {
             format: "p50 %.1f, p95 %.1f, p99 %.1f, max %.1f ms (N=%d)",
             percentileOf(xs, 0.5), percentileOf(xs, 0.95), percentileOf(xs, 0.99), xs.max()!, xs.count)
 }
+
+/// Median and range of plain counts or minutes (no unit implied).
+func spread(_ xs: [Double]) -> String {
+    xs.isEmpty ? "none" : String(format: "median %.1f (%.1f-%.1f, n %d)", percentileOf(xs, 0.5), xs.min()!, xs.max()!, xs.count)
+}

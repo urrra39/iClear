@@ -7,11 +7,15 @@ import UserNotifications
 
 func localized(_ key: String) -> String { NSLocalizedString(key, bundle: .module, comment: "") }
 
-/// Talks to the daemon over IPC. The menu app never signals anything itself, except
-/// the emergency "thaw all" from the journal when the daemon is not running.
+/// Talks to the daemon over IPC, never on the main thread (`DaemonClient`): refreshes
+/// are coalesced and bounded, actions run in order and are never retried, and "Resume
+/// all" has a lane of its own. The menu app never signals anything itself, except the
+/// emergency resume from the journals when the daemon is absent or not answering.
 @MainActor
 final class Model: ObservableObject {
     @Published var status: Status?
+    /// How the daemon answered the last shown refresh; nil before the first one.
+    @Published var reach: DaemonClient.Reach?
     @Published var detail: String?
     @Published var detailTitle = ""
     @Published var message: String?
@@ -23,11 +27,17 @@ final class Model: ObservableObject {
     @Published var capacityLine: String?
     /// The one-time question after install: the brake starts in observe mode.
     @Published var brakePromptDone = UserDefaults.standard.bool(forKey: "brakePromptDone")
+    /// Whether this build lets the Panic Brake act here (`ReleaseGates`; isolated instances can).
+    var brakeActingOffered: Bool { paths.instance != nil || ReleaseGates.thisBuild.brakeActing }
+    /// The first-run card: what iClear does, what it never touches, and the way out.
+    @Published var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone")
     private var lastBrakeEvent = Date().timeIntervalSince1970
 
     let paths = Paths()
+    let client: DaemonClient
     private var timer: Timer?
     private var lastEvent = Date().timeIntervalSince1970
+    private var lastShown = 0
     private var hotKeys: [HotKey] = []
 
     /// Inside iClear.app the daemon lives in Contents/Helpers; in a build folder, next to us.
@@ -38,6 +48,7 @@ final class Model: ObservableObject {
     }
 
     init() {
+        client = DaemonClient(paths: paths)
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -54,45 +65,36 @@ final class Model: ObservableObject {
         }
     }
 
-    private func send(_ cmd: String, app: String? = nil, value: String? = nil, json: Bool = false) -> Response? {
-        IPC.send(Request(cmd, app: app, value: value, json: json), path: paths.socket.path, timeout: 5)
-    }
-
     func refresh() {
         accessibility = Permissions.status().accessibility
-        guard let r = send("status", json: true), let d = r.data?.data(using: .utf8) else {
-            status = nil
-            return
+        client.refresh(since: (lastEvent, lastBrakeEvent)) { [weak self] snap in
+            Task { @MainActor in self?.apply(snap) }
         }
-        status = try? JSONDecoder().decode(Status.self, from: d)
-        stashes = send("stashes")?.data.flatMap { try? JSONDecoder().decode([StashRecord].self, from: Data($0.utf8)) } ?? []
-        if let d = send("battery")?.data, let b = try? JSONDecoder().decode(BatterySummary.self, from: Data(d.utf8)), let m = b.minutes {
+    }
+
+    private func apply(_ s: DaemonClient.Snapshot) {
+        // Events are posted once each, whatever refresh brought them.
+        for ev in s.brakeEvents where ev.t > lastBrakeEvent { post(ev) }
+        lastBrakeEvent = max(lastBrakeEvent, s.brakeEvents.map(\.t).max() ?? 0)
+        for ev in s.events where ev.t > lastEvent { post(ev) }
+        lastEvent = max(lastEvent, s.events.map(\.t).max() ?? 0)
+        // An older refresh, or one from before the last action finished, is not shown.
+        guard client.isCurrent(s, after: lastShown) else { return }
+        lastShown = s.seq
+        reach = s.reach
+        status = s.status
+        stashes = s.stashes
+        brake = s.brake
+        if let b = s.battery, let m = b.minutes {
             let label = localized(!b.reliable ? "battery.unreliable" : b.calibrated ? "battery.estimate" : "battery.uncalibrated")
             batteryLine = String(format: localized("battery.line"), Int(b.percent), b.watts, Int(m)) + " " + label
         } else {
             batteryLine = nil
         }
-        if let d = send("capacity")?.data, let c = try? JSONDecoder().decode(CapacityReport.self, from: Data(d.utf8)) {
-            capacityLine =
-                c.episodes == 0
+        capacityLine = s.capacity.map { c in
+            c.episodes == 0
                 ? localized("capacity.none")
                 : String(format: localized("capacity.line"), c.episodes, c.gainMedianMB.map { String(format: "%+.0f", $0) } ?? "?")
-        } else {
-            capacityLine = nil
-        }
-        let b = IPC.send(Request("status"), path: paths.brakeSocket.path, timeout: 2)
-        brake = b?.data.flatMap { try? JSONDecoder().decode(BrakeStatus.self, from: Data($0.utf8)) }
-        if let e = IPC.send(Request("events", value: "\(lastBrakeEvent)"), path: paths.brakeSocket.path, timeout: 2),
-            let events = e.data.flatMap({ try? JSONDecoder().decode([DaemonEvent].self, from: Data($0.utf8)) })
-        {
-            for ev in events { post(ev) }
-            lastBrakeEvent = events.map(\.t).max() ?? lastBrakeEvent
-        }
-        if let e = send("events", value: "\(lastEvent)"), let data = e.data?.data(using: .utf8),
-            let events = try? JSONDecoder().decode([DaemonEvent].self, from: data)
-        {
-            for ev in events { post(ev) }
-            lastEvent = events.map(\.t).max() ?? lastEvent
         }
     }
 
@@ -104,25 +106,60 @@ final class Model: ObservableObject {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
 
-    private func run(_ cmd: String, app: String? = nil, value: String? = nil) {
-        if let r = send(cmd, app: app, value: value) { message = r.text } else { message = localized("daemon.notRunning") }
-        refresh()
+    /// The menu's line for a daemon that did not answer.
+    static func text(_ r: DaemonClient.Reach) -> String {
+        switch r {
+        case .ok: return ""
+        case .absent: return localized("daemon.notRunning")
+        case .timeout: return localized("daemon.noResponse")
+        case .malformed: return localized("daemon.badReply")
+        case .failed(let e): return String(format: localized("daemon.ipcError"), Int(e))
+        }
     }
 
-    /// Works with or without the daemon (safety: the emergency exit always works).
-    func thawAll() {
-        if let r = send("thaw", app: "all") {
-            message = r.text
-        } else {
-            let r = Signals.recover(journal: JournalStore(url: paths.journal))
-            message = String(format: localized("thawAll.offline"), r.thawed)
+    private func run(_ cmd: String, app: String? = nil, value: String? = nil, brake: Bool = false) {
+        client.perform(Request(cmd, app: app, value: value), brake: brake) { [weak self] o in
+            Task { @MainActor in
+                guard let self else { return }
+                switch o {
+                case .done(let t), .refused(let t): self.message = t
+                case .noAnswer(.absent): self.message = localized(brake ? "brake.notRunning" : "daemon.notRunning")
+                case .noAnswer(.timeout): self.message = localized("action.noAnswer")
+                case .noAnswer(let r): self.message = Self.text(r)
+                case .cancelled: self.message = localized("action.cancelled")
+                case .busy: self.message = localized("action.busy")
+                }
+                self.refresh()
+            }
         }
-        refresh()
+    }
+
+    /// Works with or without the daemon (safety: the emergency exit always works), and is
+    /// never queued behind a refresh or another action.
+    func thawAll() {
+        let started = client.resumeAll { [weak self] r in
+            Task { @MainActor in
+                guard let self else { return }
+                var lines: [String] = []
+                if let a = r.answer { lines.append(r.answerDeclined ? localized("thawAll.notAll") + " " + a : a) }
+                switch r.offline {
+                case nil: break
+                case .absent?: lines.append(String(format: localized("thawAll.offline"), r.offlineThawed))
+                default: lines.append(String(format: localized("thawAll.notResponding"), r.offlineThawed))
+                }
+                if r.brakeOfflineThawed > 0 { lines.append(String(format: localized("brake.offline"), r.brakeOfflineThawed)) }
+                if r.stillPaused > 0 { lines.append(String(format: localized("thawAll.stillPaused"), r.stillPaused)) }
+                if r.pending { lines.append(localized("thawAll.pending")) }
+                self.message = lines.joined(separator: "\n")
+                self.refresh()
+            }
+        }
+        if !started { message = localized("thawAll.inProgress") }
     }
 
     func thaw(_ id: String) { run("thaw", app: id) }
-    func brakeResume(_ id: String) { message = IPC.send(Request("resume", app: id), path: paths.brakeSocket.path)?.text }
-    func brakeQuit(_ id: String) { message = IPC.send(Request("quit", app: id), path: paths.brakeSocket.path)?.text }
+    func brakeResume(_ id: String) { run("resume", app: id, brake: true) }
+    func brakeQuit(_ id: String) { run("quit", app: id, brake: true) }
     /// Same as `iclear brake on|observe`: the config file holds the mode; the watchdog reloads it.
     func setBrake(_ mode: BrakeMode) {
         var c = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()
@@ -131,6 +168,10 @@ final class Model: ObservableObject {
         UserDefaults.standard.set(true, forKey: "brakePromptDone")
         brakePromptDone = true
         message = mode == .on ? localized("brake.nowOn") : localized("brake.nowObserve")
+    }
+    func finishOnboarding() {
+        UserDefaults.standard.set(true, forKey: "onboardingDone")
+        onboardingDone = true
     }
     func dismissUnclean() {
         try? FileManager.default.removeItem(at: paths.blackBoxUnclean)
@@ -151,17 +192,35 @@ final class Model: ObservableObject {
 
     func show(_ cmd: String, title: String) {
         detailTitle = title
-        detail = send(cmd)?.text ?? localized("daemon.notRunning")
+        detail = localized("loading")
+        client.detail(cmd) { [weak self] r in
+            Task { @MainActor in
+                guard let self, let r, self.detailTitle == title else { return }  // nil: a newer request replaced it
+                switch r {
+                case .success(let resp): self.detail = resp.text
+                case .failure(let f): self.detail = Self.text(DaemonClient.Reach(f))
+                }
+            }
+        }
     }
 
+    /// Runs launchctl off the main thread.
     func startDaemon() {
-        message = (try? Installer(paths: paths, daemonPath: daemonPath).install()) ?? localized("daemon.installFailed")
-        // The Panic Brake starts in observe mode next to the daemon.
-        let brakePath = daemonPath.replacingOccurrences(of: "/icleard", with: "/icbrake")
-        if FileManager.default.isExecutableFile(atPath: brakePath) {
-            _ = try? Installer(paths: paths, daemonPath: brakePath, role: "brake").install()
+        let paths = paths
+        let daemon = daemonPath
+        message = localized("daemon.starting")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let m = (try? Installer(paths: paths, daemonPath: daemon).install()) ?? localized("daemon.installFailed")
+            // The Panic Brake starts in observe mode next to the daemon.
+            let brakePath = daemon.replacingOccurrences(of: "/icleard", with: "/icbrake")
+            if FileManager.default.isExecutableFile(atPath: brakePath) {
+                _ = try? Installer(paths: paths, daemonPath: brakePath, role: "brake").install()
+            }
+            Task { @MainActor [weak self] in
+                self?.message = m
+                self?.refresh()
+            }
         }
-        refresh()
     }
 
     func openAccessibilitySettings() {
@@ -169,7 +228,8 @@ final class Model: ObservableObject {
     }
 
     var icon: String {
-        guard let s = status else { return "questionmark.circle" }
+        guard let s = status else { return reach == .timeout ? "hourglass" : "questionmark.circle" }
+        if !(s.unresolved ?? []).isEmpty { return "exclamationmark.triangle" }
         if s.frozen.contains(where: { !$0.dryRun }) { return "snowflake" }
         switch s.health.band {
         case .good: return "checkmark.circle"

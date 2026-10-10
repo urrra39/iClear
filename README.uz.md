@@ -284,9 +284,12 @@ qatori vositalari). Tekshiring:
 shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 ```
 
-Buildlar ad-hoc imzolangan, notarizatsiyadan o'tmagan. Ilovani birinchi marta ochish:
-iClear.app ni o'ng tugma bilan bosing, Open ni tanlang va tasdiqlang. Buyruq qatori
-vositalari: `xattr -dr com.apple.quarantine iclear-<versiya>`, keyin uning ichida `./iclear install`.
+Buildlar ad-hoc imzolangan, notarizatsiyadan o'tmagan, shuning uchun Gatekeeper birinchi
+ishga tushirishni to'xtatadi. macOS 15 va undan keyingisida: iClear.app ni bir marta oching,
+keyin System Settings > Privacy & Security > Open Anyway (Apple o'ng tugma yo'lini macOS 15
+da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Open ni
+tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
+iclear-<versiya>`, keyin uning ichida `./iclear install`.
 
 **Manba koddan:**
 

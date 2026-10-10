@@ -11,12 +11,17 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 45
+    # Secrets cannot appear in `if`, and a step's own env is not reliably visible to its
+    # `if`; these job-level flags say whether signing and notarization are configured.
+    env:
+      HAS_CERT: ${{ secrets.MACOS_CERTIFICATE != '' }}
+      HAS_NOTARY: ${{ secrets.NOTARY_APPLE_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Test
         run: swift test --no-parallel
       - name: Import signing certificate
-        if: env.MACOS_CERTIFICATE != ''
+        if: env.HAS_CERT == 'true'
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -33,7 +38,7 @@ jobs:
           SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
         run: scripts/build-release.sh
       - name: Notarize
-        if: env.NOTARY_APPLE_ID != ''
+        if: env.HAS_NOTARY == 'true'
         env:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}

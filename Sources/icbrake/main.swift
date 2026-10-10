@@ -7,7 +7,7 @@ import ICBase
 let args = CommandLine.arguments
 let paths = Paths()
 if args.count >= 3, args[1] == "--watchdog", let parent = pid_t(args[2]) {
-    Watchdog.run(parent: parent, journal: JournalStore(url: paths.brakeJournal), unhide: { _ in false })
+    Watchdog.run(parent: parent, journal: JournalStore(url: paths.brakeJournal), restorer: .base)
 }
 if getuid() == 0 {
     FileHandle.standardError.write(Data("icbrake must not run as root.\n".utf8))

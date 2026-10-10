@@ -152,17 +152,36 @@ case "thaw":
         } else {
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
+            if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
         }
     }
-    if let r = daemon(Request("thaw", app: all ? "all" : rest.first)) {
+    // An emergency: a daemon that does not answer in 5 s is treated like one that is not running.
+    let answer = IPC.call(Request("thaw", app: all ? "all" : rest.first), path: paths.socket.path, deadline: Date(timeIntervalSinceNow: 5))
+    if case .success(let r) = answer {
         out(r.text)
+        if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
+        let why =
+            answer.failureValue == .absent
+            ? "icleard is not running" : "icleard did not answer (\(answer.failureValue.map { "\($0)" } ?? ""))"
         out(
-            "icleard is not running; thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
-                + (r.corrupt ? " (journal was corrupt: resumed every stopped app process)" : "") + ".")
+            "\(why); thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
+                + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
+        if r.pending {
+            out(
+                "iClear was busy changing something (journal locked); it was told to undo that change. Run `iclear thaw --all` again in a few seconds to confirm."
+            )
+        }
+        if r.unresolved > 0 {
+            out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
+            exit(1)
+        }
     } else {
-        fail("icleard is not running. `iclear thaw --all` works without it.")
+        fail(
+            answer.failureValue == .absent
+                ? "icleard is not running. `iclear thaw --all` works without it."
+                : "icleard did not answer. `iclear thaw --all` works without it.")
     }
 
 case "freeze":
@@ -297,7 +316,9 @@ case "install":
     do { out(try installer.install()) } catch { fail("install failed: \(error)") }
     // The Panic Brake starts in observe mode: it records what it would do and pauses nothing.
     if FileManager.default.isExecutableFile(atPath: brakeInstaller.daemonPath) {
-        do { out(try brakeInstaller.install() + " Panic Brake: observe mode (`iclear brake on` to let it act).") } catch {
+        let canAct = paths.gated(Config.actingBrake).0.brake.mode == .on
+        let how = canAct ? "`iclear brake on` to let it act" : "this version does not let it act yet"
+        do { out(try brakeInstaller.install() + " Panic Brake: observe mode (\(how)).") } catch {
             out("Panic Brake not installed: \(error)")
         }
     }
@@ -465,10 +486,13 @@ case "brake":
             out("Panic Brake off.")
         } else {
             if !brakeInstaller.isLoaded { out((try? brakeInstaller.install()) ?? "Panic Brake could not be installed.") }
+            let held = sub == "on" && paths.gated(c).0.brake.mode != .on
             out(
-                sub == "on"
-                    ? "Panic Brake on: in a memory stall it pauses the same-user app causing it (journaled, resumable). Not validated yet: see docs/RELEASE_CRITERIA_v1.1.md."
-                    : "Panic Brake observe mode: it records what it would have done and pauses nothing.")
+                held
+                    ? "Panic Brake set to on, but this build runs it observe-only: it records what it would have done and pauses nothing until its stage 5 criteria pass (docs/RELEASE_CRITERIA_v1.1.md)."
+                    : sub == "on"
+                        ? "Panic Brake on: in a memory stall it pauses the same-user app causing it (journaled, resumable)."
+                        : "Panic Brake observe mode: it records what it would have done and pauses nothing.")
         }
     case "status":
         out(

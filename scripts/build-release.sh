@@ -8,6 +8,9 @@ set -eu
 cd "$(dirname "$0")/.."
 
 VERSION=$(sed -n 's/^public let iclearVersion = "\(.*\)"/\1/p' Sources/ICSystem/Doctor.swift)
+# Bundle versions must be numbers: a release candidate (1.1.0-rc.1) is 1.1.0 there; the CLI,
+# the artifact names and the release notes carry the full version.
+SHORT_VERSION=${VERSION%%-*}
 IDENTITY="${SIGN_IDENTITY:--}"
 DIST=dist
 APP="$DIST/iClear.app"
@@ -22,7 +25,7 @@ cp "$BIN/iClearMenu" "$APP/Contents/MacOS/iClear"
 # Helpers/ keeps iclear apart from iClear on case-insensitive volumes.
 cp "$BIN/icleard" "$BIN/icbrake" "$BIN/iclear" "$BIN/ic-hog" "$BIN/ic-ui-probe" "$BIN/ic-call-sim" "$APP/Contents/Helpers/"
 cp -R "$BIN/iClear_iClearMenu.bundle" "$APP/Contents/Resources/"
-sed "s/@VERSION@/$VERSION/g" packaging/Info.plist > "$APP/Contents/Info.plist"
+sed "s/@SHORT_VERSION@/$SHORT_VERSION/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 
 sign() {
     codesign --force --timestamp=none --options runtime --entitlements packaging/iClear.entitlements -s "$IDENTITY" "$@"

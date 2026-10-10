@@ -21,7 +21,7 @@ public struct DaemonEvent: Codable, Sendable {
 /// daemon disappears for any reason, including SIGKILL.
 public enum Watchdog {
     /// Waits for `parent` to exit, then resumes everything in `journal`.
-    public static func run(parent: pid_t, journal: JournalStore, unhide: (Int32) -> Bool) -> Never {
+    public static func run(parent: pid_t, journal: JournalStore, restorer: Signals.Restorer) -> Never {
         setsid()  // own process group, so killing the daemon's group does not take it down
         let kq = kqueue()
         var ev = kevent(
@@ -35,7 +35,7 @@ public enum Watchdog {
                 if kevent(kq, nil, 0, &out, 1, &ts) > 0 { break }
             }
         }
-        _ = Signals.recover(journal: journal, unhide: unhide)
+        _ = Signals.recover(journal: journal, restorer: restorer)
         exit(0)
     }
 }

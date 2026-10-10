@@ -103,6 +103,10 @@ Ship rule: Wake-on-Data is offered (opt-in) only if D1-D5 pass; otherwise it shi
 
 ### Capacity benchmark (a measurement, not a gate)
 
+> Amended on 2026-10-06, before any capacity run: three conditions (stock, Observe, Active) in a
+> Williams order, an idle negative-control family, a pilot and a stated primary endpoint.
+> [BENCHMARK_PROTOCOL.md](BENCHMARK_PROTOCOL.md) governs; the text below is the original rule.
+
 Under each emulated budget (about 8 GB and about 16 GB left), heavy fixtures are opened
 one at a time (a throwaway-profile Chrome, an Electron app, native apps, `ic-hog --waker`
 instances) until responsiveness fails: the foreground probe's p95 lateness over 30 s is

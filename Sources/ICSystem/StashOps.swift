@@ -62,32 +62,51 @@ extension Daemon {
                     order: frontToBack.firstIndex(of: c.app.id) ?? 99, residentMB: c.app.residentMB)
             }, previousFrontmost: chosen.contains { $0.app.id == front } ? front : nil)
         record.availableBeforeMB = SystemSampler.availableMB()
+        // A recovery (Resume all) during the stash stops it: every step compares with this.
+        let token = journal.recoveryToken()
         // The stash is journaled before anything changes.
         do { try journal.update { $0.stashes.append(record) } } catch {
             return Response(ok: false, text: "Could not write the journal: \(error)")
         }
         var lines: [String] = []
         var failed: [String] = []
+        var interrupted = false
         // Back to front, the frontmost app last: hiding the frontmost app makes macOS
         // activate the next one, which must not be an app still waiting to be stashed.
         let hideOrder = chosen.sorted {
             (front == $0.app.id ? 1 : 0, -(frontToBack.firstIndex(of: $0.app.id) ?? 99))
                 < (front == $1.app.id ? 1 : 0, -(frontToBack.firstIndex(of: $1.app.id) ?? 99))
         }
-        for c in hideOrder {
+        for (i, c) in hideOrder.enumerated() {
+            stashStepHook?(i)
+            if journal.recoveryToken() != token {
+                let left = hideOrder[i...].map(\.app.id)
+                failed += left
+                lines.append("Stopped: a recovery (Resume all) ran meanwhile; \(left.count) app(s) left as they were.")
+                interrupted = true
+                break
+            }
             guard let root = c.app.processes.first else { continue }
             // Paused by the policy: the stash takes it over (a stopped app cannot hide itself).
             if engine.state.frozen[c.app.id] != nil {
                 execute(engine.thaw(c.app.id, reason: Code.stash, at: now), immediate: true)
                 usleep(200_000)
             }
-            if !c.app.isHidden, !Signals.hide(root, appID: c.app.id, journal: journal, at: now) {
-                Signals.unhide(root, journal: journal)
-                failed.append(c.app.id)
-                lines.append("\(c.app.name): windows did not leave the screen; not paused.")
-                continue
+            if !c.app.isHidden {
+                let hidden: Bool
+                do { hidden = try Signals.hide(root, appID: c.app.id, journal: journal, at: now, since: token) } catch {
+                    failed.append(c.app.id)
+                    lines.append("\(c.app.name): not hidden (\(error)); left as it was.")
+                    continue
+                }
+                if !hidden {
+                    Signals.unhide(root, journal: journal)
+                    failed.append(c.app.id)
+                    lines.append("\(c.app.name): windows did not leave the screen; not paused.")
+                    continue
+                }
             }
-            let r = Signals.freezeTree(c.app.processes, appID: c.app.id, at: now, journal: journal, stash: name)
+            let r = Signals.freezeTree(c.app.processes, appID: c.app.id, at: now, journal: journal, stash: name, send: sender, since: token)
             if !r.ok {
                 Signals.unhide(root, journal: journal)
                 failed.append(c.app.id)
@@ -102,6 +121,14 @@ extension Daemon {
             guard let i = j.stashes.firstIndex(where: { $0.name == name }) else { return }
             j.stashes[i].apps.removeAll { failed.contains($0.appID) }
             if j.stashes[i].apps.isEmpty { j.stashes.remove(at: i) }
+        }
+        if interrupted || journal.recoveryToken() != token {
+            // What this stash had paused was resumed by that recovery; nothing is stashed.
+            engine.noteAction("Stash \(name) stopped by a recovery")
+            return Response(
+                ok: false,
+                text: (["Stash \(name) stopped: a recovery (Resume all) ran while it worked; it resumed what was paused."] + lines)
+                    .joined(separator: "\n"))
         }
         let done = chosen.count - failed.count
         engine.noteAction("Stashed \(done) app(s) as \(name)")
@@ -141,19 +168,30 @@ extension Daemon {
             return Response(ok: false, text: "No stash named \(name!).")
         }
         var lines: [String] = []
+        var failedPops = 0
         let now = clock()
         for s in targets {
             var apps = s.apps.filter { !$0.popped }
             if let app { apps = apps.filter { $0.appID.lowercased() == app.lowercased() || $0.name.lowercased() == app.lowercased() } }
             if apps.isEmpty { continue }
             let t0 = clock()
+            var stuck: Set<String> = []
             for a in apps {
-                Signals.thawTree(a.processes, journal: journal)
-                if let root = a.processes.first { Signals.unhide(root, journal: journal) }
+                let resumed = Signals.thawTree(a.processes, journal: journal, send: sender).allSatisfy(\.resolved)
+                let shown = a.processes.first.map { Signals.unhide($0, journal: journal) } ?? true
+                if !resumed {
+                    // Stays in the stash (and the journal): popping it again retries.
+                    stuck.insert(a.appID)
+                    lines.append("\(a.name): could not be resumed; it stays in the stash. Pop it again to retry.")
+                } else if !shown {
+                    lines.append("\(a.name): resumed but still hidden; show it from the Dock.")
+                }
                 let act = Action(
                     kind: .thaw, appID: a.appID, name: a.name, processes: a.processes, reasons: [Reason(reason, s.name)], dryRun: false)
-                ActionLog.append(ActionLogEntry(t: now, action: act, outcome: "ok"), paths: paths)
+                ActionLog.append(ActionLogEntry(t: now, action: act, outcome: resumed ? "ok" : "failed: still paused"), paths: paths)
             }
+            failedPops += stuck.count
+            apps.removeAll { stuck.contains($0.appID) }
             if restoreFocus {
                 // The app in front now stays in front unless this pop brings back the app that
                 // was in front at stash time (it may never have been stashed, or the user may
@@ -185,7 +223,7 @@ extension Daemon {
             }
         }
         engine.noteAction(lines.last)
-        return Response(ok: true, text: lines.isEmpty ? "Nothing to pop." : lines.joined(separator: "\n"))
+        return Response(ok: failedPops == 0, text: lines.isEmpty ? "Nothing to pop." : lines.joined(separator: "\n"))
     }
 
     /// Brings an app to the front through LaunchServices (activate() is refused for

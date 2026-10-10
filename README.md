@@ -254,8 +254,10 @@ only). Check it:
 shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 ```
 
-The builds are ad-hoc signed, not notarized. First launch of the app: right-click
-iClear.app, choose Open, confirm. Command-line tools:
+The builds are ad-hoc signed, not notarized, so Gatekeeper blocks the first launch. On
+macOS 15 and later: open iClear.app once, then System Settings > Privacy & Security >
+Open Anyway (Apple removed the right-click route in macOS 15). On macOS 13 and 14:
+right-click iClear.app, choose Open, confirm. Command-line tools:
 `xattr -dr com.apple.quarantine iclear-<version>`, then `./iclear install` inside it.
 
 **From source:**
