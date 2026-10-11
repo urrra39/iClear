@@ -114,6 +114,23 @@ Floor: macOS 13 for everything (see [DECISIONS.md](DECISIONS.md) #19). Older Mac
 are limited to the macOS versions they can run; a MacBook that cannot run macOS 13
 cannot run iClear.
 
+## App, window and cadence (1.2)
+
+- **App:** one SwiftUI view and one model serve the menu-bar popover and a regular window
+  (an `NSApplicationDelegate` hosts it). The window opens at launch (unless launched as a
+  login item or turned off in settings) and on reopen; the app is a regular app (Dock icon)
+  while it is open and an accessory app otherwise. The model refreshes every 5 s while a
+  view is open and on a coalesced 60 s timer while hidden, to post the daemon's
+  notifications.
+- **Cadence:** the daemon ticks every 60 s when pressure is normal and nothing is paused,
+  30 s while something is paused, 5 s near an armed forecast warning, 3 s at warning, 2 s
+  critical; 120 s in lean mode (battery ≤ 20% or Low Power Mode). A pressure poll (2 s while
+  calm, 1 s otherwise) ticks at once on a level change. The stall probe runs only at warning or worse or right after a
+  stall. The Panic Brake samples every 3 s while healthy (5 s lean) and every 250 ms as
+  soon as pressure, swap-ins or decompressions move.
+- **Battery Saver and the trial** run inside the daemon's tick (`SaverOps`, `TrialOps`);
+  their decisions are pure functions in ICCore (`BatterySaver`, `TrialGuard`).
+
 ## Engine tick
 
 1. Activity: the frontmost app and apps with visible windows are "active now". An app

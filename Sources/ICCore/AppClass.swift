@@ -7,6 +7,9 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
     case media
     /// Browsers: many processes, open connections, downloads, calls in tabs.
     case browser
+    /// Password managers, VPN and sign-in apps: short-lived sessions and tokens expire on
+    /// the server while the app is paused (the clock keeps running).
+    case session
     case other
 
     static let commIDs: Set<String> = [
@@ -29,6 +32,18 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
         "com.apple.Safari", "app.zen-browser.zen", "com.kagi.kagimacOS",
     ]
 
+    static let sessionIDs: Set<String> = [
+        "com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop", "org.keepassxc.keepassxc",
+        "net.tunnelblick.tunnelblick", "com.viscosityvpn.Viscosity", "com.wireguard.macos", "net.mullvad.vpn", "com.protonvpn.mac",
+        "com.nordvpn.macos", "com.expressvpn.ExpressVPN", "com.paloaltonetworks.GlobalProtect.client",
+    ]
+
+    /// Longest automatic pause per class, minutes (the global `maxFrozenMinutes` also
+    /// applies). Browsers hold signed-in sessions that commonly time out after 1-2 hours
+    /// of silence; chat and players only pause when you opt in, and catch up worse the
+    /// longer they wait; session apps are never paused automatically.
+    public static let defaultMaxPauseMinutes: [AppClass: Double] = [.browser: 120, .comm: 60, .media: 60, .session: 0, .other: 240]
+
     /// The lab's chat fixtures (a bundle-ID prefix this project owns) count as chat apps.
     static let labCommPrefix = "io.github.urrra39.iclear.fixture.comm."
 
@@ -36,6 +51,7 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
         if commIDs.contains(id) || id.hasPrefix(labCommPrefix) { return .comm }
         if mediaIDs.contains(id) { return .media }
         if browserIDs.contains(id) { return .browser }
+        if sessionIDs.contains(id) { return .session }
         return .other
     }
 
@@ -47,6 +63,7 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
         case .comm: return "COMM (chat, mail, calendar)"
         case .media: return "MEDIA (players)"
         case .browser: return "BROWSER"
+        case .session: return "SESSION (password managers, VPN, sign-in)"
         case .other: return "other"
         }
     }
@@ -70,9 +87,24 @@ public enum AppClass: String, Codable, Sendable, CaseIterable {
                 "whole process tree only; skipped while playing audio, using the camera or microphone, holding a power assertion (downloads, video), writing files or with active connections",
                 "idle threshold is browserIdleFactor times longer; wake windows need at least 30 s",
             ]
+        case .session:
+            return [
+                "the world's clock keeps running while it is paused: a short session or token expires on the server whether or not the app runs, and iClear cannot change that",
+                "default: never paused (Tier S)",
+            ]
         case .other:
             return ["the standard checks apply (no visible window, idle, no audio, guards)"]
         }
+    }
+
+    /// Time-skew exposure: how long this class may stay paused, and what that means.
+    func timeRisk(config: Config) -> String {
+        let limit = min(config.maxFrozenMinutes, config.maxPauseMinutes[rawValue] ?? Self.defaultMaxPauseMinutes[self] ?? 240)
+        if limit <= 0 { return "Time skew: never paused, so its sessions never age while paused." }
+        return String(
+            format:
+                "Time skew: paused at most %.0f min at a time; timers that were due fire once after resume, and timeouts or sign-ins that span the pause expire at once.",
+            limit)
     }
 }
 
@@ -97,6 +129,7 @@ public enum Compat {
             }
             if config.deny.contains(id) { lines.append("Deny rule: never paused.") }
         }
+        lines.append(cls.timeRisk(config: config))
         lines.append("What pausing does:")
         lines += cls.sideEffects.map { "  - " + $0 }
         switch cls {

@@ -469,6 +469,40 @@ case "cost":
         print(String(format: "%@ | %.3f | %.0f | %.3f", name, ms, every, ms / 10 / every))
     }
 
+case "energy-steady", "battery-ab":
+    // docs/RELEASE_CRITERIA_v1.2.md, E1 and E2 (stack from an app bundle, isolated home).
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    func opt(_ k: String) -> String? { args.firstIndex(of: k).map { args[$0 + 1] } }
+    let app = opt("--app") ?? NSHomeDirectory() + "/Applications/iClear.app"
+    if CommandLine.arguments[1] == "energy-steady" {
+        try EnergyLab.steady(
+            app: app, minutes: Int(opt("--minutes") ?? "60") ?? 60, out: URL(fileURLWithPath: opt("--out") ?? "energy-steady.txt"))
+    } else {
+        try EnergyLab.ab(
+            app: app, pairs: Int(opt("--pairs") ?? "6") ?? 6, blockMinutes: Int(opt("--block") ?? "20") ?? 20, workload: tool("ic-hog"),
+            out: URL(fileURLWithPath: opt("--out") ?? "battery-ab.txt"))
+    }
+
+case "ui-smoke":
+    // docs/RELEASE_CRITERIA_v1.2.md, U1-U7, against an installed app bundle.
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    let path = args.firstIndex(of: "--app").map { args[$0 + 1] } ?? NSHomeDirectory() + "/Applications/iClear.app"
+    let runs = args.firstIndex(of: "--runs").flatMap { Int(args[$0 + 1]) } ?? 10
+    let out = URL(fileURLWithPath: args.firstIndex(of: "--out").map { args[$0 + 1] } ?? "ui-smoke.json")
+    let r = UISmoke.run(path: path, runs: runs, out: out)
+    func med(_ x: [Double]) -> String { x.isEmpty ? "-" : String(format: "%.2f s", x.sorted()[x.count / 2]) }
+    print("ui-smoke \(path), \(r.runs) runs")
+    print("U1 window within 5 s: \(r.u1)/\(r.runs) (median \(med(r.u1Seconds)))")
+    print("U2 regular while visible: \(r.u2)/\(r.runs)")
+    print("U3 accessory within 2 s of close: \(r.u3)/\(r.runs) (median \(med(r.u3Seconds)))")
+    print("U4 reopen shows the window within 5 s: \(r.u4)/\(r.runs) (median \(med(r.u4Seconds)))")
+    print("U5 login launch shows no window: \(r.u5)/\(r.runs)")
+    print("U6 icon: \(r.u6 ? "pass" : "FAIL")")
+    print("U7 quit within 5 s: \(r.u7)/\(r.runs)")
+    for n in r.notes { print("note: \(n)") }
+
 default:
-    print("usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost")
+    print(
+        "usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost | ui-smoke | energy-steady | battery-ab"
+    )
 }

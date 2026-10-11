@@ -233,7 +233,7 @@ extension Daemon {
     /// Done when the app has stayed frontmost for 0.5 s; gives up after 3 s.
     func bringToFront(_ root: ProcessIdentity?) {
         guard let root else { return }
-        activate(root)
+        var reopenUsed = activate(root, reopenAllowed: true)
         let end = Date().addingTimeInterval(3)
         var frontSince: Date?
         while Date() < end {
@@ -242,35 +242,47 @@ extension Daemon {
                 if Date().timeIntervalSince(frontSince!) >= 0.5 { return }
             } else {
                 frontSince = nil
-                activate(root)
+                // LaunchServices delivers a reopen event, which an app without a visible
+                // window answers by opening a new one: at most once per pop.
+                reopenUsed = activate(root, reopenAllowed: !reopenUsed) || reopenUsed
             }
             usleep(50_000)
         }
     }
 
-    func activate(_ root: ProcessIdentity?) {
+    /// Brings the app forward. Returns true if it went through LaunchServices (a reopen).
+    @discardableResult
+    func activate(_ root: ProcessIdentity?, reopenAllowed: Bool = true) -> Bool {
         guard let root, Proc.startTime(root.pid) == root.startTime, let app = NSRunningApplication(processIdentifier: root.pid) else {
-            return
+            return false
         }
-        if AXIsProcessTrusted() {
+        var reopened = false
+        if axTrusted() {
             // Targets this exact process.
             let el = AXUIElementCreateApplication(root.pid)
             AXUIElementSetMessagingTimeout(el, 1)
             AXUIElementSetAttributeValue(el, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        } else if let url = app.bundleURL,
-            app.bundleIdentifier.map({ NSRunningApplication.runningApplications(withBundleIdentifier: $0).count == 1 }) ?? false
-        {
-            // LaunchServices picks by bundle; with a second instance running it could raise the wrong one.
-            let cfg = NSWorkspace.OpenConfiguration()
-            cfg.activates = true
-            cfg.createsNewApplicationInstance = false
-            let done = DispatchSemaphore(value: 0)
-            NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in done.signal() }
-            _ = done.wait(timeout: .now() + 2)
         } else {
-            return
+            // The running instance itself, no reopen event; macOS may refuse it for a
+            // background caller, so LaunchServices is the fallback, but only once a window
+            // of the app is on screen (a reopen then just activates it).
+            app.activate(options: [.activateAllWindows])
+            usleep(150_000)
+            if !app.isActive, reopenAllowed, Windows.facts().visiblePIDs.contains(root.pid), let url = app.bundleURL,
+                app.bundleIdentifier.map({ NSRunningApplication.runningApplications(withBundleIdentifier: $0).count == 1 }) ?? false
+            {
+                // LaunchServices picks by bundle; with a second instance running it could raise the wrong one.
+                let cfg = NSWorkspace.OpenConfiguration()
+                cfg.activates = true
+                cfg.createsNewApplicationInstance = false
+                let done = DispatchSemaphore(value: 0)
+                NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in done.signal() }
+                _ = done.wait(timeout: .now() + 2)
+                reopened = true
+            }
         }
         usleep(150_000)
+        return reopened
     }
 
     /// Activation of a stashed app (Dock, Cmd-Tab, `open`): resume it first, then mark

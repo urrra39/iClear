@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.2.0-rc.1 (2026-10-11; release candidate)
+
+Criteria: `docs/RELEASE_CRITERIA_v1.2.md` (committed before any v1.2 measurement). The
+battery measurements (E1, E2, B1) could not run because the Mac stayed on AC, so this is a
+candidate.
+
+- **App icon and window.** An original icon (`scripts/make-icon.swift`); opening iClear
+  from Finder, Launchpad, Spotlight or the Dock shows a window with the same content as the
+  menu-bar popover (one view, one model), a Dock icon while it is open, three onboarding
+  cards on first launch, and settings: show the window at launch, keep in Dock, open at
+  login (menu bar only). `ic-lab ui-smoke` checks it (U1-U7: 10/10 on 2026-10-11).
+- **Fixed: an extra window after pop on macOS 26 without Accessibility.** Pop activated
+  stashed apps through LaunchServices every 50 ms until they came forward; an app without
+  a visible window answers each of those reopen events with a new window (seen on CI: 2 of
+  10 macOS 26 attempts on the 1.0.x code). Pop now asks the running app to activate itself
+  first and uses LaunchServices at most once, only when a window is on screen. A test runs
+  it without Accessibility.
+- **Fixed: `iclear thaw --all` on a Mac with nothing installed** said the journal was
+  locked; it now says nothing is installed or paused.
+- **Own energy.** The Panic Brake watchdog samples every 3 s while the Mac is healthy (250
+  ms as soon as anything moves); its main loop runs every 5 s while healthy; the daemon's
+  pressure poll runs every 2 s while calm; the watchdog helpers wake on the kernel's exit
+  notification only (a 60 s safety net); the stall probe
+  runs only under memory pressure or right after a stall; lean mode at battery ≤ 20% or Low
+  Power Mode slows calm ticks; the menu app refreshes every 5 s only while it is open; the
+  battery file is written on change. Measured on battery (E1, 60 min): the whole stack used
+  0.163% of one core and 1.52 wakeups per second (the first run, before the poll and
+  watchdog changes, had 2.33 wakeups per second against the 2 per second bound).
+  `ic-lab energy-steady` and `ic-lab battery-ab` measure it (`docs/BATTERY.md`).
+- **Battery Saver** (`iclear battery saver`, off by default, battery only): lowers idle
+  visible apps and pauses idle hidden apps with high measured background energy, journaled
+  and undone on activation, AC and off; turns itself off when its predictions miss by more
+  than 30%. Its benefit is not measured yet.
+- **Side effects** (`docs/SIDE_EFFECTS.md`): a SESSION class (password managers, VPN and
+  sign-in apps, never paused by default), a maximum pause per class, the time-skew risk in
+  `iclear compat`, how long each app has been paused in the UI, MRU protection (the last 3
+  apps used within 30 minutes are not paused), and "Pause anyway" for a visible app with a
+  warning (`iclear freeze <app> --visible`).
+- **Real-use trial** (`iclear trial start|stop|status`): Active mode for at most 5
+  allowlisted apps with automatic rollback to Observe (hang or crash after resume,
+  regretted pauses, Resume all used 3 times a day, own CPU, a failed safety check) and a
+  daily digest. Fixed on the way: a config with a running trial was rejected (an optional
+  key missing from the defaults).
+- New config keys: `batterySaver`, `trial`, `maxPauseMinutes`, `mruApps`, `mruMinutes`.
+
 ## 1.1.0-rc.2 (2026-10-11; release candidate)
 
 - **Daemon CPU (soak W5); also released as 1.0.3.** A forecast ETA that is only shown, never acted on (the

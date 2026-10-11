@@ -29,8 +29,9 @@ public enum Watchdog {
             fflags: NOTE_EXIT, data: 0, udata: nil)
         if kevent(kq, &ev, 1, nil, 0, nil) == 0 {
             var out = kevent()
-            // Also wake every 5 s in case the parent vanished before registration.
-            var ts = timespec(tv_sec: 5, tv_nsec: 0)
+            // The exit notification is registered (a parent gone before registration fails
+            // it above); the timeout is only a safety net, so it wakes rarely.
+            var ts = timespec(tv_sec: 60, tv_nsec: 0)
             while kill(parent, 0) == 0 || errno == EPERM {
                 if kevent(kq, nil, 0, &out, 1, &ts) > 0 { break }
             }

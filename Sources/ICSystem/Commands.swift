@@ -3,6 +3,13 @@ import Foundation
 import ICCore
 
 /// Machine-readable daemon status for the CLI and the menu app.
+public struct VisibleIdle: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var watts: Double?
+    public var idleMinutes: Double
+}
+
 public struct Status: Codable, Sendable {
     public var mode: Mode
     public var profile: String
@@ -27,6 +34,8 @@ public struct Status: Codable, Sendable {
     public var contextSuggested: String?
     /// Apps whose resume did not take: still paused, retried (optional for older daemons).
     public var unresolved: [UnresolvedThaw]?
+    /// Visible but idle apps with their measured background power (v1.2 S3), for "Pause anyway".
+    public var visibleIdle: [VisibleIdle]?
 }
 
 extension Daemon {
@@ -57,7 +66,20 @@ extension Daemon {
             observeSince: engine.state.startedAt,
             recentPressure: engine.recent.map(\.pressure.rawValue), recentSwapMB: engine.recent.map(\.swapUsedMB),
             context: contextState.current, contextSuggested: contextState.suggested,
-            unresolved: engine.state.unresolved.map { $0.values.sorted { $0.since < $1.since } })
+            unresolved: engine.state.unresolved.map { $0.values.sorted { $0.since < $1.since } },
+            visibleIdle: visibleIdleApps())
+    }
+
+    /// Apps with a visible window, not in front for at least 10 minutes, highest measured
+    /// background power first.
+    func visibleIdleApps() -> [VisibleIdle] {
+        let now = clock()
+        return lastApps.filter { $0.isRegularApp && $0.hasVisibleWindow && !$0.isFrontmost && !Protection.isProtected($0) }.compactMap {
+            a in
+            let idle = (now - (footprints.lastFront[a.id] ?? engine.state.startedAt)) / 60
+            guard idle >= 10 else { return nil }
+            return VisibleIdle(id: a.id, name: a.name, watts: appPowers.first { $0.appID == a.id }?.watts, idleMinutes: idle)
+        }.sorted { ($0.watts ?? 0) > ($1.watts ?? 0) }.prefix(8).map { $0 }
     }
 
     public func statusText() -> String {
@@ -156,6 +178,7 @@ extension Daemon {
         case "thaw":
             let acts: [Action]
             if req.app == nil || req.app == "all" {
+                trialNoteResumeAll(now: now)
                 acts = engine.thawAll(reason: Code.thawUser, at: now)
             } else {
                 let id =
@@ -178,10 +201,14 @@ extension Daemon {
             }
             AppCollector.inspectGuards(&app, engine: engine, now: now)
             engine.noteAudio([app], at: now)
-            let (a, refused) = engine.userFreeze(app, at: now)
+            let visible = req.value == "visible"
+            let (a, refused) = engine.userFreeze(app, at: now, allowVisible: visible)
             guard let a else { return Response(ok: false, text: "Not frozen: " + refused.map(\.description).joined(separator: ", ")) }
             let outcome = execute([a]).first ?? "ok"
-            return outcome.hasPrefix("failed") ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary)
+            let note =
+                visible && app.hasVisibleWindow ? " Its window stops redrawing until you click it or bring the app to the front." : ""
+            return outcome.hasPrefix("failed")
+                ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary + note)
         case "undo":
             let acts = engine.undo(at: now)
             execute(acts, immediate: true)
@@ -260,6 +287,10 @@ extension Daemon {
         case "events":
             let since = Double(req.value ?? "0") ?? 0
             return Response(ok: true, text: "", data: encode(events.filter { $0.t > since }))
+        case "trial":
+            return trialCommand(req.value)
+        case "saver":
+            return saverCommand(req.value)
         case "battery":
             if let v = req.value { return setBatteryTarget(v) }
             return batteryReport()

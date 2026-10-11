@@ -566,3 +566,29 @@ were on AC (median 0.150%, p95 0.250%) and 46 on battery (AC was lost 09:23-10:1
 one-week bound (W5) was not re-measured. A second fresh run on AC, 10:21-11:02 (40 min,
 leak-trend cleanup done, no lab phase running): mean 0.163%, per-minute median 0.117%,
 p95 0.167%, max 1.367%; with it, 193 minutes on AC in total.
+
+## v1.2 measurements (2026-10-11)
+
+Criteria: [RELEASE_CRITERIA_v1.2.md](RELEASE_CRITERIA_v1.2.md). Details and the full
+battery table: [BATTERY.md](BATTERY.md); verdicts: [QUALITY.md](QUALITY.md).
+
+- **U1-U7** (`ic-lab ui-smoke`, the app installed in `~/Applications`, 10 runs, on AC):
+  window within 5 s 10/10 (median 0.29 s), Dock icon while visible 10/10, back to the menu
+  bar within 2 s of closing 10/10 (median 0.30 s), reopen 10/10, login launch without a
+  window 10/10, quit 10/10. The icon check compared the Finder icon (`qlmanage -t` hangs
+  for every app bundle on macOS 27, Calculator too); the window was closed through its
+  close action (`performClose`), because Accessibility does not expose its close button.
+  Two earlier runs were invalid (the harness read stale app state without a run loop; then
+  the close press failed) and were fixed before this run.
+- **E1** (whole stack, 60 min on battery, display on, thermal nominal): first run CPU
+  0.176% / wakeups 2.33 per second (wakeups over the bound); after the fix CPU 0.163% /
+  wakeups 1.52 per second (p95 1.82). Met after the fix.
+- **E2** battery A/B: started at 64% and stopped before its first pair; 6 pairs need about
+  4.2 h, more than one discharge holds above the 25% floor at the measured 16-22% per hour.
+  Not run.
+- **S6** pop without Accessibility: 30/30 local runs and 22/22 macOS 26 CI runs, no extra
+  window.
+- **R1** trial rollback: 6 triggers, 5/5 each, nothing left paused.
+- **Tests**: 346 local (149 + 197) at 571a245; ICCore line coverage 95.80%.
+- **Not run on battery:** E3, B1, S4 swap-out latency, the regression block (C2, C7, C12,
+  full selftest): the battery was at 39% after E1, below the 50% start floor.

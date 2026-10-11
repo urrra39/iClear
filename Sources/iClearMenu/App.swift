@@ -1,18 +1,92 @@
 import Charts
 import ICCore
 import ICSystem
+import ServiceManagement
 import SwiftUI
+
+/// Window and Dock behavior. The window shows the same view and model as the menu-bar
+/// popover. While it is open the app has a Dock icon (regular policy); closing it returns
+/// to the menu bar only (accessory), unless "Keep in Dock" is on.
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    let model = Model()
+    private var window: NSWindow?
+    private var launchedAtLogin = false
+
+    static let showAtLaunchKey = "showWindowAtLaunch"
+    static let keepInDockKey = "keepInDock"
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: [Self.showAtLaunchKey: true, Self.keepInDockKey: false])
+        // A login-item launch starts in the menu bar only. `--background` does the same (tests).
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        launchedAtLogin =
+            event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+            || CommandLine.arguments.contains("--background")
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // `ic-lab ui-smoke` launches with --ui-test and closes the window like its close
+        // button does (Accessibility does not expose this window's close button).
+        if CommandLine.arguments.contains("--ui-test") {
+            DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("io.github.urrra39.iclear.ui-test.close"), object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.window?.performClose(nil) } }
+        }
+        if !launchedAtLogin && UserDefaults.standard.bool(forKey: Self.showAtLaunchKey) {
+            showWindow()
+        } else {
+            applyDockPolicy(windowVisible: false)
+        }
+    }
+
+    /// Clicking the app in Finder, the Dock, Launchpad or Spotlight while it runs.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow()
+        return false
+    }
+
+    func showWindow() {
+        if window == nil {
+            let host = NSHostingView(rootView: ScrollView { MenuView(inWindow: true).environmentObject(model) })
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered, defer: false)
+            w.title = "iClear"
+            w.contentView = host
+            w.contentMinSize = NSSize(width: 380, height: 320)
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.center()
+            window = w
+        }
+        applyDockPolicy(windowVisible: true)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        applyDockPolicy(windowVisible: false)
+    }
+
+    func applyDockPolicy(windowVisible: Bool) {
+        let dock = windowVisible || UserDefaults.standard.bool(forKey: Self.keepInDockKey)
+        NSApp.setActivationPolicy(dock ? .regular : .accessory)
+    }
+}
 
 @main
 struct IClearMenuApp: App {
-    @StateObject private var model = Model()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
-        // `iClearMenu --snapshot out.png` renders the menu once (docs and UI checks) and exits.
+        // `iClearMenu --snapshot out.png [--window] [--light]` renders the popover (or the window's
+        // content) once, for docs and UI checks, and exits.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             MainActor.assumeIsolated {
                 let model = Model()
+                // Screenshots show the main view; `--onboarding` shows the first-run card instead.
+                model.onboardingDone = !args.contains("--onboarding")
                 // `--message key1,key2` shows those strings as the message line (layout checks of
                 // action results, which a one-shot render cannot trigger).
                 if let j = args.firstIndex(of: "--message"), j + 1 < args.count {
@@ -24,7 +98,7 @@ struct IClearMenuApp: App {
                 let end = Date().addingTimeInterval(6)
                 while model.reach == nil, Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
                 let view = NSHostingView(
-                    rootView: MenuView().environmentObject(model)
+                    rootView: MenuView(inWindow: args.contains("--window")).environmentObject(model)
                         .background(Color(nsColor: .windowBackgroundColor)))
                 view.frame.size = view.fittingSize
                 let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -44,20 +118,32 @@ struct IClearMenuApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuView().environmentObject(model)
+            MenuView().environmentObject(delegate.model)
         } label: {
-            Image(systemName: model.icon)
-                .accessibilityLabel(
-                    Text(
-                        model.status.map { String(format: localized("a11y.icon"), $0.health.score) }
-                            ?? model.reach.map(Model.text) ?? localized("daemon.connecting")))
+            MenuIcon(model: delegate.model)
         }
         .menuBarExtraStyle(.window)
     }
 }
 
+struct MenuIcon: View {
+    @ObservedObject var model: Model
+
+    var body: some View {
+        Image(systemName: model.icon)
+            .accessibilityLabel(
+                Text(
+                    model.status.map { String(format: localized("a11y.icon"), $0.health.score) }
+                        ?? model.reach.map(Model.text) ?? localized("daemon.connecting")))
+    }
+}
+
 struct MenuView: View {
     @EnvironmentObject var model: Model
+    /// The window adds its settings; everything else is the popover's content.
+    var inWindow = false
+    @AppStorage(AppDelegate.showAtLaunchKey) private var showAtLaunch = true
+    @AppStorage(AppDelegate.keepInDockKey) private var keepInDock = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -97,21 +183,77 @@ struct MenuView: View {
             }
             Divider()
             permissions
+            if inWindow, let v = model.status?.visibleIdle, !v.isEmpty {
+                Divider()
+                visibleIdle(v)
+            }
+            if inWindow {
+                Divider()
+                settings
+            }
             about
         }
         .padding(14)
         .frame(width: 360)
+        .onAppear { model.openViews += 1 }
+        .onDisappear { model.openViews -= 1 }
     }
 
-    /// Shown once, before anything else: Observe first, what pausing costs, what is never
-    /// paused, the optional permission and the emergency exit.
+    /// Visible apps you have not used for a while, with their measured background power, and
+    /// an explicit "Pause anyway" (the window stops redrawing; clicking it resumes the app).
+    func visibleIdle(_ apps: [VisibleIdle]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized("visibleIdle.title")).font(.headline)
+            ForEach(apps, id: \.id) { a in
+                HStack {
+                    Text(a.name).lineLimit(1)
+                    Text(a.watts.map { String(format: "%.1f W", $0) } ?? "–").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(localized("visibleIdle.pause")) { model.pauseAnyway(a.id) }
+                }
+            }
+            Text(localized("visibleIdle.warning")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    var settings: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker(localized("saver"), selection: Binding(get: { model.saverMode }, set: { model.setSaver($0) })) {
+                ForEach(["off", "balanced", "max"], id: \.self) { Text(localized("saver." + $0)).tag($0) }
+            }
+            Text(localized("saver.note")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle(localized("settings.showAtLaunch"), isOn: $showAtLaunch)
+            Toggle(localized("settings.keepInDock"), isOn: $keepInDock)
+                .onChange(of: keepInDock) { _ in NSApp.setActivationPolicy(.regular) }
+            Toggle(localized("settings.launchAtLogin"), isOn: $model.loginItem)
+                .onChange(of: model.loginItem) { on in model.setLoginItem(on) }
+        }
+        .font(.caption)
+    }
+
+    /// Shown once, before anything else, as three cards: what iClear does; Observe first;
+    /// the switches, the optional permission and the emergency exit.
     var onboarding: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let cards = [["what", "pause", "protect"], ["observe"], ["switches", "permissions", "exit"]]
+        return VStack(alignment: .leading, spacing: 6) {
             Text(localized("onboarding.title")).font(.headline)
-            ForEach(["observe", "pause", "protect", "permissions", "exit"], id: \.self) { k in
+            Text(String(format: localized("onboarding.step"), model.onboardingCard + 1, cards.count)).font(.caption2).foregroundStyle(
+                .secondary)
+            ForEach(cards[model.onboardingCard], id: \.self) { k in
                 Text(localized("onboarding." + k)).font(.caption).fixedSize(horizontal: false, vertical: true)
             }
-            Button(localized("onboarding.done")) { model.finishOnboarding() }
+            if model.onboardingCard == 2 && !model.accessibility {
+                Button(localized("perm.open")) { model.openAccessibilitySettings() }.font(.caption)
+            }
+            HStack {
+                if model.onboardingCard > 0 { Button(localized("onboarding.back")) { model.onboardingCard -= 1 } }
+                Spacer()
+                if model.onboardingCard < cards.count - 1 {
+                    Button(localized("onboarding.next")) { model.onboardingCard += 1 }
+                } else {
+                    Button(localized("onboarding.done")) { model.finishOnboarding() }
+                }
+            }
         }
     }
 
@@ -181,6 +323,9 @@ struct MenuView: View {
                 HStack {
                     Image(systemName: f.dryRun ? "eye" : "snowflake").accessibilityHidden(true)
                     Text(f.name).lineLimit(1)
+                    // How long it has been paused (its sessions age by that much).
+                    Text(String(format: localized("frozen.for"), max(0, Int((Date().timeIntervalSince1970 - f.frozenAt) / 60))))
+                        .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button(localized("thaw")) { model.thaw(f.id) }
                         .accessibilityLabel(Text(String(format: localized("a11y.thaw"), f.name)))

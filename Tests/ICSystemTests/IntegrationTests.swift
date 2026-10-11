@@ -411,6 +411,9 @@ import Testing
         #expect(Daemon.interval(for: .normal, etaWarning: 240, horizonMinutes: 10, holding: true) == 30)
         #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10, holding: true) == 5)
         #expect(Daemon.interval(for: .normal, etaWarning: 25, horizonMinutes: 10) == 5)
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10, lean: true) == 120)
+        #expect(Daemon.interval(for: .normal, etaWarning: nil, horizonMinutes: 10, holding: true, lean: true) == 30)
+        #expect(Daemon.interval(for: .warning, etaWarning: nil, horizonMinutes: 10, lean: true) == 3)
         #expect(Daemon.interval(for: .normal, etaWarning: 0, horizonMinutes: 10) == 5)
         #expect(Daemon.interval(for: .warning, etaWarning: nil, horizonMinutes: 10) == 3)
         #expect(Daemon.interval(for: .critical, etaWarning: nil, horizonMinutes: 10) == 2)
@@ -444,6 +447,18 @@ import Testing
 }
 
 @Suite(.serialized) struct BinaryTests {
+    /// v1.2 S8: with nothing installed, `thaw --all` says nothing is paused, never "locked".
+    @Test func thawAllWithNothingInstalledSaysSo() throws {
+        let home = "/tmp/ic-t-empty-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let r = run("iclear", ["thaw", "--all"], env: ["ICLEAR_HOME": home])
+        #expect(r.status == 0, "\(r.out)")
+        #expect(!r.out.contains("locked"), "\(r.out)")
+        #expect(r.out.contains("nothing is paused"), "\(r.out)")
+        #expect(!FileManager.default.fileExists(atPath: home + "/Library"), "it must not create the instance")
+    }
+
     /// Safety invariant 1: SIGKILL the daemon while something is frozen; the watchdog thaws it.
     @Test func watchdogThawsAfterDaemonIsKilled() throws {
         let paths = tempHome()

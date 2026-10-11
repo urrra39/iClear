@@ -70,7 +70,9 @@ extension Daemon {
         }
         lastEnergy = next
         appPowers = powers.sorted { $0.watts > $1.watts }
-        guard let r = SmartBattery().read(now: now) else { return }
+        let reading = SmartBattery().read(now: now)
+        defer { saverTick(reading, now: now) }
+        guard let r = reading else { return }
         let changed = batteryReadings.last.map { $0.dischargeW != r.dischargeW || $0.remainingWh != r.remainingWh } ?? true
         batteryReadings.append(r)
         batteryReadings = batteryReadings.filter { now - $0.time < 1800 }
@@ -84,7 +86,13 @@ extension Daemon {
         }
         battery.receipts = Array(battery.receipts.suffix(200))
         targetTick(r, now: now)
-        try? Files.writeJSON(battery, to: batteryURL)
+        // Written when a receipt changes, otherwise every 10 minutes (no steady disk writes).
+        let receiptsKey = battery.receipts.count * 2 + battery.receipts.filter { $0.measuredW != nil }.count
+        if receiptsKey != lastBatteryReceiptsKey || now - lastBatteryWrite >= 600 {
+            try? Files.writeJSON(battery, to: batteryURL)
+            lastBatteryWrite = now
+            lastBatteryReceiptsKey = receiptsKey
+        }
     }
 
     /// Average battery power over the last few minutes (the gauge updates about once a minute).
@@ -317,6 +325,18 @@ extension Daemon {
     }
 
     // MARK: F5 stall forensics
+
+    /// Runs the stall probe only while it can matter: memory pressure at warning or worse, or
+    /// within 2 minutes of a recorded stall. A healthy Mac pays no wakeups for it.
+    func paceStallProbe(pressure: PressureLevel, now: Double) {
+        let wanted = pressure >= .warning || (stallEvents.last.map { now - $0.at < 120 } ?? false)
+        if wanted, stallTimer == nil {
+            startStallProbe()
+        } else if !wanted, let t = stallTimer {
+            t.cancel()
+            stallTimer = nil
+        }
+    }
 
     /// With Accessibility, asks the frontmost app a trivial question every 2 s; an answer
     /// slower than 500 ms (or none within 2 s) is a stall and is recorded with its likely causes.

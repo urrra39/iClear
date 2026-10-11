@@ -60,7 +60,8 @@ let usage = """
       why [--json]                     why is my Mac slow right now?
       explain <app>                    why an app was or was not frozen
       thaw [<app> | --all]             resume frozen apps (works even if the daemon is dead)
-      freeze <app>                     freeze one app now (safety checks still apply)
+      freeze <app> [--visible]         freeze one app now (safety checks still apply; --visible:
+                                       pause anyway although its window shows; it stops redrawing)
       undo                             thaw the last round of freezes
       mode [observe | active]          show or change the mode
       profile [work | batterySaver | presentation | dev | auto]
@@ -82,6 +83,8 @@ let usage = """
                                        check that iClear works on this Mac (2-5 min; --quick 30 s;
                                        --no-mic skips the call check, which uses the microphone)
       battery [target <2h30m | off>]   battery minutes per app (estimates)
+      battery saver [off|balanced|max] Battery Saver (on battery only; off by default)
+      trial [start <id,...> | stop | status]  bounded real-use Active trial with automatic rollback
       beachball [stats | log]          recorded stalls of the frontmost app and their causes
       before <app>                     will launching this app push memory pressure up?
       compat <app>                     app class, tier and what pausing does to it
@@ -154,6 +157,7 @@ case "thaw":
         } else {
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
+            if b.absent { out("No Panic Brake journal on this Mac: it has not run here, so it paused nothing.") }
             if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
         }
     }
@@ -164,6 +168,12 @@ case "thaw":
         if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
+        if r.absent {
+            out(
+                "iClear is not installed for this user (no journal at \(paths.journal.deletingLastPathComponent().path)), so nothing is paused."
+            )
+            exit(0)
+        }
         let why =
             answer.failureValue == .absent
             ? "icleard is not running" : "icleard did not answer (\(answer.failureValue.map { "\($0)" } ?? ""))"
@@ -187,8 +197,8 @@ case "thaw":
     }
 
 case "freeze":
-    guard let app = rest.first else { fail("usage: iclear freeze <app>") }
-    ask("freeze", app: app)
+    guard let app = rest.first(where: { !$0.hasPrefix("--") }) else { fail("usage: iclear freeze <app> [--visible]") }
+    ask("freeze", app: app, value: rest.contains("--visible") ? "visible" : nil)
 
 case "undo":
     ask("undo")
@@ -360,12 +370,17 @@ case "selftest":
     exit(r.passed ? 0 : 1)
 
 case "battery":
-    if rest.first == "target" {
+    if rest.first == "saver" {
+        ask("saver", value: rest.count > 1 ? rest[1] : nil)
+    } else if rest.first == "target" {
         guard rest.count > 1 else { fail("usage: iclear battery target <2h30m | off>") }
         ask("battery", value: rest[1])
     } else {
         ask("battery")
     }
+
+case "trial":
+    ask("trial", value: rest.isEmpty ? "status" : rest.joined(separator: " "))
 
 case "beachball":
     ask("beachball", value: rest.first ?? "stats")

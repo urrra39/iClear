@@ -57,6 +57,17 @@ public final class Daemon {
     // Battery (F3), Call Mode and thermal shield (F4), stall forensics (F5).
     var battery = BatteryState()
     var lastEnergy: [ProcessIdentity: (nj: UInt64, t: Double)] = [:]
+    var lastBatteryWrite = 0.0
+    var lastBatteryReceiptsKey = -1
+    /// Battery Saver's own holds (v1.2): lowered apps (restored on activation, AC, off) and
+    /// the pauses it asked the engine for; per-app wakeup counts for the rate.
+    var saverDemoted: [String: [ProcessIdentity]] = [:]
+    var saverPaused: Set<String> = []
+    var saverWakeups: [String: (count: UInt64, t: Double)] = [:]
+    /// The real-use trial (v1.2): own-CPU samples; test hooks for the evidence it reads.
+    var trialCPUSamples: [(t: Double, cpu: UInt64)] = []
+    var trialOwnCPU: (() -> Double?)?
+    var trialInvariantCheck: (() -> String?)?
     var batteryReadings: [BatteryReading] = []
     public internal(set) var appPowers: [AppPower] = []
     var callDetector = CallDetector()
@@ -85,6 +96,8 @@ public final class Daemon {
     var lastLeakCheck = 0.0
     /// Tests run health checks by hand instead of on timers.
     public var scheduleHealthChecks = true
+    /// Whether iClear has Accessibility; tests force the path without it (v1.2 S6).
+    var axTrusted: () -> Bool = { AXIsProcessTrusted() }
     /// Test hook: called after every executed action.
     public var onAction: ((Action, String) -> Void)?
     /// Test hook: called before each app of a stash (index in hiding order).
@@ -181,7 +194,6 @@ public final class Daemon {
         installObservers()
         startTimers()
         scheduleContextCheck()
-        startStallProbe()
     }
 
     public func shutdown(reason: String = Code.thawShutdown) {
@@ -246,6 +258,7 @@ public final class Daemon {
     /// Shutdown, restart or logout is coming: resume every stash and every freeze now.
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
+        saverReleaseAll(now: clock())
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
         _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
@@ -262,18 +275,22 @@ public final class Daemon {
         t.schedule(deadline: .now())
         t.resume()
         tickTimer = t
-        // Cheap 1 s poll of the pressure level; a change triggers an immediate tick.
+        // Cheap poll of the pressure level (1 s, 2 s while calm); a change triggers an
+        // immediate tick. The memory-pressure dispatch source below is a second trigger.
         let p = DispatchSource.makeTimerSource(queue: .main)
         p.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
         p.setEventHandler { [weak self] in
             guard let self else { return }
+            self.pacePressurePoll()
             let level = SystemSampler.pressure()
             if level != self.lastLevel { self.tick() }
             // Every second while a shield can act; otherwise every 5 s, which still counts
             // calls (the window list and process scan behind it are the poll's main cost).
             self.pollCount += 1
             let c = self.engine.config
-            if c.callMode.enabled || c.thermalShield.enabled || c.antiBeachball.mitigation.enabled || self.pollCount % 5 == 0 {
+            if c.callMode.enabled || c.thermalShield.enabled || c.antiBeachball.mitigation.enabled
+                || self.pollCount % max(1, Int(((self.lean ? 15 : 5) / self.pollInterval).rounded())) == 0
+            {
                 self.shieldPoll()
             }
             if self.watchdog?.isRunning == false { self.startWatchdog() }
@@ -291,19 +308,39 @@ public final class Daemon {
     /// or over its false-alarm budget), when it is shown but never acted on.
     var actionableETA: Double? { engine.lastForecast.armed ? engine.lastForecast.etaWarning : nil }
 
+    /// Every 2 s while calm (normal pressure, nothing paused, no shield that acts per
+    /// second), 1 s otherwise: half the daemon's wakeups on a healthy Mac (v1.2 E1).
+    func pacePressurePoll() {
+        let c = engine.config
+        let calm =
+            lastLevel == .normal && engine.state.frozen.isEmpty && stashedAppIDs.isEmpty && !c.callMode.enabled
+            && !c.thermalShield.enabled && !c.antiBeachball.mitigation.enabled
+        let want = calm ? 2.0 : 1.0
+        guard want != pollInterval, let p = pollTimer else { return }
+        pollInterval = want
+        p.schedule(deadline: .now() + want, repeating: want, leeway: .milliseconds(Int(want * 250)))
+    }
+
     func interval(for level: PressureLevel) -> Double {
         Self.interval(
             for: level, etaWarning: actionableETA, horizonMinutes: engine.config.forecast.horizonMinutes,
-            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty)
+            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty, lean: lean)
     }
+
+    /// Battery at or below 20%, or Low Power Mode: calm ticks and the call poll slow down;
+    /// pressure still ticks at once (1 s poll). Set by each tick.
+    var lean = false
+    var pollInterval = 1.0
 
     /// Fast ticks only while the forecast sees warning within three horizons: any slow
     /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
     /// Otherwise 30 s while something is paused (`holding`) and one tick a minute when not:
     /// a change of pressure level still ticks at once (1 s poll).
-    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false) -> Double {
+    static func interval(
+        for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false, lean: Bool = false
+    ) -> Double {
         switch level {
-        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : 60
+        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : lean ? 120 : 60
         case .warning: return 3
         case .critical: return 2
         }
@@ -355,6 +392,8 @@ public final class Daemon {
         let sample = probe.sample(now: now)
         var r = probe.collect(now: now)
         lastLevel = sample.pressure
+        lean = sample.lowPowerMode || (sample.onBattery && (sample.batteryPercent ?? 100) <= 20)
+        paceStallProbe(pressure: sample.pressure, now: now)
         r.apps = visibleApps(r.apps)
         stashLifecycle()
         reconcileUnresolved()
@@ -397,6 +436,7 @@ public final class Daemon {
             availableMB: SystemSampler.availableMB(), swapMB: sample.swapUsedMB, pressure: sample.pressure.rawValue,
             frozen: Set(engine.state.frozen.filter { !$0.value.dryRun }.keys), now: now)
         scheduleWakePoll()
+        trialTick(now: now)
         if now - lastSave >= 60 { saveState() }
         tickTimer?.schedule(deadline: .now() + interval(for: sample.pressure))
     }
@@ -453,7 +493,10 @@ public final class Daemon {
             ContextTracker.noteActivation(&contextState, appID: id)
             footprints.noteFront(id, at: clock())
         }
-        if let id = bundleID { wake.forget(id) }
+        if let id = bundleID {
+            wake.forget(id)
+            saverActivated(id)
+        }
         if let run = probeRun, run.result == nil, run.appID == bundleID || run.processes.contains(where: { $0.pid == pid }) {
             run.abort()
             for p in run.processes { _ = Signals.send(SIGCONT, to: p) }

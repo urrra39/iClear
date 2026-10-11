@@ -71,6 +71,7 @@ public enum Policy {
             return r  // nothing else matters, and nothing may override it
         }
         if c.deny.contains(app.id) { r.append(Reason(Code.denyRule)) }
+        if c.trial.active, !c.trial.apps.contains(app.id) { r.append(Reason(Code.notInTrial)) }
         if !app.isRegularApp { r.append(Reason(Code.notRegular, "menu-bar or background app")) }
         if ctx.quarantined.contains(app.id) { r.append(Reason(Code.quarantined)) }
         let allowed = ctx.isAllowed(app.id)
@@ -94,6 +95,12 @@ public enum Policy {
         let threshold = ctx.idleThreshold(app.id)
         if !wake, idle < threshold {
             r.append(Reason(Code.notIdle, String(format: "idle %.0f of %.0f min", idle, threshold)))
+        }
+        // MRU protection: one of the last `mruApps` apps used, within `mruMinutes`.
+        if !wake, idle >= threshold, c.mruApps > 0, idle < c.mruMinutes, let mine = ctx.lastActiveAt[app.id],
+            ctx.lastActiveAt.values.filter({ $0 > mine }).count < c.mruApps
+        {
+            r.append(Reason(Code.mru, String(format: "used %.0f min ago, one of the last %d apps used", idle, c.mruApps)))
         }
         if app.cpuPercent > c.idleCPUPercent {
             r.append(Reason(Code.cpuActive, String(format: "%.1f%% CPU", app.cpuPercent)))

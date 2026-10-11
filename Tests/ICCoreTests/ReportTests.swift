@@ -56,7 +56,8 @@ import Testing
             recs.append(.tick(TickInput(sample: sample(t, i >= 20 && i < 30 ? .critical : .normal), apps: [heavy])))
         }
         recs.append(.activate("com.example.heavy", name: "heavy", at: 1300, weekday: 2, hour: 10))
-        let active = Simulator.run(recs, config: activeConfig(), hardware: hw16)
+        // The only app is also the most recently used one: MRU protection (v1.2) is off here.
+        let active = Simulator.run(recs, config: activeConfig { $0.mruApps = 0 }, hardware: hw16)
         #expect(active.ticks == 40 && active.activations == 1)
         #expect(active.freezes >= 1 && active.thaws >= 1)
         #expect(active.closedFreezes >= 1)

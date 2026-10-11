@@ -58,6 +58,32 @@ import Testing
         #expect(d.journal.read().isEmpty)
     }
 
+    /// v1.2 S6: without Accessibility, pop brings apps forward without opening extra
+    /// windows (the macOS 26 CI failure: a reopen made a fixture open a 500x500 window).
+    @Test func popWithoutAccessibilityOpensNoExtraWindow() throws {
+        let paths = tempHome()
+        let fx = try fixtures(3, in: paths)
+        defer { for f in fx { f.kill() } }
+        let before = fx.map(\.framesByNumber)
+        let probe = FakeProbe()
+        probe.apps = fx.map { $0.snapshot() }
+        let d = try testDaemon(probe, paths: paths, mode: .observe)
+        d.axTrusted = { false }
+        defer { d.shutdown() }
+        #expect(d.stash("work", options: StashOptions()).ok)
+        #expect(d.pop("work").ok)
+        #expect(eventually { fx.allSatisfy { !isStopped($0.pid) && shown($0) } })
+        // Late reopen windows would appear after the pop returns: give them time.
+        usleep(1_500_000)
+        let after = fx.map(\.framesByNumber)
+        for (b, a) in zip(before, after) {
+            #expect(
+                !b.isEmpty && Set(b.keys) == Set(a.keys) && b.allSatisfy { $0.value.distance(to: a[$0.key]!) <= 4 },
+                "\(b) -> \(a); macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        }
+        #expect(d.journal.read().isEmpty)
+    }
+
     @Test func dryRunAndRefusalsChangeNothing() throws {
         let paths = tempHome()
         let fx = try fixtures(1, in: paths, activateLast: false)

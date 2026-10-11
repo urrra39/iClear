@@ -56,6 +56,17 @@ public struct Config: Codable, Equatable, Sendable {
     public var idleCPUPercent = 2.0
     public var minFrozenMinutes = 5.0
     public var maxFrozenMinutes = 240.0
+    /// Per-class maximum pause, minutes, by class name (browser, comm, media, session, other);
+    /// missing classes use `AppClass.defaultMaxPauseMinutes`. 0 means never paused automatically.
+    public var maxPauseMinutes: [String: Double] = [:]
+    /// MRU protection: the last `mruApps` apps used within `mruMinutes` are never paused
+    /// automatically (0 apps turns it off).
+    /// The bounded real-use Active trial (v1.2): empty unless started with `iclear trial start`.
+    public var trial = TrialSettings()
+    /// Battery Saver (v1.2): off by default; acts only on battery.
+    public var batterySaver = BatterySaverSettings()
+    public var mruApps = 3
+    public var mruMinutes = 30.0
     public var cooldownMinutes = 10.0
     public var thawAfterNormalMinutes = 30.0
     public var maxFrozenApps = 8
@@ -237,7 +248,7 @@ public enum ConfigError: Error, CustomStringConvertible {
 
 extension Config {
     /// Keys whose values are free-form maps (arbitrary keys allowed).
-    static let mapKeys: Set<String> = ["tiers", "wakeWindows", "workspaces"]
+    static let mapKeys: Set<String> = ["tiers", "wakeWindows", "workspaces", "maxPauseMinutes"]
 
     /// Parses JSON written by a user. Missing keys take defaults; unknown keys are errors
     /// (they are almost always typos). Returns warnings for accepted-but-odd values.
@@ -275,7 +286,7 @@ extension Config {
         for (key, value) in over {
             let p = path.isEmpty ? key : "\(path).\(key)"
             // Optional properties are absent from the encoded defaults but still valid keys.
-            let optionalKeys: Set<String> = ["manual"]
+            let optionalKeys: Set<String> = ["manual", "startedAt"]
             guard base[key] != nil || optionalKeys.contains(key) else {
                 issues.append(ConfigIssue(severity: .error, path: p, message: "unknown key"))
                 continue
@@ -307,6 +318,14 @@ extension Config {
         check((0...100).contains(idleCPUPercent), "idleCPUPercent", "must be 0...100")
         check(minFrozenMinutes >= 0 && minFrozenMinutes < maxFrozenMinutes, "minFrozenMinutes", "must be >= 0 and < maxFrozenMinutes")
         check((1...1440).contains(maxFrozenMinutes), "maxFrozenMinutes", "must be 1...1440 (freezes are always bounded)")
+        check(
+            maxPauseMinutes.allSatisfy { AppClass(rawValue: $0.key) != nil && (0...1440).contains($0.value) }, "maxPauseMinutes",
+            "keys must be browser, comm, media, session or other; values 0...1440")
+        check((0...20).contains(mruApps) && (0...240).contains(mruMinutes), "mruApps/mruMinutes", "must be 0...20 apps and 0...240 minutes")
+        check(
+            batterySaver.idleMinutes >= 1 && batterySaver.minWatts > 0 && batterySaver.minWakeupsPerSecond > 0, "batterySaver",
+            "idleMinutes >= 1, minWatts and minWakeupsPerSecond > 0")
+        check(trial.apps.count <= 5 && trial.maxRegretsPerDay >= 0 && trial.maxResumeAllPerDay >= 1, "trial", "at most 5 apps; limits >= 0")
         check(cooldownMinutes >= 0, "cooldownMinutes", "must be >= 0")
         check(thawAfterNormalMinutes > 0, "thawAfterNormalMinutes", "must be > 0")
         check((1...50).contains(maxFrozenApps), "maxFrozenApps", "must be 1...50")

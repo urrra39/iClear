@@ -94,6 +94,17 @@ root-owned processes (Spotlight `mds`, `backupd`, `kernel_task`): there it only 
 A fully frozen Mac cannot be rescued. Recovery times are reported only as measured
 distributions ([RELEASE_CRITERIA_v1.1.md](RELEASE_CRITERIA_v1.1.md)).
 
+## Added in 1.2
+
+| Rule | How | Test |
+|---|---|---|
+| Battery Saver changes only through the journaled paths, and undoes them on activation, AC power and when turned off | lowering through `Signals.setBackground` (restoration record first), pausing through the engine's tracked freeze; protected, COMM, MEDIA and SESSION apps, the frontmost app, the last 3 apps used and every guard apply | `pausesAndLowersOnBatteryAndUndoesEverything`, `BatterySaverTests` |
+| Real-use trial: Active only for the allowlist, rollback to Observe on any trigger | `SKIP_NOT_IN_TRIAL` for every other app; a hang or crash after resume, regrets, Resume all 3 times a day, own CPU over 1%, or an unresolved resume roll back and resume everything | `TrialGuardTests` (6 triggers x 5) |
+| A visible app is paused only on an explicit request | "Pause anyway" (`freeze --visible`); its window does not resume it, activation does | `visibleAppPausesOnlyOnExplicitRequestAndResumesOnActivation` |
+| Session apps never paused by default; every class has a maximum pause | SESSION class; `maxPauseMinutes` within the global `maxFrozenMinutes` | `SessionClassTests` |
+| Pop without Accessibility opens no window | the running app activates itself; LaunchServices at most once, only with a window on screen | `popWithoutAccessibilityOpensNoExtraWindow` (30/30 local) |
+| Lower own cost does not weaken recovery | adaptive sampling changes cadence only; the journal, the watchdog and thaw-on-activation are unchanged | the 1.0 crash and stash tests in the suite |
+
 ## What "protected" covers
 
 Never frozen, deprioritised or asked to quit: anything under `/System` or `/usr`,

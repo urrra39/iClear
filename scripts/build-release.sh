@@ -25,6 +25,7 @@ cp "$BIN/iClearMenu" "$APP/Contents/MacOS/iClear"
 # Helpers/ keeps iclear apart from iClear on case-insensitive volumes.
 cp "$BIN/icleard" "$BIN/icbrake" "$BIN/iclear" "$BIN/ic-hog" "$BIN/ic-ui-probe" "$BIN/ic-call-sim" "$APP/Contents/Helpers/"
 cp -R "$BIN/iClear_iClearMenu.bundle" "$APP/Contents/Resources/"
+cp packaging/AppIcon.icns "$APP/Contents/Resources/"
 sed "s/@SHORT_VERSION@/$SHORT_VERSION/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 
 sign() {

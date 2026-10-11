@@ -3,7 +3,8 @@ public enum Completions {
     static let commands = [
         "status", "why", "explain", "thaw", "freeze", "undo", "mode", "profile", "stats", "advise",
         "quarantine", "habits", "workspace", "simulate", "trace", "config", "doctor", "install",
-        "uninstall", "migrate", "stash", "pop", "selftest", "battery", "beachball", "before", "compat", "shield", "hook", "context",
+        "uninstall", "migrate", "stash", "pop", "selftest", "battery", "trial", "beachball", "before", "compat", "shield", "hook",
+        "context",
         "leaks", "capacity", "probe", "brake", "blackbox", "bench", "completions",
         "version",
         "help",
@@ -15,7 +16,8 @@ public enum Completions {
         "config": ["path", "show", "validate", "allow", "deny", "import", "export"], "thaw": ["--all"],
         "completions": ["zsh", "bash", "fish"], "doctor": ["--report"], "uninstall": ["--purge"], "migrate": ["--dry-run", "--remove-old"],
         "stash": ["list", "show", "drop", "--keep", "--include", "--include-heavy", "--force-unsaved", "--dry-run"],
-        "pop": ["--all", "--app"], "battery": ["target"], "selftest": ["--quick", "--no-mic", "--report", "--json"],
+        "pop": ["--all", "--app"], "battery": ["target", "saver"], "freeze": ["--visible"], "trial": ["start", "stop", "status"],
+        "selftest": ["--quick", "--no-mic", "--report", "--json"],
         "beachball": ["stats", "log"],
     ]
 

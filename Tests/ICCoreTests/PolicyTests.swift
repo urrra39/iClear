@@ -187,3 +187,107 @@ import Testing
         #expect(abs(Policy.pReturn(activationsPerHour: 12, windowMinutes: 5) - (1 - exp(-1))) < 1e-9)
     }
 }
+
+/// v1.2 S2: session apps and per-class maximum pauses.
+@Suite struct SessionClassTests {
+    @Test func sessionAppsAreNeverPausedByDefault() {
+        #expect(AppClass.of("com.bitwarden.desktop") == .session)
+        #expect(Protection.defaultTier(for: "net.tunnelblick.tunnelblick") == .never)
+        #expect(Protection.tier(for: "com.wireguard.macos", config: Config()) == .never)
+    }
+
+    @Test func eachClassHasItsOwnMaximumPause() {
+        let c = Config()
+        #expect(Engine.maxPauseSeconds("com.google.Chrome", c) == 120 * 60)
+        #expect(Engine.maxPauseSeconds("com.example.editor", c) == 240 * 60)
+        var short = Config()
+        short.maxPauseMinutes = ["other": 30]
+        #expect(Engine.maxPauseSeconds("com.example.editor", short) == 30 * 60)
+        // The global bound always wins.
+        short.maxFrozenMinutes = 10
+        #expect(Engine.maxPauseSeconds("com.google.Chrome", short) == 10 * 60)
+    }
+
+    @Test func classLimitThawsAPausedBrowser() {
+        var c = Config()
+        c.mode = .active
+        let f = FrozenApp(
+            id: "com.google.Chrome", name: "Chrome", processes: [ProcessIdentity(pid: 10, startTime: 1)], frozenAt: 0,
+            residentAtFreezeMB: 100, reliefEstimateMB: 100, reasons: [Reason(Code.pressureWarning)], dryRun: false)
+        var st = EngineState(startedAt: 0)
+        st.frozen[f.id] = f
+        let e = Engine(config: c, hardware: Hardware(memoryGB: 16), state: st)
+        let app = AppSnapshot(id: "com.google.Chrome", name: "Chrome", processes: f.processes, residentMB: 100, isRegularApp: true)
+        let out = e.tick(
+            TickInput(
+                sample: SystemSample(time: 121 * 60, pressure: .warning, availablePercent: 10, physicalMB: 16384, freeDiskGB: 100),
+                apps: [app]))
+        #expect(out.actions.contains { $0.kind == .thaw && $0.reasons.contains { $0.code == Code.thawMaxDuration } })
+    }
+
+    @Test func configRejectsUnknownClassesAndCompatShowsTheRisk() {
+        var c = Config()
+        c.maxPauseMinutes = ["games": 5]
+        #expect(throws: (any Error).self) { try Config.load(json: c.encoded()) }
+        let r = Compat.report(id: "com.1password.1password", name: "1Password", config: Config())
+        #expect(r.contains("Time skew"))
+    }
+}
+
+/// v1.2 S4: the most recently used apps are not paused.
+@Suite struct MRUTests {
+    func app(_ id: String) -> AppSnapshot {
+        AppSnapshot(id: id, name: id, processes: [ProcessIdentity(pid: 1, startTime: 1)], residentMB: 500, isRegularApp: true)
+    }
+
+    @Test func recentlyUsedAppsAreProtected() {
+        var c = Config()
+        c.idleMinutes = 5
+        let now = 10_000.0
+        // Used 10, 12, 14, 16 and 18 minutes ago.
+        let used = ["a": now - 600, "b": now - 720, "c": now - 840, "d": now - 960, "e": now - 1080]
+        let ctx = PolicyContext(now: now, config: c, lastActiveAt: used)
+        func mru(_ id: String) -> Bool { Policy.skipReasons(app(id), ctx, requireInspection: false).contains { $0.code == Code.mru } }
+        #expect(mru("a") && mru("b") && mru("c"))
+        #expect(!mru("d") && !mru("e"))
+        // Older than mruMinutes: no longer protected, even if it was the last one used.
+        let old = PolicyContext(now: now + 3600, config: c, lastActiveAt: used)
+        #expect(!Policy.skipReasons(app("a"), old, requireInspection: false).contains { $0.code == Code.mru })
+        c.mruApps = 0
+        #expect(
+            !Policy.skipReasons(app("a"), PolicyContext(now: now, config: c, lastActiveAt: used), requireInspection: false).contains {
+                $0.code == Code.mru
+            })
+    }
+
+    @Test func perClassLimitsLoadFromJSON() throws {
+        let (c, _) = try Config.load(json: Data(#"{"maxPauseMinutes": {"other": 30}, "mruApps": 2}"#.utf8))
+        #expect(c.maxPauseMinutes["other"] == 30 && c.mruApps == 2)
+    }
+}
+
+/// v1.2 S3: "Pause anyway" for a visible app.
+@Suite struct PauseAnywayTests {
+    @Test func visibleAppPausesOnlyOnExplicitRequestAndResumesOnActivation() {
+        var c = Config()
+        c.mode = .active
+        let e = Engine(config: c, hardware: Hardware(memoryGB: 16), state: EngineState(startedAt: 0))
+        var a = AppSnapshot(
+            id: "com.example.viewer", name: "Viewer", processes: [ProcessIdentity(pid: 9, startTime: 1)], residentMB: 300,
+            isRegularApp: true)
+        a.hasVisibleWindow = true
+        a.signals = ActivitySignals(activeConnection: false, servingListener: false, recentWrite: false, lockHeld: false)
+        let (refused, why) = e.userFreeze(a, at: 1000)
+        #expect(refused == nil && why.contains { $0.code == Code.visibleWindow })
+        let (done, _) = e.userFreeze(a, at: 1000, allowVisible: true)
+        #expect(done?.kind == .freeze && e.state.frozen[a.id]?.pausedVisible == true)
+        // Its visible window does not resume it on the next tick.
+        let r = e.tick(
+            TickInput(
+                sample: SystemSample(time: 1060, pressure: .normal, availablePercent: 60, physicalMB: 16384, freeDiskGB: 100), apps: [a]))
+        #expect(!r.actions.contains { $0.kind == .thaw })
+        // Bringing it to the front does.
+        let t = e.activated(appID: a.id, name: a.name, at: 1100, weekday: 2, hour: 10)
+        #expect(t.contains { $0.kind == .thaw })
+    }
+}

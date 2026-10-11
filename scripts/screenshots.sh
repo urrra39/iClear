@@ -1,5 +1,6 @@
 #!/bin/sh
-# Renders docs/images/menu-en.png and menu-uz.png from the menu app, connected to an
+# Renders docs/images/menu-{en,uz}.png (popover) and window-{en,uz}.png (window content)
+# from the menu app, connected to an
 # isolated, observe-only daemon (it never pauses anything and does not touch the real
 # install). Run after `swift build -c release`.
 set -eu
@@ -17,8 +18,11 @@ app="$home/iClear.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$BIN/iClearMenu" "$app/Contents/MacOS/iClear"
 cp -R "$BIN/iClear_iClearMenu.bundle" "$app/Contents/Resources/"
+cp packaging/AppIcon.icns "$app/Contents/Resources/"
 version=$(sed -n 's/^public let iclearVersion = "\(.*\)"/\1/p' Sources/ICSystem/Doctor.swift)
-sed "s/@VERSION@/$version/g" packaging/Info.plist > "$app/Contents/Info.plist"
-"$app/Contents/MacOS/iClear" --snapshot "$PWD/docs/images/menu-en.png" --light -AppleLanguages "(en)"
-"$app/Contents/MacOS/iClear" --snapshot "$PWD/docs/images/menu-uz.png" --light -AppleLanguages "(uz)"
-echo "wrote docs/images/menu-en.png and menu-uz.png"
+sed "s/@SHORT_VERSION@/${version%%-*}/g" packaging/Info.plist > "$app/Contents/Info.plist"
+for lang in en uz; do
+    "$app/Contents/MacOS/iClear" --snapshot "$PWD/docs/images/menu-$lang.png" --light -AppleLanguages "($lang)"
+    "$app/Contents/MacOS/iClear" --snapshot "$PWD/docs/images/window-$lang.png" --window --light -AppleLanguages "($lang)"
+done
+echo "wrote docs/images/menu-{en,uz}.png and window-{en,uz}.png"

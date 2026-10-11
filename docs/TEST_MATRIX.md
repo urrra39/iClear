@@ -40,6 +40,10 @@ automated test that exercises it and is listed in the README's "Not validated" l
 | `brake observe/on/off/status/report/resume/quit` (v1.1) | `BrakeTests` (detector, ranking, ladder, releases, Black Box), `BrakeIntegrationTests` (pause and confirm, wrong guess then give up, observe touches nothing, real `icbrake` with kill -9 and its watchdog), `everyCommandRunsThroughTheCLI` (refusals); selftest `Panic Brake (isolated)`; lab `brake`, `brake-fp`, `brake-replay` after the soak |
 | `blackbox [--previous] [--dismiss]` (v1.1) | `blackBoxRingMarkerAndPrivacy`, `icbrakePausesTheRunawayAndItsWatchdogRecovers` (file written while stalled), `everyCommandRunsThroughTheCLI`; lab `blackbox`; unclean restart: manual step 5 |
 | `leaks`, `leaks quit <app> [--yes]` (v1.1) | `LeakTests` (5 tests: Theil-Sen and Mann-Kendall, growth found, flat/step/sawtooth/in-use/too-little-data/stopped/slow not found, history bounds, in use), `leakQuitNeedsPreviewAndConfirmation`, `leakNotificationsOncePerDay`, `everyCommandRunsThroughTheCLI`; lab L1-L4 with `ic-hog --profile` after the soak |
+| `battery saver off\|balanced\|max` (v1.2) | `BatterySaverTests` (planner: off, AC, Balanced vs Max thresholds, frontmost, idle, self-disarm), `pausesAndLowersOnBatteryAndUndoesEverything` (real fixtures: pause, lowering, audio guard, activation and AC undo, empty journal); the benefit (B1) **NOT RUN** (needs battery) |
+| `trial start <ids>\|stop\|status` (v1.2) | `TrialGuardTests` (6 triggers x 5 rollbacks with a real paused fixture, allowlist policy, refusals, config loads) |
+| `freeze <app> --visible` (v1.2) | `visibleAppPausesOnlyOnExplicitRequestAndResumesOnActivation` |
+| `thaw --all` with nothing installed (v1.2) | `thawAllWithNothingInstalledSaysSo` |
 
 ## Menu actions
 
@@ -69,6 +73,8 @@ after about 4 s), and absent.
 | Context suggestion: Switch, Not now (v1.1) | `context accept`, `context dismiss` | **NOT TESTED** by hand yet |
 | First-run card (Observe first, pausing side effects, never paused, optional permission, emergency exit; v1.1) | none (local) | `--snapshot` render in English and Uzbek of the packaged app; strings: `LocalizationParityTests` |
 | Unresolved resume row, "not answering", "busy" and pending/emergency reports (v1.1) | `status` | `StateAgreementIntegrationTests` (status JSON), `DaemonClientTests`; rendered from the rc.1 menu binary against real daemon states in English and Uzbek; clicking through: MANUAL_TESTS 9-11 |
+| App window (same view as the popover), Dock icon while open, reopen, login launch without a window (v1.2) | none (local) | `ic-lab ui-smoke` U1-U7; manual steps: [MANUAL_TESTS_UI.md](MANUAL_TESTS_UI.md) |
+| Onboarding cards, settings (show at launch, keep in Dock, open at login), Battery Saver picker, "Visible but not used" with "Pause anyway" (v1.2) | `saver`, `freeze --visible` | `--snapshot --window` render in English and Uzbek; strings: `LocalizationParityTests`; clicking through: MANUAL_TESTS_UI |
 | Start daemon | `launchctl` | manual M1 |
 | Open Accessibility settings | system URL | manual M6 |
 | Global hotkeys ⌃⌥⌘T (always), ⌃⌥⌘S / ⌃⌥⌘P (`stash.hotkeys`) | `thaw all`, `stash`, `pop` | manual M5; **NOT TESTED** automatically |
@@ -121,6 +127,10 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | `antiBeachball.forensics` | `explanations`, `stats`; lab `combined` (probe running) |
 | `antiBeachball.mitigation.*` | `ShieldTests`; lab `beachball` |
 | `battery.targetEnabled` | `receiptsDisarmUnreliableEstimates`; **NOT TESTED** on a real target (experimental, off) |
+| `batterySaver.*` (v1.2) | `BatterySaverTests`, `pausesAndLowersOnBatteryAndUndoesEverything`; off by default |
+| `trial.*` (v1.2) | `TrialGuardTests` |
+| `maxPauseMinutes` (v1.2) | `eachClassHasItsOwnMaximumPause`, `classLimitThawsAPausedBrowser`, `perClassLimitsLoadFromJSON`, `configRejectsUnknownClassesAndCompatShowsTheRisk` |
+| `mruApps`, `mruMinutes` (v1.2) | `recentlyUsedAppsAreProtected`, `perClassLimitsLoadFromJSON` |
 
 ## Features
 
