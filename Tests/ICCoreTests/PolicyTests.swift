@@ -265,3 +265,29 @@ import Testing
         #expect(c.maxPauseMinutes["other"] == 30 && c.mruApps == 2)
     }
 }
+
+/// v1.2 S3: "Pause anyway" for a visible app.
+@Suite struct PauseAnywayTests {
+    @Test func visibleAppPausesOnlyOnExplicitRequestAndResumesOnActivation() {
+        var c = Config()
+        c.mode = .active
+        let e = Engine(config: c, hardware: Hardware(memoryGB: 16), state: EngineState(startedAt: 0))
+        var a = AppSnapshot(
+            id: "com.example.viewer", name: "Viewer", processes: [ProcessIdentity(pid: 9, startTime: 1)], residentMB: 300,
+            isRegularApp: true)
+        a.hasVisibleWindow = true
+        a.signals = ActivitySignals(activeConnection: false, servingListener: false, recentWrite: false, lockHeld: false)
+        let (refused, why) = e.userFreeze(a, at: 1000)
+        #expect(refused == nil && why.contains { $0.code == Code.visibleWindow })
+        let (done, _) = e.userFreeze(a, at: 1000, allowVisible: true)
+        #expect(done?.kind == .freeze && e.state.frozen[a.id]?.pausedVisible == true)
+        // Its visible window does not resume it on the next tick.
+        let r = e.tick(
+            TickInput(
+                sample: SystemSample(time: 1060, pressure: .normal, availablePercent: 60, physicalMB: 16384, freeDiskGB: 100), apps: [a]))
+        #expect(!r.actions.contains { $0.kind == .thaw })
+        // Bringing it to the front does.
+        let t = e.activated(appID: a.id, name: a.name, at: 1100, weekday: 2, hour: 10)
+        #expect(t.contains { $0.kind == .thaw })
+    }
+}

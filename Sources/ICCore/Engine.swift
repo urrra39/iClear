@@ -15,6 +15,9 @@ public struct FrozenApp: Codable, Equatable, Sendable {
     public var dryRun: Bool
     /// CPU use when frozen; the basis of the CPU-savings estimate.
     public var cpuPercentAtFreeze = 0.0
+    /// Paused on an explicit "Pause anyway" while its window was visible (v1.2 S3): its
+    /// visible window does not resume it; bringing it to the front does.
+    public var pausedVisible: Bool?
 
     /// Frozen because of memory pressure (as opposed to a user, Call Mode or battery
     /// request); only these are thawed when pressure has been normal for a while.
@@ -389,7 +392,7 @@ public final class Engine {
                 continue
             }
             state.frozen[id]?.realizedReliefMB = max(0, f.residentAtFreezeMB - app.residentMB)
-            if app.isFrontmost || app.hasVisibleWindow {
+            if app.isFrontmost || (app.hasVisibleWindow && f.pausedVisible != true) {
                 out += thaw(id, reason: Code.thawActivated, at: now)
             } else if now - f.frozenAt >= Self.maxPauseSeconds(id, cfg) {
                 out += thaw(id, reason: Code.thawMaxDuration, at: now)
@@ -791,13 +794,18 @@ public final class Engine {
 
     /// User-requested freeze: skips the idle, pressure and cooldown checks, never the
     /// safety checks. Returns the action or the reasons it was refused.
-    public func userFreeze(_ app: AppSnapshot, at now: Double) -> (Action?, [Reason]) {
+    /// `allowVisible`: the user's explicit "Pause anyway" for an app whose window is visible
+    /// (the window stops redrawing until the app is brought to the front).
+    public func userFreeze(_ app: AppSnapshot, at now: Double, allowVisible: Bool = false) -> (Action?, [Reason]) {
         var ctx = context(now, config, profile: lastProfile, wake: [app.id])
         ctx.config.allow.append(app.id)  // a direct request counts as opt-in for tiers B and S
         // A direct request may replace a pending resume (the app is stopped anyway).
-        let blockers = Policy.skipReasons(app, ctx).filter { $0.code != Code.cpuActive && $0.code != Code.resumePending }
+        let blockers = Policy.skipReasons(app, ctx).filter {
+            $0.code != Code.cpuActive && $0.code != Code.resumePending && !(allowVisible && $0.code == Code.visibleWindow)
+        }
         guard blockers.isEmpty else { return (nil, blockers) }
         let a = freeze(app, reasons: [Reason(Code.userRequest)], relief: reliefEstimate(app), at: now)
+        if allowVisible, app.hasVisibleWindow { state.frozen[app.id]?.pausedVisible = true }
         state.lastRound = [app.id]
         state.lastAction = a.summary
         return (a, [])

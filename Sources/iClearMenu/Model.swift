@@ -221,6 +221,9 @@ final class Model: ObservableObject {
     func dismissContext() { run("context", app: "dismiss") }
     func setProfile(_ p: String) { run("profile", value: p) }
 
+    /// "Pause anyway" for a visible app (its window stops redrawing; clicking it resumes it).
+    func pauseAnyway(_ id: String) { run("freeze", app: id, value: "visible") }
+
     /// Battery Saver mode as configured (read from the config file on refresh).
     @Published var saverMode = "off"
 

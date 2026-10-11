@@ -60,7 +60,8 @@ let usage = """
       why [--json]                     why is my Mac slow right now?
       explain <app>                    why an app was or was not frozen
       thaw [<app> | --all]             resume frozen apps (works even if the daemon is dead)
-      freeze <app>                     freeze one app now (safety checks still apply)
+      freeze <app> [--visible]         freeze one app now (safety checks still apply; --visible:
+                                       pause anyway although its window shows; it stops redrawing)
       undo                             thaw the last round of freezes
       mode [observe | active]          show or change the mode
       profile [work | batterySaver | presentation | dev | auto]
@@ -196,8 +197,8 @@ case "thaw":
     }
 
 case "freeze":
-    guard let app = rest.first else { fail("usage: iclear freeze <app>") }
-    ask("freeze", app: app)
+    guard let app = rest.first(where: { !$0.hasPrefix("--") }) else { fail("usage: iclear freeze <app> [--visible]") }
+    ask("freeze", app: app, value: rest.contains("--visible") ? "visible" : nil)
 
 case "undo":
     ask("undo")

@@ -110,3 +110,6 @@
 "saver.balanced" = "Balanced";
 "saver.max" = "Max";
 "saver.note" = "On battery only: lowers the priority of idle visible apps and pauses idle hidden apps with high background energy. Its benefit has not been measured yet.";
+"visibleIdle.title" = "Visible but not used";
+"visibleIdle.pause" = "Pause anyway";
+"visibleIdle.warning" = "A paused app's window stops redrawing. Clicking the window or bringing the app to the front resumes it.";

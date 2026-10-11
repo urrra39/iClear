@@ -183,6 +183,10 @@ struct MenuView: View {
             }
             Divider()
             permissions
+            if inWindow, let v = model.status?.visibleIdle, !v.isEmpty {
+                Divider()
+                visibleIdle(v)
+            }
             if inWindow {
                 Divider()
                 settings
@@ -193,6 +197,23 @@ struct MenuView: View {
         .frame(width: 360)
         .onAppear { model.openViews += 1 }
         .onDisappear { model.openViews -= 1 }
+    }
+
+    /// Visible apps you have not used for a while, with their measured background power, and
+    /// an explicit "Pause anyway" (the window stops redrawing; clicking it resumes the app).
+    func visibleIdle(_ apps: [VisibleIdle]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized("visibleIdle.title")).font(.headline)
+            ForEach(apps, id: \.id) { a in
+                HStack {
+                    Text(a.name).lineLimit(1)
+                    Text(a.watts.map { String(format: "%.1f W", $0) } ?? "–").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(localized("visibleIdle.pause")) { model.pauseAnyway(a.id) }
+                }
+            }
+            Text(localized("visibleIdle.warning")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     var settings: some View {
