@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (after 1.1.0-rc.1)
+## 1.1.0-rc.2 (2026-10-11; release candidate)
 
 - **Daemon CPU (soak W5); also released as 1.0.3.** A forecast ETA that is only shown, never acted on (the
   forecast is off by default, and switches itself off over its false-alarm budget), no
