@@ -110,6 +110,35 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## 1.1.0-rc.2 release candidate: status (2026-10-11)
+
+Tag v1.1.0-rc.2 on 18acb20 (pre-release); CI green on macos-15, macos-15-intel and
+macos-26; published assets checked (checksums, universal binaries, ad-hoc signature,
+`--version`, quick selftest, doctor, migrate in an isolated home). Lab work on the same
+code (Sources unchanged since 618c0f9 apart from the version string), one Mac, on AC
+unless noted. Release rule: v1.1.0 needs stage 4, R1-R5 and the stage 6 gates of built
+features; they are not all met, so this is an rc.
+
+| Criterion | Result | Feature mode |
+|---|---|---|
+| R1: C1, C2, C3, C7, C12, C13 | met (C13 19/19 on AC) | — |
+| R1: C10 CI, R3 | met on 18acb20 | — |
+| R1: C14 artifacts | met for the rc.2 assets | — |
+| R2 idle overhead | met: 0.150% over 10 min; 0.150% mean over 200 min | — |
+| R4 coverage | 97.3% at 657e1e0; not re-measured on rc.2 | — |
+| R5 mapping | met at 657e1e0 (automated check); not re-run | — |
+| X1-X7, X9, X10 | met | Auto-Context Stash: suggest mode (automatic per context, Active mode only) |
+| X8 | not run (needs the owner) | — |
+| L1-L4 | no result (stopped at critical pressure after 1.76 h) | leak list only, notifications OFF |
+| L5 | not met (retrospective: no app flagged) | notifications OFF |
+| G5 | met (0.68 per 24 h) | — |
+| G1-G4, G7, G9 | no result (swap/critical limits; G4 21 of 30 runs, 0 would-be brakes) | Panic Brake OBSERVE-ONLY |
+| H1-H3 | no result (critical pressure) | Black Box OFF |
+| T1-T4 | NOT RUN (cut for time) | Thrash Guard OFF |
+| D1-D5 | NOT RUN (cut for time) | Wake-on-Data OFF |
+| P1 lab runs | NOT RUN (cut for time); tests pass | canary probe: only when asked |
+| Capacity pilot | NOT RUN (cut for time) | no capacity claim |
+
 ## 1.1.0-rc.1 release candidate: status (2026-10-06)
 
 - **Source:** commit 657e1e0, built from a clean checkout with `scripts/build-release.sh`

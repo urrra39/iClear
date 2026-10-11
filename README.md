@@ -11,8 +11,9 @@ when you switch back to it. It never deletes files.
 
 > **Latest release: 1.0.3** (1.0.2 plus the daemon CPU fix below). Validated on one Mac (Apple M3 Pro, 18 GB, macOS 27.0.1) with
 > real apps a lab started, never with personal accounts. `main` also holds the
-> **1.1.0-rc.1** work, which is **not released**: anything marked "main only" below is not
-> in a download. CI (macOS 15 Apple Silicon and Intel, macOS 26) was green on main at 618c0f9 (run 38090952189); local runs are listed in
+> 1.1 work, published only as the pre-release **1.1.0-rc.2**: anything marked "main only"
+> below is not in 1.0.3. CI (macOS 15 Apple Silicon and Intel, macOS 26) is green on the
+> rc.2 commit 18acb20; local runs are listed in
 > [QUALITY.md](docs/QUALITY.md). iClear starts in **Observe mode**: it only records what it
 > would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
 
@@ -145,7 +146,7 @@ flowchart LR
 | Memory frozen real apps gave back at "warning" pressure (first episode) | Chrome 1,203 → 803 MB (−33%), VS Code 1,709 → 1,046 MB (−39%), Preview 130 → 84 MB (−35%); at "normal" pressure macOS reclaims little (median −1% to −4%) |
 | Pop until every stashed app is shown | p50 1.34 s, p99 1.36 s |
 | 60-minute run with every feature on, Active lab daemon | 0 failures: 12/12 stash/pop cycles, 6 pressure episodes, 6/6 simulated calls detected, 0 hangs |
-| `iclear selftest` (full) | 1.0.0: 13 of 13; main (1.1.0-rc.1 build): 19 of 19, no skip |
+| `iclear selftest` (full) | 1.0.0: 13 of 13; main (1.1.0-rc.2 code, on AC): 19 of 19, no skip |
 | Tests | 1.0.x: 188, green on three CI runners; main: 329 locally (CI green on the three runners at 618c0f9, which had 328 tests); ICCore line coverage 97.3% |
 
 All criteria and results: [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
@@ -176,7 +177,9 @@ daemon check every 5 s and inspect apps' sockets and files whenever free memory 
 the warning level the forecast had learned. 1.0.2 and 1.1.0-rc.1 do this; it is fixed in
 **1.0.3** and on `main` (where the daemon also samples less often when calm). Same Mac, Observe mode, real apps, 2 hours at night: rc.1 0.25%,
 `main` 0.13-0.14% of one core, also when started from the soak's data (from which rc.1
-used 0.95% in a 30-minute run below that level). The week-long bound has not been re-run
+used 0.95% in a 30-minute run below that level); over 200 minutes on 2026-10-11, while
+lab runs shared the Mac, `main` averaged 0.150% (per-minute p95 0.200%). The week-long
+bound has not been re-run
 on `main` ([measurements](docs/VALIDATION.md#daemon-overhead-after-the-soak-w5-follow-up)).
 
 **7-day soak of 1.0.0** (2026-10-01 to 2026-10-10): W1 elapsed time, W2 awake hours, W4
@@ -194,7 +197,9 @@ been regretted. [Full result](docs/VALIDATION.md#7-day-soak-on-100-final-result-
 - fish and tmux with the Auto-Context hook ([#8](https://github.com/urrra39/iClear/issues/8)).
 - Battery estimates; the unsaved-changes signal (no app reported it in the lab); media
   keys sent to a paused player; the thermal shield.
-- The main-only features' lab gates (stages 4-6) and the capacity benchmark: not run yet.
+- The main-only features' lab gates: Panic Brake G1-G4, G7, G9; Black Box H1-H3; leak
+  trend L1-L4 (stopped at the lab's memory safety limits); Thrash Guard, Wake-on-Data,
+  canary probe runs and the capacity benchmark (not run). 1.1.0-rc.2 is a pre-release.
 - Developer ID signing and notarization: not done (see Install).
 
 **When it does not help:** memory pressure is green (macOS handles it, iClear stays idle);
@@ -278,7 +283,7 @@ Open Anyway (Apple removed the right-click route in macOS 15). On macOS 13 and 1
 right-click iClear.app, choose Open, confirm. Command-line tools:
 `xattr -dr com.apple.quarantine iclear-<version>`, then `./iclear install` inside it.
 
-**From source** (a Swift 6 toolchain; `main` builds the unreleased 1.1.0-rc.1 work):
+**From source** (a Swift 6 toolchain; `main` builds the 1.1 work (1.1.0-rc.2)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear
@@ -314,8 +319,10 @@ shows the plan first.
 
 Their lab runs ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) stage 4,
 [RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) stages 5 and 6) have run only in part:
-Auto-Context Stash passed its switch, undo, false-trigger and hook-overhead criteria but
-not yet the 100-trial crash criterion (X9); the others need a run on AC power
+Auto-Context Stash passed all its lab criteria (X1-X7, X9, X10; X8 needs real use); the
+Panic Brake's trace replay (G5) passed; the Panic Brake, Black Box and leak-trend runs
+stopped at the lab's memory safety limits on this Mac and have no result; Thrash Guard,
+Wake-on-Data and the capacity benchmark were not run
 ([results](docs/VALIDATION.md#v11-lab-gates-on-the-candidate-main-618c0f9-2026-10-11)).
 Until a feature's criteria pass, the default install runs it observe-only or off, whatever
 its config says.

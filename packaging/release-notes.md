@@ -65,7 +65,7 @@ rule falls back to, whatever the config says:
 | Stage 1 subset: C2, C7, C12, C13 | met: crash recovery 100/100 and 50/50, stash/pop 350/350 windows, overhead 0.150%, full selftest 19/19 on AC |
 | Auto-Context Stash X1-X7, X9, X10 | met (X9: 100/100 kills mid-switch recovered within 2 s) |
 | X8 real use | not run (needs the owner) |
-| Leak trend L1-L4 | running at release time; see the update on this page |
+| Leak trend L1-L4 | no result: the 5-hour run stopped at critical pressure after 1.76 h (0 trees flagged by then; flags are judged from 2 h on); leak notifications stay off |
 | Panic Brake G5 (replay of the soak trace) | met: 0.68 would-be brakes per 24 h |
 | Panic Brake G1-G4, G7, G9 | no result: the runs stopped at the lab's safety limits (swap growth over 4 GB, critical pressure) |
 | Black Box H1-H3 | no result: stopped at critical pressure |

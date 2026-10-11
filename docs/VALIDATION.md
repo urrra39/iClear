@@ -536,3 +536,31 @@ brakes, **0.68 per 24 h** (limit ≤ 1): 2026-10-07 14:40, 10-08 13:17, 10-08 13
 
 Panic Brake ship mode: G1-G3, G7 and G4 have no result, so `iclear brake on` is not
 offered; the brake ships **observe-only** (G8's tests pass).
+
+**Black Box (H1-H3), 2026-10-11 08:01, on AC: aborted at critical pressure** after
+35 minutes, before any H result was saved. Cleanup checked (0 processes stopped,
+pressure back to normal, 85% free). H1-H3 have **no result**; the Black Box ships **off**.
+
+Three phases today (brake, brake-fp, blackbox) ended at the lab's own safety limits
+(swap growth over 4 GB, or critical pressure) even though induced memory stays within
+60% of RAM: on this 18 GB Mac, with the apps that were open (about 3 GB in the largest ten
+processes), that load reaches the limits.
+The limits are the owner's and are not raised; these gates need a run with fewer apps
+open, or a Mac with more memory.
+
+**Leak trend (L1-L4), 2026-10-11 08:36-10:26, on AC (the Mac was on battery 09:23-10:10):
+aborted at critical pressure** after 1.76 h of the 5-hour run, as the synthetic growing
+trees filled memory. 0 trees had been flagged by then; flags are judged only from 2 h of
+data on, so L1-L4 have **no result**. Leak notifications stay **off**; `iclear leaks` and
+the menu list are unchanged. Cleanup checked: 0 processes stopped, pressure normal.
+
+**Cut for time, NOT RUN:** `thrash` (T1-T4), `wake` (D1-D5), the capacity pilot; also
+`probe` (P1 lab runs). Thrash Guard and Wake-on-Data stay **off**; the canary probe runs
+only when asked; no capacity gain is claimed.
+
+**Daemon overhead, 200 minutes on 2026-10-11 06:56-10:17** (fresh state, Observe mode,
+this Mac's real apps, the main build, while the lab phases above ran): mean **0.150%** of
+one core; per-minute median 0.150%, p95 0.200%, max 0.600%; RSS ≤ 37.6 MB; 314-466 own
+processes; pressure normal at every 1-minute sample; thermal nominal. 153 of the minutes
+were on AC (median 0.150%, p95 0.250%) and 46 on battery (AC was lost 09:23-10:10). The
+one-week bound (W5) was not re-measured.

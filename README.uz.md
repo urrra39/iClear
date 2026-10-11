@@ -11,8 +11,9 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 
 > **Oxirgi reliz: 1.0.3** (1.0.2 va quyidagi protsessor tuzatishi). Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
 > ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech qachon shaxsiy akkauntlar bilan
-> emas. `main` tarmog'ida **1.1.0-rc.1** ishi ham bor, u **chiqarilmagan**: quyida "faqat
-> main" deb belgilangan narsa yuklab olinadigan versiyada yo'q. CI (macOS 15 Apple Silicon va Intel, macOS 26) main'da 618c0f9 da yashil edi (run 38090952189);
+> emas. `main` tarmog'ida 1.1 ishi ham bor, u faqat **1.1.0-rc.2** sinov relizi sifatida
+> chiqarilgan: quyida "faqat main" deb belgilangan narsa 1.0.3 da yo'q. CI (macOS 15 Apple
+> Silicon va Intel, macOS 26) rc.2 commit'i 18acb20 da yashil;
 > mahalliy natijalar [QUALITY.md](docs/QUALITY.md) da. iClear **Kuzatish rejimida** boshlanadi: u faqat nima qilgan bo'lardi, shuni yozadi.
 > [English](README.md) · [Holat va cheklovlar](#holat-va-cheklovlar) (hujjatlar ingliz tilida)
 
@@ -151,7 +152,7 @@ flowchart LR
 | "Sariq" (warning) bosimda muzlatilgan haqiqiy ilovalar qaytargan xotira (birinchi epizod) | Chrome 1 203 → 803 MB (−33%), VS Code 1 709 → 1 046 MB (−39%), Preview 130 → 84 MB (−35%); "me'yoriy" bosimda macOS kam qaytaradi (mediana −1% dan −4% gacha) |
 | Pop: barcha yashirilgan ilovalar ko'ringuncha | p50 1.34 s, p99 1.36 s |
 | Barcha imkoniyatlar yoqilgan 60 daqiqalik sinov, Faol laboratoriya xizmati | 0 xato: 12/12 stash/pop sikli, 6 bosim epizodi, 6/6 simulyatsiya qilingan qo'ng'iroq aniqlandi, 0 qotish |
-| `iclear selftest` (to'liq) | 1.0.0: 13 tadan 13; main (1.1.0-rc.1 build): 19 tadan 19, o'tkazib yuborilgani yo'q |
+| `iclear selftest` (to'liq) | 1.0.0: 13 tadan 13; main (1.1.0-rc.2 kodi, AC da): 19 tadan 19, o'tkazib yuborilgani yo'q |
 | Testlar | 1.0.x: 188 ta, uchta CI runnerida yashil; main: mahalliy 329 ta (CI 618c0f9 da uchala runnerda yashil, u yerda 328 ta test bor edi); ICCore qatorlarini qamrab olish 97.3% |
 
 Barcha mezon va natijalar: [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
@@ -187,7 +188,8 @@ ilovalarning soket va fayllarini ko'rib chiqishga majbur qilardi. 1.0.2 va 1.1.0
 shunday; **1.0.3** da va `main` da tuzatilgan (main'da xizmat tinch paytda kamroq tekshiradi ham). O'sha Mac, Kuzatish rejimi, haqiqiy
 ilovalar, kechasi 2 soat: rc.1 0.25%, `main` bitta yadroning 0.13-0.14%, soak
 ma'lumotlaridan boshlanganda ham (rc.1 o'sha darajadan past 30 daqiqalik sinovda 0.95%
-ishlatgan). Bir haftalik chegara `main` da qayta o'lchanmagan
+ishlatgan); 2026-10-11 da 200 daqiqa davomida, laboratoriya sinovlari bilan birga,
+`main` o'rtacha 0.150% (daqiqalik p95 0.200%). Bir haftalik chegara `main` da qayta o'lchanmagan
 ([o'lchovlar](docs/VALIDATION.md#daemon-overhead-after-the-soak-w5-follow-up)).
 
 **1.0.0 ning 7 kunlik soak sinovi** (2026-10-01 dan 2026-10-10 gacha): W1 o'tgan vaqt, W2
@@ -206,8 +208,10 @@ sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-resul
 - Auto-Context hook bilan fish va tmux ([#8](https://github.com/urrra39/iClear/issues/8)).
 - Batareya taxminlari; saqlanmagan o'zgarishlar signali (laboratoriyada hech bir ilova
   uni bermadi); pauzadagi pleyerga yuborilgan media tugmalari; issiqlik himoyasi.
-- Faqat main'dagi imkoniyatlarning laboratoriya bosqichlari (4-6) va sig'im benchmarki:
-  hali o'tkazilmagan.
+- Faqat main'dagi imkoniyatlarning laboratoriya mezonlari: Panic Brake G1-G4, G7, G9;
+  Black Box H1-H3; xotira o'sishi L1-L4 (xotira xavfsizlik chegaralarida to'xtadi);
+  Thrash Guard, Wake-on-Data, canary probe sinovlari va sig'im benchmarki (o'tkazilmadi).
+  1.1.0-rc.2 sinov relizi.
 - Developer ID imzosi va notarizatsiya: qilinmagan ("O'rnatish" ga qarang).
 
 **Qachon yordam bermaydi:** xotira bosimi yashil (macOS o'zi uddalaydi, iClear hech narsa
@@ -304,7 +308,7 @@ da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Op
 tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
 iclear-<versiya>`, keyin uning ichida `./iclear install`.
 
-**Manba koddan** (Swift 6; `main` chiqarilmagan 1.1.0-rc.1 ishini quradi):
+**Manba koddan** (Swift 6; `main` 1.1 ishini quradi (1.1.0-rc.2)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear
@@ -340,9 +344,11 @@ tushirmaguningizcha joyida qoladi. `iclear migrate --dry-run` avval rejani ko'rs
 
 Ularning laboratoriya sinovlari ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) 4-bosqich,
 [RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) 5 va 6-bosqichlar) faqat qisman
-o'tkazilgan: Auto-Context Stash almashtirish, bekor qilish, yolg'on signal va hook yuki
-mezonlaridan o'tdi, lekin 100 sinovlik ishdan chiqish mezonidan (X9) hali o'tmagan;
-qolganlari zaryaddagi (AC) ishga tushirishni kutmoqda
+o'tkazilgan: Auto-Context Stash barcha laboratoriya mezonlaridan o'tdi (X1-X7, X9, X10;
+X8 haqiqiy foydalanishni talab qiladi); Panic Brake iz qayta ijrosi (G5) o'tdi; Panic
+Brake, Black Box va xotira o'sishi sinovlari bu Mac'da laboratoriyaning xotira xavfsizlik
+chegaralarida to'xtadi va natijasi yo'q; Thrash Guard, Wake-on-Data va sig'im benchmarki
+o'tkazilmadi
 ([natijalar](docs/VALIDATION.md#v11-lab-gates-on-the-candidate-main-618c0f9-2026-10-11)). Imkoniyat mezonlari o'tmaguncha, standart o'rnatish uni sozlamadan qat'i
 nazar faqat kuzatish rejimida yoki o'chiq holda ishlatadi.
 
