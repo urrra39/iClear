@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import ICSystem
 
@@ -36,6 +37,18 @@ enum EnergyLab {
         ]
     }
 
+    /// What was tested: the app's version and the SHA-256 of each binary of the stack.
+    static func build(_ app: String) -> String {
+        let v = Bundle(path: app)?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let bins = ["Contents/Helpers/icleard", "Contents/Helpers/icbrake", "Contents/MacOS/iClear"].map { rel -> String in
+            let h = (try? Data(contentsOf: URL(fileURLWithPath: "\(app)/\(rel)"))).map {
+                SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined().prefix(12)
+            }
+            return "\(rel.split(separator: "/").last!)=\(h.map(String.init) ?? "missing")"
+        }
+        return "version \(v) " + bins.joined(separator: " ")
+    }
+
     /// Raw battery energy in Wh (capacity mAh x voltage mV), the basis of drain (not the
     /// instantaneous reading, which lags 47-60 s).
     static func batteryWh() -> Double? {
@@ -57,18 +70,23 @@ enum EnergyLab {
             let env = ProcessInfo.processInfo.environment.merging(
                 ["ICLEAR_HOME": home.path, "ICLEAR_INSTANCE": "energy", "ICLEAR_OBSERVE_ONLY": "1"]
             ) { _, n in n }
-            for (exe, args) in [
-                ("\(app)/Contents/Helpers/icleard", [String]()), ("\(app)/Contents/Helpers/icbrake", []),
-                ("\(app)/Contents/MacOS/iClear", ["--background"]),
-            ] {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: exe)
-                p.arguments = args
-                p.environment = env
-                p.standardOutput = FileHandle.nullDevice
-                p.standardError = FileHandle.nullDevice
-                try p.run()
-                processes.append(p)
+            do {
+                for (exe, args) in [
+                    ("\(app)/Contents/Helpers/icleard", [String]()), ("\(app)/Contents/Helpers/icbrake", []),
+                    ("\(app)/Contents/MacOS/iClear", ["--background"]),
+                ] {
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: exe)
+                    p.arguments = args
+                    p.environment = env
+                    p.standardOutput = FileHandle.nullDevice
+                    p.standardError = FileHandle.nullDevice
+                    try p.run()
+                    processes.append(p)
+                }
+            } catch {
+                stop()  // what did start does not outlive a failed start
+                throw error
             }
         }
 
@@ -78,9 +96,13 @@ enum EnergyLab {
             return Array(own) + Proc.table().values.filter { own.contains($0.ppid) }.map(\.pid)
         }
 
+        /// Stops every process of the stack (children too) within 10 s: SIGTERM, then SIGKILL.
         func stop() {
+            let all = pids
             for p in processes where p.isRunning { p.terminate() }
-            for p in processes { p.waitUntilExit() }
+            let deadline = Date().addingTimeInterval(10)
+            while Date() < deadline, all.contains(where: { kill($0, 0) == 0 }) { usleep(100_000) }
+            for pid in all where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
             try? FileManager.default.removeItem(at: home)
         }
     }
@@ -96,12 +118,14 @@ enum EnergyLab {
         let stack = try Stack(app: app)
         defer { stack.stop() }
         sleep(60)
-        var lines = ["start \(Date()) \(conditions())"]
+        var lines = ["start \(Date()) \(build(app)) \(conditions())"]
         print(lines[0])
         var pids = stack.pids
         var last = Dictionary(uniqueKeysWithValues: pids.compactMap { p in usage(p).map { (p, $0) } })
         var t = Date()
         var perMinute: [(cpu: Double, wake: Double, watts: Double)] = []
+        // Minutes that do not count: not on battery, a process without counters, a restart.
+        var excluded: [String] = []
         for _ in 0..<minutes {
             sleep(60)
             let now = Date()
@@ -111,8 +135,15 @@ enum EnergyLab {
             var wake = 0.0
             var nj = 0.0
             var perProcess: [String] = []
+            var why: [String] = []
+            if !SystemSampler.powerState().onBattery { why.append("not on battery") }
+            if pids.count < 5 { why.append("\(pids.count) of 5 processes") }
             for p in pids {
-                guard let u = usage(p) else { continue }
+                guard let u = usage(p) else {
+                    why.append("no counters for \(p)")
+                    continue
+                }
+                if last[p] == nil { why.append("new process \(p)") }
                 let l = last[p] ?? u
                 cpu += u.cpu - l.cpu
                 wake += Double(u.wakeups &- l.wakeups)
@@ -124,7 +155,11 @@ enum EnergyLab {
                 last[p] = u
             }
             t = now
-            perMinute.append((100 * cpu / dt, wake / dt, nj / 1e9 / dt))
+            if why.isEmpty {
+                perMinute.append((100 * cpu / dt, wake / dt, nj / 1e9 / dt))
+            } else {
+                excluded.append("\(Int(now.timeIntervalSince1970)): \(why.joined(separator: ", "))")
+            }
             let line = String(
                 format: "%@ cpu %.3f%% wakeups %.2f/s energy %.4f W | %@ | %@", "\(Int(now.timeIntervalSince1970))", 100 * cpu / dt,
                 wake / dt,
@@ -136,10 +171,13 @@ enum EnergyLab {
         func pct(_ x: [Double], _ p: Double) -> Double { x.isEmpty ? 0 : x.sorted()[min(x.count - 1, Int(p * Double(x.count - 1)))] }
         let cpu = perMinute.map(\.cpu)
         let wake = perMinute.map(\.wake)
-        let summary = String(
-            format: "E1 %d min: mean CPU %.3f%% (median %.3f, p95 %.3f), wakeups %.2f/s (p95 %.2f), energy %.4f W", perMinute.count,
-            mean(cpu),
-            pct(cpu, 0.5), pct(cpu, 0.95), mean(wake), pct(wake, 0.95), mean(perMinute.map(\.watts)))
+        let summary =
+            String(
+                format: "E1 %d min: mean CPU %.3f%% (median %.3f, p95 %.3f), wakeups %.2f/s (p95 %.2f), energy %.4f W", perMinute.count,
+                mean(cpu),
+                pct(cpu, 0.5), pct(cpu, 0.95), mean(wake), pct(wake, 0.95), mean(perMinute.map(\.watts)))
+            + "; \(excluded.count) minute(s) excluded" + (excluded.isEmpty ? "" : ": " + excluded.joined(separator: "; "))
+            + (perMinute.count < 60 ? "; fewer than 60 valid minutes: INCONCLUSIVE for E1" : "")
         print(summary)
         lines.append(summary)
         try lines.joined(separator: "\n").write(to: out, atomically: true, encoding: .utf8)
@@ -157,7 +195,7 @@ enum EnergyLab {
         let load = try SpawnedHog(path: workload, args: ["--waker"])
         defer { load.kill() }
         var diffs: [Double] = []
-        log("start \(Date()) pairs \(pairs) block \(blockMinutes) min \(conditions())")
+        log("start \(Date()) \(build(app)) pairs \(pairs) block \(blockMinutes) min \(conditions())")
         for i in 0..<pairs {
             var watts: [Bool: Double] = [:]
             for running in [true, false].shuffled() {
@@ -166,20 +204,34 @@ enum EnergyLab {
                     return
                 }
                 let stack = running ? try Stack(app: app) : nil
+                defer { stack?.stop() }
                 sleep(60)  // settle; not counted
                 guard let e0 = batteryWh() else { throw POSIXError(.ENODEV) }
                 let t0 = Date()
-                sleep(UInt32(blockMinutes * 60))
+                // Checked every minute: a block that leaves battery power or crosses the floor is not evidence.
+                var invalid: String?
+                for _ in 0..<blockMinutes {
+                    sleep(60)
+                    let p = SystemSampler.powerState()
+                    if !p.onBattery { invalid = "power source changed to AC" }
+                    if (p.percent ?? 0) <= 25 { invalid = "battery reached 25%" }
+                    if invalid != nil { break }
+                }
                 guard let e1 = batteryWh() else { throw POSIXError(.ENODEV) }
+                if running, stack?.pids.count ?? 0 < 5 { invalid = invalid ?? "the stack lost a process" }
+                if let invalid {
+                    log("pair \(i + 1) \(running ? "running" : "stopped"): INVALID (\(invalid)); pair dropped, run stopped \(conditions())")
+                    break
+                }
                 let w = (e0 - e1) / (Date().timeIntervalSince(t0) / 3600)
-                stack?.stop()
                 watts[running] = w
                 log(
                     String(
                         format: "pair %d %@: drain %.3f W (%.3f -> %.3f Wh) %@", i + 1, running ? "running" : "stopped", w, e0, e1,
                         "\(conditions())"))
             }
-            if let r = watts[true], let s = watts[false] { diffs.append(r - s) }
+            guard let r = watts[true], let s = watts[false] else { break }
+            diffs.append(r - s)
         }
         let n = Double(diffs.count)
         let mean = diffs.reduce(0, +) / max(1, n)
@@ -190,6 +242,6 @@ enum EnergyLab {
         log(
             String(
                 format: "E2 %d pairs: running minus stopped %.3f W, 95%% interval %.3f to %.3f W", diffs.count, mean, mean - half,
-                mean + half))
+                mean + half) + (diffs.count < pairs ? "; fewer pairs than planned (\(pairs)): INCONCLUSIVE for E2" : ""))
     }
 }
