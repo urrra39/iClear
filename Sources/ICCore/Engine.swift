@@ -893,7 +893,7 @@ public final class Engine {
     public func probeBlockers(_ app: AppSnapshot, at now: Double) -> [Reason] {
         var ctx = context(now, config, profile: lastProfile, wake: [app.id])
         ctx.config.allow.append(app.id)
-        return Policy.skipReasons(app, ctx).filter { ![Code.cpuActive, Code.notIdle, Code.quarantined].contains($0.code) }
+        return Policy.skipReasons(app, ctx).filter { ![Code.cpuActive, Code.notIdle, Code.mru, Code.quarantined].contains($0.code) }
     }
 
     /// Stores a probe result; a failure quarantines the app.

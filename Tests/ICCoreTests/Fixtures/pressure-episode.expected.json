@@ -1,7 +1,7 @@
 {
   "activations" : 9,
   "closedFreezes" : 3,
-  "deprioritizations" : 8,
+  "deprioritizations" : 7,
   "forecastFalseAlarms" : 0,
   "forecastHits" : 1,
   "forecastLeadP50Minutes" : 17,
@@ -14,7 +14,7 @@
     "com.google.Chrome" : 1,
     "com.microsoft.VSCode" : 1
   },
-  "predictedReliefMB" : 3261.6,
+  "predictedReliefMB" : 3263.3999999999996,
   "regretted" : 0,
   "skippedRecords" : 0,
   "thaws" : 3,

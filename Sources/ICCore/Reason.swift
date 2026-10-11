@@ -42,6 +42,8 @@ public enum Code {
     public static let frontmost = "SKIP_FRONTMOST"
     public static let visibleWindow = "SKIP_VISIBLE_WINDOW"
     public static let notIdle = "SKIP_NOT_IDLE"
+    /// One of the most recently used apps (v1.2 S4): resuming it soon is likely and costly.
+    public static let mru = "SKIP_RECENTLY_USED"
     public static let cpuActive = "SKIP_CPU_ACTIVE"
     public static let powerAssertion = "SKIP_POWER_ASSERTION"
     public static let audio = "SKIP_AUDIO_ACTIVE"

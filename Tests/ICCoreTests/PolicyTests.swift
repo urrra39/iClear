@@ -233,3 +233,35 @@ import Testing
         #expect(r.contains("Time skew"))
     }
 }
+
+/// v1.2 S4: the most recently used apps are not paused.
+@Suite struct MRUTests {
+    func app(_ id: String) -> AppSnapshot {
+        AppSnapshot(id: id, name: id, processes: [ProcessIdentity(pid: 1, startTime: 1)], residentMB: 500, isRegularApp: true)
+    }
+
+    @Test func recentlyUsedAppsAreProtected() {
+        var c = Config()
+        c.idleMinutes = 5
+        let now = 10_000.0
+        // Used 10, 12, 14, 16 and 18 minutes ago.
+        let used = ["a": now - 600, "b": now - 720, "c": now - 840, "d": now - 960, "e": now - 1080]
+        let ctx = PolicyContext(now: now, config: c, lastActiveAt: used)
+        func mru(_ id: String) -> Bool { Policy.skipReasons(app(id), ctx, requireInspection: false).contains { $0.code == Code.mru } }
+        #expect(mru("a") && mru("b") && mru("c"))
+        #expect(!mru("d") && !mru("e"))
+        // Older than mruMinutes: no longer protected, even if it was the last one used.
+        let old = PolicyContext(now: now + 3600, config: c, lastActiveAt: used)
+        #expect(!Policy.skipReasons(app("a"), old, requireInspection: false).contains { $0.code == Code.mru })
+        c.mruApps = 0
+        #expect(
+            !Policy.skipReasons(app("a"), PolicyContext(now: now, config: c, lastActiveAt: used), requireInspection: false).contains {
+                $0.code == Code.mru
+            })
+    }
+
+    @Test func perClassLimitsLoadFromJSON() throws {
+        let (c, _) = try Config.load(json: Data(#"{"maxPauseMinutes": {"other": 30}, "mruApps": 2}"#.utf8))
+        #expect(c.maxPauseMinutes["other"] == 30 && c.mruApps == 2)
+    }
+}

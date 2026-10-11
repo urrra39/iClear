@@ -59,6 +59,10 @@ public struct Config: Codable, Equatable, Sendable {
     /// Per-class maximum pause, minutes, by class name (browser, comm, media, session, other);
     /// missing classes use `AppClass.defaultMaxPauseMinutes`. 0 means never paused automatically.
     public var maxPauseMinutes: [String: Double] = [:]
+    /// MRU protection: the last `mruApps` apps used within `mruMinutes` are never paused
+    /// automatically (0 apps turns it off).
+    public var mruApps = 3
+    public var mruMinutes = 30.0
     public var cooldownMinutes = 10.0
     public var thawAfterNormalMinutes = 30.0
     public var maxFrozenApps = 8
@@ -240,7 +244,7 @@ public enum ConfigError: Error, CustomStringConvertible {
 
 extension Config {
     /// Keys whose values are free-form maps (arbitrary keys allowed).
-    static let mapKeys: Set<String> = ["tiers", "wakeWindows", "workspaces"]
+    static let mapKeys: Set<String> = ["tiers", "wakeWindows", "workspaces", "maxPauseMinutes"]
 
     /// Parses JSON written by a user. Missing keys take defaults; unknown keys are errors
     /// (they are almost always typos). Returns warnings for accepted-but-odd values.
@@ -313,6 +317,7 @@ extension Config {
         check(
             maxPauseMinutes.allSatisfy { AppClass(rawValue: $0.key) != nil && (0...1440).contains($0.value) }, "maxPauseMinutes",
             "keys must be browser, comm, media, session or other; values 0...1440")
+        check((0...20).contains(mruApps) && (0...240).contains(mruMinutes), "mruApps/mruMinutes", "must be 0...20 apps and 0...240 minutes")
         check(cooldownMinutes >= 0, "cooldownMinutes", "must be >= 0")
         check(thawAfterNormalMinutes > 0, "thawAfterNormalMinutes", "must be > 0")
         check((1...50).contains(maxFrozenApps), "maxFrozenApps", "must be 1...50")

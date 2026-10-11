@@ -95,6 +95,12 @@ public enum Policy {
         if !wake, idle < threshold {
             r.append(Reason(Code.notIdle, String(format: "idle %.0f of %.0f min", idle, threshold)))
         }
+        // MRU protection: one of the last `mruApps` apps used, within `mruMinutes`.
+        if !wake, idle >= threshold, c.mruApps > 0, idle < c.mruMinutes, let mine = ctx.lastActiveAt[app.id],
+            ctx.lastActiveAt.values.filter({ $0 > mine }).count < c.mruApps
+        {
+            r.append(Reason(Code.mru, String(format: "used %.0f min ago, one of the last %d apps used", idle, c.mruApps)))
+        }
         if app.cpuPercent > c.idleCPUPercent {
             r.append(Reason(Code.cpuActive, String(format: "%.1f%% CPU", app.cpuPercent)))
         }
