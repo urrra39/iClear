@@ -190,7 +190,10 @@ been regretted. [Full result](docs/VALIDATION.md#7-day-soak-on-100-final-result-
 
 **Not validated** (help is welcome):
 - Intel Macs: only the CI test suite ran there ([#3](https://github.com/urrra39/iClear/issues/3)).
-- macOS 13 and 14 ([#4](https://github.com/urrra39/iClear/issues/4)).
+- macOS 13 and 14 ([#4](https://github.com/urrra39/iClear/issues/4)). A CI trial on macOS 14.8
+  (Xcode 16, Swift 6.0.3, no Accessibility, 2026-10-11) built the code, but 2 of 329
+  tests failed in two attempts (a context switch, and a stash that left out one of three
+  apps), so macOS 14 is not supported by evidence and is not in the CI matrix.
 - Macs with 8 GB or less ([#5](https://github.com/urrra39/iClear/issues/5)).
 - Safari ([#6](https://github.com/urrra39/iClear/issues/6)), Docker and Xcode ([#7](https://github.com/urrra39/iClear/issues/7)) and virtual machines as pause targets.
 - Real Slack, Spotify or any personal account ([#9](https://github.com/urrra39/iClear/issues/9)); [MANUAL_TESTS_APPS.md](docs/MANUAL_TESTS_APPS.md).

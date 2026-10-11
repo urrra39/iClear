@@ -28,6 +28,11 @@ with 8 GB or less, spinning or Fusion disks, macOS 13 and 14, and Rosetta.
 - **CI for this branch:** BLOCKED. GitHub reported "account locked due to a billing
   issue" for all three runners of run 37429432665, and no step ran.
 - **Untested:** macOS 13-15, Intel Macs and other toolchains, for this branch.
+- **macOS 14, CI trial (2026-10-11):** macOS 14.8 runner, Xcode 16 (Swift 6.0.3; the
+  image's default Swift 5.10 cannot build the code), no Accessibility: build passed;
+  `switchSharedAppAndUndo` failed in both attempts and `stashAndPopRestoresWindowsAndFrontmost`
+  in the second (one of three apps left out of the stash); 327-328 of 329 tests passed.
+  Not added to the CI matrix; macOS 14 stays untested for support.
 
 ## Add your Mac
 
