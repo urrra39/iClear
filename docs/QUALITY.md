@@ -56,8 +56,36 @@ decision, DECISIONS.md #36). Results: [VALIDATION.md](VALIDATION.md).
 - Notarized distribution (releases are ad-hoc signed).
 
 
+## Stash/pop on macOS 26 without Accessibility (repeated runs, 2026-10-11)
+
+`stashAndPopRestoresWindowsAndFrontmost` (3 lab windows, stash, pop, compare window
+frames) was run repeatedly:
+
+| Where | Accessibility | Runs | Passed |
+|---|---|---|---|
+| This Mac (macOS 27.0.1), 1.0.3 test build | granted | 50 | 50 |
+| This Mac, `main` test build | granted | 50 | 50 |
+| CI macos-15 and macos-15-intel, 1.0.3 line (270c02e) | none | 10 + 10 | 20 |
+| CI macos-26, 1.0.3 line (270c02e) | none | 10 | **8** |
+| CI, all three runners, `main` (164d244), incl. macos-26 9 of 9 | none | 27 | 27 |
+| CI history since 2026-10-02 (27 runs, all branches) | none | 81 | 81 |
+
+Both macos-26 failures had the same shape: every original window came back at the same
+frame (0.0 pt), plus **one extra 500x500 window** owned by the fixture, which never
+creates such a window itself. Cause not proven. Without Accessibility, pop brings apps
+forward through LaunchServices, which can send a reopen event; on this Mac Accessibility
+is granted, so local runs take the other path and cannot reproduce it. `main`'s pop
+confirms each unhide before activating (not in 1.0.x releases). What this supports:
+pop restored every original window in every run; on macOS 26 without Accessibility it
+added an extra window in 2 of 10 CI attempts on the 1.0.x code. No wider stash/pop
+reliability claim is made for macOS 26. The test now also reports the Accessibility state
+and the macOS version when it fails. Fix plan: DECISIONS.md #50.
+
 ## Known gaps
 
+- `iclear thaw --all` on a Mac without a default instance (nothing installed) says the
+  journal was locked and asks to run it again; nothing is paused in that case. Seen
+  during the lab cleanup on 2026-10-11.
 - The menu's profile picker shows the active profile, not "Automatic", when no manual
   profile is set.
 - The forecast summary in the menu comes from the daemon in English, even in the

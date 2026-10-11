@@ -261,6 +261,14 @@ bitta ilova uchun ko'rsatadi.
   yig'indisi (checksum) bilan tugadi, pauza qilishga bo'lgan har bir urinish esa rad etildi.
 - Pauza paytiga to'g'ri kelgan **bildirishnomalar** kechikib chiqadi yoki umuman chiqmaydi
   (o'lchanmagan).
+- **macOS 26 da Accessibility ruxsatisiz stash/pop** ilovada ortiqcha oyna qoldirishi
+  mumkin. CI da (Accessibility yo'q) stash testi pop'dan keyin bitta ortiqcha 500x500
+  oynani 1.0.x kodida (1.0.3 ham) macOS 26 dagi 10 urinishdan 2 tasida topdi; har bir
+  asl oyna joyiga qaytdi. Sababi isbotlanmagan. `main` dagi pop avval har bir
+  ko'rsatishni tekshiradi va macOS 26 da 9 urinishdan 9 tasidan o'tdi; 1.0.3 gacha bo'lgan
+  relizlarda bu o'zgarish yo'q. macOS 26 da stash/pop ishlatishdan oldin Accessibility
+  ruxsatini bering. Tuzatish va Accessibility'siz test keyingi relizda rejalashtirilgan
+  ([QUALITY.md](docs/QUALITY.md#stashpop-on-macos-26-without-accessibility-repeated-runs-2026-10-11)).
 
 </details>
 

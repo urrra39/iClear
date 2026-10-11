@@ -238,6 +238,13 @@ Measured with simulators and Chrome on local pages ([VALIDATION.md](docs/VALIDAT
   up to the app (most chat apps reconnect, see above). Downloads are guarded: a 200 MB
   download finished with the correct checksum while every pause attempt was refused.
 - **Notifications** due during a pause appear late or not at all (not measured).
+- **Stash/pop on macOS 26 without Accessibility** can leave an extra window in an app. On
+  CI (no Accessibility) the stash test found one extra 500x500 window after pop in 2 of
+  10 macOS 26 attempts on the 1.0.x code (1.0.3 included); every original window came
+  back in place. Cause not proven. `main`'s pop confirms each unhide first and passed
+  9 of 9 macOS 26 attempts; releases up to 1.0.3 do not have that change. On macOS 26,
+  grant Accessibility before using stash/pop. A fix and a test without Accessibility are
+  planned for the next release ([QUALITY.md](docs/QUALITY.md#stashpop-on-macos-26-without-accessibility-repeated-runs-2026-10-11)).
 
 </details>
 

@@ -438,12 +438,17 @@ helpers, the Electron check once per app, the screen-sharing scan reused for 15 
 | rc.1, from the soak's data | 10-11 02:47, busy | 30 min | 0.108 | 46 MB |
 | fixed build, fresh | 10-11 02:47, busy | 30 min | 0.055 | 42 MB |
 | fixed build, from the soak's data | 10-11 02:47, busy | 30 min | 0.060 | 45 MB |
+| published 1.0.2, from the soak's data | 10-11 07:09, lab X9 and tests running | 30 min | **0.803** | 45 MB |
+| published 1.0.3, from the soak's data | 10-11 07:09, same window | 30 min | **0.374** | 44 MB |
 
 "Quiet": night, the owner away, real apps open but idle. In the 00:45 window about 82%
 of memory was free, above the learned warning level, so rc.1 had no imminent ETA there
 and ticked normally; the 22:55 run shows what it did below it. These are short windows
 on one Mac, not a week: the 7-day bound (W5, daily means ≤ 0.5%) has not been re-run on
 the fixed build, and daytime use with app switching was not measured on it.
+
+1.0.3 carries only the armed-forecast fix, not the slower calm tick or the other
+savings of `main`.
 
 "Busy": 26 clean release builds of this project in a loop during the 30 minutes (about
 384 own processes on average). Every daemon used less CPU than in the quiet window, so
@@ -484,9 +489,13 @@ the last minutes of the context phase; later phases wait for AC.
 | X4 / X10 false triggers | 0 switches over 250 events (50 each: move inside the context, `cd /tmp`, `cd ~`, left and re-entered within the dwell time, inside the cooldown) | yes |
 | X5 undo | 50/50 | yes |
 | X6 kill -9 mid-switch | 50/50 running and shown within 2 s; p99 27 ms | yes |
-| X9 kill -9 mid-switch, 100 trials | not run yet (waits for AC) | — |
+| X9 kill -9 mid-switch, 100 trials | 100/100 running and shown within 2 s (98 killed while an app was paused or hidden); p50 19.0, p95 24.7, p99 25.5, max 25.8 ms. 2026-10-11 07:21, on AC, thermal nominal, same build (Sources unchanged since 618c0f9) | yes |
 | X7 defaults | tests (`ContextTests`) | yes |
 | X8 real use | not run: the owner is away | — |
+
+**Full selftest (C13) on AC, 2026-10-11 07:38-07:41 (same build): 19 of 19 PASS, no
+SKIP**, about 3 minutes, in an isolated home; the canary-probe check that refused to run
+on battery passed. C13 is met on the candidate.
 
 **Full selftest (C13) on the candidate, on battery (71%).** 18 of 19 checks passed; the
 canary-probe check failed with "A probe runs only on AC power", so C13 is **not met** on
@@ -504,3 +513,26 @@ silently. Ship rules therefore stay as in rc.1: Panic Brake observe-only; Black 
 Thrash Guard, Wake-on-Data and leak notifications off. Auto-Context Stash passed X1-X6 and
 X10 but not X9, so it stays in suggest mode and is described as partly validated. How to
 resume: plug the Mac in and run `.work/v11lab/run.sh` (it waits for the §1.4 conditions).
+
+**Panic Brake (G1-G3, G7), 2026-10-11 07:40, on AC: aborted by the lab's safety rule.**
+Within 56 s of the constrained-memory ballast starting, swap grew by 4.5 GB (limit 4 GB);
+the runner stopped the phase, the lab cleaned up (0 processes left stopped, swap back to
+1.4 GB, pressure normal). G1-G3 and G7 have **no result**, so the brake stays
+**observe-only**. With the owner's apps using this much memory, the ballast cannot reach
+the emulated constrained state on this Mac without crossing the swap limit; the limit is
+not raised.
+
+**G4, legitimate heavy work (brake in observe mode), 2026-10-11 07:42-08:01: aborted at
+critical pressure** during the 8th of 10 rounds (the runner stops a phase at critical
+pressure). Completed: 21 runs, 7 each of a release build of this repository (73-74 s),
+an 8 GB file copy (8 s) and a 4 GB zip export (63 s): **0 would-be brakes**. G4 needs
+≥ 30 runs (10 of each), so it has no verdict. Cleanup checked: 0 processes stopped,
+pressure back to normal.
+
+**G5, replay of the soak's Observe trace:** 213.0 h (12,792 ticks), signals pressure level
+and swap-ins only (no decompression, run-queue, timer-jitter or probe data): 6 would-be
+brakes, **0.68 per 24 h** (limit ≤ 1): 2026-10-07 14:40, 10-08 13:17, 10-08 13:19,
+10-08 14:59, 10-10 17:44, 10-10 22:12. **Met.**
+
+Panic Brake ship mode: G1-G3, G7 and G4 have no result, so `iclear brake on` is not
+offered; the brake ships **observe-only** (G8's tests pass).
