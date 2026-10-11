@@ -2,7 +2,7 @@
 
 ## Unreleased (after 1.1.0-rc.1)
 
-- **Daemon CPU (soak W5).** A forecast ETA that is only shown, never acted on (the
+- **Daemon CPU (soak W5); also released as 1.0.3.** A forecast ETA that is only shown, never acted on (the
   forecast is off by default, and switches itself off over its false-alarm budget), no
   longer forces 5 s ticks and per-app guard inspections. On the 1.0 soak's Observe data
   it did so on every tick; see `docs/VALIDATION.md`, "Daemon overhead after the soak".
@@ -119,6 +119,16 @@ Everything below was developed for v1.1 before the candidate:
   app. One tick on this Mac: 80 ms of CPU before, 39 ms after (`ic-lab cost`).
 - Release criteria: stage 4 (X1-X8, L1-L6) added before any v1.1 measurement
   (amendment 2).
+## 1.0.3 (2026-10-11)
+
+- **Fix: daemon CPU (7-day soak, W5).** The forecast's ETA to memory warning is shown
+  even when the forecast is off (the default) or has switched itself off for false
+  alarms; such an ETA is never acted on, but it still made the daemon tick every 5 s
+  instead of every 30 s and inspect the sockets and files of up to 12 apps on each tick.
+  On a Mac whose free memory sat below the warning level the forecast had learned, this
+  lasted for hours. Only an armed forecast now changes the tick or the guard
+  inspections. One test covers it.
+
 ## 1.0.2 (2026-10-03)
 
 - **Fix: a corrupt freeze journal could lose the records of paused apps.** If the journal
