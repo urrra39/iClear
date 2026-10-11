@@ -197,6 +197,14 @@ public struct EngineState: Codable, Equatable, Sendable {
 /// outputs leave as actions. The daemon executes actions; `iclear simulate` replays
 /// recorded inputs through the same code.
 public final class Engine {
+    /// The longest an app may stay paused: the global bound, and its class's bound.
+    public static func maxPauseSeconds(_ id: String, _ cfg: Config) -> Double {
+        let cls = AppClass.of(id)
+        let byClass = cfg.maxPauseMinutes[cls.rawValue] ?? AppClass.defaultMaxPauseMinutes[cls] ?? cfg.maxFrozenMinutes
+        // A class bound of 0 (never paused automatically) does not cut a freeze you asked for.
+        return min(cfg.maxFrozenMinutes, byClass > 0 ? byClass : cfg.maxFrozenMinutes) * 60
+    }
+
     public var config: Config
     public var hardware: Hardware
     public private(set) var state: EngineState
@@ -383,7 +391,7 @@ public final class Engine {
             state.frozen[id]?.realizedReliefMB = max(0, f.residentAtFreezeMB - app.residentMB)
             if app.isFrontmost || app.hasVisibleWindow {
                 out += thaw(id, reason: Code.thawActivated, at: now)
-            } else if now - f.frozenAt >= cfg.maxFrozenMinutes * 60 {
+            } else if now - f.frozenAt >= Self.maxPauseSeconds(id, cfg) {
                 out += thaw(id, reason: Code.thawMaxDuration, at: now)
             } else if let ns = state.normalSince, now - ns >= cfg.thawAfterNormalMinutes * 60,
                 now - f.frozenAt >= cfg.minFrozenMinutes * 60, f.isPressureFreeze

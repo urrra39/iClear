@@ -104,3 +104,4 @@
 "settings.keepInDock" = "Dock'da qoldirish";
 "settings.launchAtLogin" = "Tizimga kirganda ochish (faqat menyu panelida)";
 "settings.loginFailed" = "Kirish elementini o'zgartirib bo'lmadi: %@";
+"frozen.for" = "%d daq";

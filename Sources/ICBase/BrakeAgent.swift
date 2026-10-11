@@ -184,6 +184,10 @@ public final class BrakeAgent {
     /// Read on the main queue every 10 s (reading the power source allocates).
     var onAC = true
     var lastPowerCheck = 0.0
+    /// Battery at or below 20%, or Low Power Mode: slower sampling while healthy.
+    var lean = false
+    /// The sampling thread is at its 250 ms cadence (something is moving).
+    var samplingFast = true
 
     public internal(set) var ladder: BrakeLadder
     /// Apps the brake keeps paused (the stall cleared with them paused).
@@ -216,6 +220,7 @@ public final class BrakeAgent {
     }
     var server: IPCServer?
     var timer: DispatchSourceTimer?
+    var timerInterval = 1.0
     var unclean = false
 
     public init(paths: Paths = Paths(), source: BrakeTreeSource = LibprocTrees()) {
@@ -283,23 +288,50 @@ public final class BrakeAgent {
 
     // MARK: sampling thread
 
+    static let fastPeriod: UInt64 = 250_000_000
+
+    /// Every 250 ms while anything is moving; every 2 s (5 s in lean mode) while the Mac is
+    /// healthy: normal pressure, no swap-ins, few decompressions, nothing held, no stall.
+    func samplePeriod(previous p: StallSignals?, current s: StallSignals) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let p, !labMode, !simulateStall, pauses.isEmpty, quitting.isEmpty, detector.state == .healthy, s.pressure == 1,
+            s.swapIns == p.swapIns, s.decompressions &- p.decompressions < 2_000
+        else { return Self.fastPeriod }
+        return lean ? 5_000_000_000 : 2_000_000_000
+    }
+
     func samplingLoop(_ reader: BrakeSignalReader) {
         Self.setTimeConstraint(periodMs: 250)
-        let period: UInt64 = 250_000_000
+        var period = Self.fastPeriod
         var next = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + period
-        var tick = 0
+        var tick: UInt64 = 0
+        var previous: StallSignals?
         while true {
             let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             if next > now {
-                var ts = timespec(tv_sec: 0, tv_nsec: Int(next - now))
+                var ts = timespec(tv_sec: Int((next - now) / 1_000_000_000), tv_nsec: Int((next - now) % 1_000_000_000))
                 nanosleep(&ts, nil)
             }
             let woke = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             let late = Double(woke &- next) / 1e6
-            next = max(next + period, woke)
             let s = reader.read(t: Date().timeIntervalSince1970, jitterMs: late)
-            ingest(s, swapMB: reader.swapMB, compressedMB: reader.compressedMB, recordBlackBox: tick % 8 == 0, lateMs: late)
+            // The Black Box keeps one sample per 2 s at any cadence.
+            ingest(
+                s, swapMB: reader.swapMB, compressedMB: reader.compressedMB, recordBlackBox: period != Self.fastPeriod || tick % 8 == 0,
+                lateMs: late)
             tick &+= 1
+            let was = period
+            period = samplePeriod(previous: previous, current: s)
+            previous = s
+            if period != was {
+                lock.lock()
+                samplingFast = period == Self.fastPeriod
+                lock.unlock()
+                // Speed the main queue up at once when something starts moving.
+                if period == Self.fastPeriod { DispatchQueue.main.async { [weak self] in self?.pace() } }
+            }
+            next = max(next + period, woke)
         }
     }
 
@@ -343,7 +375,19 @@ public final class BrakeAgent {
 
     // MARK: main-queue work
 
+    /// Once a second while anything is held or the Mac is not healthy; every 5 s otherwise.
+    func pace() {
+        lock.lock()
+        let calm = detector.state == .healthy && (lastSignals?.pressure ?? 1) == 1 && !samplingFast
+        lock.unlock()
+        let want = calm && pauses.isEmpty && quitting.isEmpty && !labMode ? 5.0 : 1.0
+        guard want != timerInterval, let t = timer else { return }
+        timerInterval = want
+        t.schedule(deadline: .now() + want, repeating: want, leeway: .milliseconds(Int(want * 250)))
+    }
+
     public func work(now: Double) {
+        defer { pace() }
         lock.lock()
         let state = detector.state
         let recovering = state == .stalled && !detector.conditionNow
@@ -353,9 +397,11 @@ public final class BrakeAgent {
         if now - lastConfigCheck >= 5 { reloadConfig(now: now) }
         if now - lastPowerCheck >= 10 {
             lastPowerCheck = now
-            let battery = SystemSampler.powerState().onBattery
+            let power = SystemSampler.powerState()
+            let low = ProcessInfo.processInfo.isLowPowerModeEnabled || (power.onBattery && (power.percent ?? 100) <= 20)
             lock.lock()
-            onAC = !battery
+            onAC = !power.onBattery
+            lean = low
             lock.unlock()
         }
         if state != .healthy, now - lastTreeSample >= (state == .stalled ? 1 : 5) { sampleTrees(now: now) }

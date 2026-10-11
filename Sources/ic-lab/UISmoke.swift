@@ -36,10 +36,18 @@ enum UISmoke {
         let t0 = Date()
         while Date().timeIntervalSince(t0) < seconds {
             if cond() { return Date().timeIntervalSince(t0) }
-            usleep(50_000)
+            // NSWorkspace and NSRunningApplication only update on the run loop.
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
         return nil
     }
+
+    /// The policy as macOS reports it now (a fresh lookup, not a cached instance).
+    static func policy(_ pid: Int32) -> NSApplication.ActivationPolicy? {
+        NSRunningApplication(processIdentifier: pid)?.activationPolicy
+    }
+
+    static func alive(_ pid: Int32) -> Bool { pid > 0 && kill(pid, 0) == 0 }
 
     static func open(_ path: String, args: [String] = []) {
         let p = Process()
@@ -50,8 +58,9 @@ enum UISmoke {
     }
 
     static func quitAll(_ path: String) -> Bool {
+        let pids = instances(path).map(\.processIdentifier)
         for a in instances(path) { a.terminate() }
-        return wait(5) { instances(path).isEmpty } != nil
+        return wait(5) { pids.allSatisfy { !alive($0) } } != nil
     }
 
     /// Presses the close button of the app's windows (Accessibility).
@@ -81,14 +90,22 @@ enum UISmoke {
             notes.append("U6: AppIcon.icns or CFBundleIconFile missing")
             return false
         }
-        func run(_ exe: String, _ args: [String]) -> Int32 {
+        /// Runs a tool, killed after `timeout` seconds (`qlmanage -t` can hang on app bundles).
+        func run(_ exe: String, _ args: [String], timeout: Double = 20) -> Int32 {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: exe)
             p.arguments = args
             p.standardOutput = FileHandle.nullDevice
             p.standardError = FileHandle.nullDevice
+            p.standardInput = FileHandle.nullDevice
             try? p.run()
-            p.waitUntilExit()
+            let end = Date().addingTimeInterval(timeout)
+            while p.isRunning && Date() < end { usleep(100_000) }
+            if p.isRunning {
+                p.terminate()
+                p.waitUntilExit()
+                return -1
+            }
             return p.terminationStatus
         }
         guard run("/usr/bin/plutil", ["-lint", plist]) == 0 else {
@@ -106,12 +123,21 @@ enum UISmoke {
         _ = run("/usr/bin/qlmanage", ["-t", "-s", "128", "-o", tmp.path, tmp.appendingPathComponent("Generic.app").path])
         let a = try? Data(contentsOf: tmp.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent + ".png"))
         let b = try? Data(contentsOf: tmp.appendingPathComponent("Generic.app.png"))
-        guard let a, let b else {
-            notes.append("U6: no Quick Look thumbnail")
-            return false
+        if let a, let b {
+            if a == b { notes.append("U6: thumbnail equals the generic app icon") }
+            return a != b
         }
-        if a == b { notes.append("U6: thumbnail equals the generic app icon") }
-        return a != b
+        // Quick Look gave no thumbnail (on macOS 27 `qlmanage -t` hangs for every app
+        // bundle): compare the icon Finder and the Dock draw instead.
+        notes.append("U6: Quick Look thumbnail unavailable; compared the Finder icon (NSWorkspace) instead")
+        func png(_ path: String) -> Data? {
+            let image = NSWorkspace.shared.icon(forFile: path)
+            image.size = NSSize(width: 128, height: 128)
+            return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
+        }
+        guard let mine = png(path), let generic = png(tmp.appendingPathComponent("Generic.app").path) else { return false }
+        if mine == generic { notes.append("U6: Finder icon equals the generic app icon") }
+        return mine != generic
     }
 
     static func run(path: String, runs: Int, out: URL) -> Result {
@@ -137,17 +163,19 @@ enum UISmoke {
             } else {
                 r.notes.append("run \(i): no window within 5 s")
             }
-            if let a = instances(path).first, a.activationPolicy == .regular { r.u2 += 1 }
-            closeWindows(pid)
-            let t3 = wait(2) {
-                guard let a = instances(path).first else { return false }
-                return a.activationPolicy == .accessory && window(pid) == nil
+            if wait(1, { policy(pid) == .regular }) != nil {
+                r.u2 += 1
+            } else {
+                r.notes.append("run \(i): policy \(policy(pid).map { "\($0.rawValue)" } ?? "none") while visible")
             }
-            if let t3, !instances(path).isEmpty {
+            closeWindows(pid)
+            let t3 = wait(2) { policy(pid) == .accessory && window(pid) == nil }
+            if let t3, alive(pid) {
                 r.u3 += 1
                 r.u3Seconds.append(t3)
             } else {
-                r.notes.append("run \(i): still regular or windowed 2 s after close")
+                r.notes.append(
+                    "run \(i): still regular or windowed 2 s after close (policy \(policy(pid).map { "\($0.rawValue)" } ?? "none"))")
             }
             open(path)
             if let t4 = wait(5, { bigEnough(window(pid)) }) {

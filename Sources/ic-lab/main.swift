@@ -469,6 +469,20 @@ case "cost":
         print(String(format: "%@ | %.3f | %.0f | %.3f", name, ms, every, ms / 10 / every))
     }
 
+case "energy-steady", "battery-ab":
+    // docs/RELEASE_CRITERIA_v1.2.md, E1 and E2 (stack from an app bundle, isolated home).
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    func opt(_ k: String) -> String? { args.firstIndex(of: k).map { args[$0 + 1] } }
+    let app = opt("--app") ?? NSHomeDirectory() + "/Applications/iClear.app"
+    if CommandLine.arguments[1] == "energy-steady" {
+        try EnergyLab.steady(
+            app: app, minutes: Int(opt("--minutes") ?? "60") ?? 60, out: URL(fileURLWithPath: opt("--out") ?? "energy-steady.txt"))
+    } else {
+        try EnergyLab.ab(
+            app: app, pairs: Int(opt("--pairs") ?? "6") ?? 6, blockMinutes: Int(opt("--block") ?? "20") ?? 20, workload: tool("ic-hog"),
+            out: URL(fileURLWithPath: opt("--out") ?? "battery-ab.txt"))
+    }
+
 case "ui-smoke":
     // docs/RELEASE_CRITERIA_v1.2.md, U1-U7, against an installed app bundle.
     let args = Array(CommandLine.arguments.dropFirst(2))
@@ -488,5 +502,7 @@ case "ui-smoke":
     for n in r.notes { print("note: \(n)") }
 
 default:
-    print("usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost | ui-smoke")
+    print(
+        "usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost | ui-smoke | energy-steady | battery-ab"
+    )
 }

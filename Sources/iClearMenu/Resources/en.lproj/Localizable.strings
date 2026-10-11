@@ -104,3 +104,4 @@
 "settings.keepInDock" = "Keep in Dock";
 "settings.launchAtLogin" = "Open at login (menu bar only)";
 "settings.loginFailed" = "Could not change the login item: %@";
+"frozen.for" = "%d min";

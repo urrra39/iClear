@@ -291,6 +291,9 @@ struct MenuView: View {
                 HStack {
                     Image(systemName: f.dryRun ? "eye" : "snowflake").accessibilityHidden(true)
                     Text(f.name).lineLimit(1)
+                    // How long it has been paused (its sessions age by that much).
+                    Text(String(format: localized("frozen.for"), max(0, Int((Date().timeIntervalSince1970 - f.frozenAt) / 60))))
+                        .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button(localized("thaw")) { model.thaw(f.id) }
                         .accessibilityLabel(Text(String(format: localized("a11y.thaw"), f.name)))

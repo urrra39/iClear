@@ -187,3 +187,49 @@ import Testing
         #expect(abs(Policy.pReturn(activationsPerHour: 12, windowMinutes: 5) - (1 - exp(-1))) < 1e-9)
     }
 }
+
+/// v1.2 S2: session apps and per-class maximum pauses.
+@Suite struct SessionClassTests {
+    @Test func sessionAppsAreNeverPausedByDefault() {
+        #expect(AppClass.of("com.bitwarden.desktop") == .session)
+        #expect(Protection.defaultTier(for: "net.tunnelblick.tunnelblick") == .never)
+        #expect(Protection.tier(for: "com.wireguard.macos", config: Config()) == .never)
+    }
+
+    @Test func eachClassHasItsOwnMaximumPause() {
+        let c = Config()
+        #expect(Engine.maxPauseSeconds("com.google.Chrome", c) == 120 * 60)
+        #expect(Engine.maxPauseSeconds("com.example.editor", c) == 240 * 60)
+        var short = Config()
+        short.maxPauseMinutes = ["other": 30]
+        #expect(Engine.maxPauseSeconds("com.example.editor", short) == 30 * 60)
+        // The global bound always wins.
+        short.maxFrozenMinutes = 10
+        #expect(Engine.maxPauseSeconds("com.google.Chrome", short) == 10 * 60)
+    }
+
+    @Test func classLimitThawsAPausedBrowser() {
+        var c = Config()
+        c.mode = .active
+        let f = FrozenApp(
+            id: "com.google.Chrome", name: "Chrome", processes: [ProcessIdentity(pid: 10, startTime: 1)], frozenAt: 0,
+            residentAtFreezeMB: 100, reliefEstimateMB: 100, reasons: [Reason(Code.pressureWarning)], dryRun: false)
+        var st = EngineState(startedAt: 0)
+        st.frozen[f.id] = f
+        let e = Engine(config: c, hardware: Hardware(memoryGB: 16), state: st)
+        let app = AppSnapshot(id: "com.google.Chrome", name: "Chrome", processes: f.processes, residentMB: 100, isRegularApp: true)
+        let out = e.tick(
+            TickInput(
+                sample: SystemSample(time: 121 * 60, pressure: .warning, availablePercent: 10, physicalMB: 16384, freeDiskGB: 100),
+                apps: [app]))
+        #expect(out.actions.contains { $0.kind == .thaw && $0.reasons.contains { $0.code == Code.thawMaxDuration } })
+    }
+
+    @Test func configRejectsUnknownClassesAndCompatShowsTheRisk() {
+        var c = Config()
+        c.maxPauseMinutes = ["games": 5]
+        #expect(throws: (any Error).self) { try Config.load(json: c.encoded()) }
+        let r = Compat.report(id: "com.1password.1password", name: "1Password", config: Config())
+        #expect(r.contains("Time skew"))
+    }
+}

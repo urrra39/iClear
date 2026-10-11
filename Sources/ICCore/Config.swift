@@ -56,6 +56,9 @@ public struct Config: Codable, Equatable, Sendable {
     public var idleCPUPercent = 2.0
     public var minFrozenMinutes = 5.0
     public var maxFrozenMinutes = 240.0
+    /// Per-class maximum pause, minutes, by class name (browser, comm, media, session, other);
+    /// missing classes use `AppClass.defaultMaxPauseMinutes`. 0 means never paused automatically.
+    public var maxPauseMinutes: [String: Double] = [:]
     public var cooldownMinutes = 10.0
     public var thawAfterNormalMinutes = 30.0
     public var maxFrozenApps = 8
@@ -307,6 +310,9 @@ extension Config {
         check((0...100).contains(idleCPUPercent), "idleCPUPercent", "must be 0...100")
         check(minFrozenMinutes >= 0 && minFrozenMinutes < maxFrozenMinutes, "minFrozenMinutes", "must be >= 0 and < maxFrozenMinutes")
         check((1...1440).contains(maxFrozenMinutes), "maxFrozenMinutes", "must be 1...1440 (freezes are always bounded)")
+        check(
+            maxPauseMinutes.allSatisfy { AppClass(rawValue: $0.key) != nil && (0...1440).contains($0.value) }, "maxPauseMinutes",
+            "keys must be browser, comm, media, session or other; values 0...1440")
         check(cooldownMinutes >= 0, "cooldownMinutes", "must be >= 0")
         check(thawAfterNormalMinutes > 0, "thawAfterNormalMinutes", "must be > 0")
         check((1...50).contains(maxFrozenApps), "maxFrozenApps", "must be 1...50")

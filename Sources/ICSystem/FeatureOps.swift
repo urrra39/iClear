@@ -318,6 +318,18 @@ extension Daemon {
 
     // MARK: F5 stall forensics
 
+    /// Runs the stall probe only while it can matter: memory pressure at warning or worse, or
+    /// within 2 minutes of a recorded stall. A healthy Mac pays no wakeups for it.
+    func paceStallProbe(pressure: PressureLevel, now: Double) {
+        let wanted = pressure >= .warning || (stallEvents.last.map { now - $0.at < 120 } ?? false)
+        if wanted, stallTimer == nil {
+            startStallProbe()
+        } else if !wanted, let t = stallTimer {
+            t.cancel()
+            stallTimer = nil
+        }
+    }
+
     /// With Accessibility, asks the frontmost app a trivial question every 2 s; an answer
     /// slower than 500 ms (or none within 2 s) is a stall and is recorded with its likely causes.
     func startStallProbe() {

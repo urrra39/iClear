@@ -183,7 +183,6 @@ public final class Daemon {
         installObservers()
         startTimers()
         scheduleContextCheck()
-        startStallProbe()
     }
 
     public func shutdown(reason: String = Code.thawShutdown) {
@@ -275,7 +274,9 @@ public final class Daemon {
             // calls (the window list and process scan behind it are the poll's main cost).
             self.pollCount += 1
             let c = self.engine.config
-            if c.callMode.enabled || c.thermalShield.enabled || c.antiBeachball.mitigation.enabled || self.pollCount % 5 == 0 {
+            if c.callMode.enabled || c.thermalShield.enabled || c.antiBeachball.mitigation.enabled
+                || self.pollCount % (self.lean ? 15 : 5) == 0
+            {
                 self.shieldPoll()
             }
             if self.watchdog?.isRunning == false { self.startWatchdog() }
@@ -296,16 +297,22 @@ public final class Daemon {
     func interval(for level: PressureLevel) -> Double {
         Self.interval(
             for: level, etaWarning: actionableETA, horizonMinutes: engine.config.forecast.horizonMinutes,
-            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty)
+            holding: !engine.state.frozen.isEmpty || !stashedAppIDs.isEmpty, lean: lean)
     }
+
+    /// Battery at or below 20%, or Low Power Mode: calm ticks and the call poll slow down;
+    /// pressure still ticks at once (1 s poll). Set by each tick.
+    var lean = false
 
     /// Fast ticks only while the forecast sees warning within three horizons: any slow
     /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
     /// Otherwise 30 s while something is paused (`holding`) and one tick a minute when not:
     /// a change of pressure level still ticks at once (1 s poll).
-    static func interval(for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false) -> Double {
+    static func interval(
+        for level: PressureLevel, etaWarning: Double?, horizonMinutes: Double, holding: Bool = false, lean: Bool = false
+    ) -> Double {
         switch level {
-        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : 60
+        case .normal: return (etaWarning.map { $0 <= 3 * horizonMinutes } ?? false) ? 5 : holding ? 30 : lean ? 120 : 60
         case .warning: return 3
         case .critical: return 2
         }
@@ -357,6 +364,8 @@ public final class Daemon {
         let sample = probe.sample(now: now)
         var r = probe.collect(now: now)
         lastLevel = sample.pressure
+        lean = sample.lowPowerMode || (sample.onBattery && (sample.batteryPercent ?? 100) <= 20)
+        paceStallProbe(pressure: sample.pressure, now: now)
         r.apps = visibleApps(r.apps)
         stashLifecycle()
         reconcileUnresolved()

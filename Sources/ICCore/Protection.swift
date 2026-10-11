@@ -81,7 +81,7 @@ public enum Protection {
     /// The default tier before user overrides. Unknown regular apps are Tier A:
     /// every safety check still applies to them.
     public static func defaultTier(for id: String) -> Tier {
-        if isProtectedID(id) || neverIDs.contains(id) || [.comm, .media].contains(AppClass.of(id)) { return .never }
+        if isProtectedID(id) || neverIDs.contains(id) || [.comm, .media, .session].contains(AppClass.of(id)) { return .never }
         if optInIDs.contains(id) { return .optIn }
         return .auto
     }
