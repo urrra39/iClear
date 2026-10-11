@@ -75,7 +75,7 @@ import Testing
         defer { appHog.kill() }
         #expect(appHog.waitReady())
         try oldInstall(paths, frozen: [appHog], journal: Data(#"{"version":1,"entries":[{"pid":"#.utf8))
-        let r = Migration.run(paths, removeOld: false)
+        let r = Migration.run(paths, removeOld: false, send: testSender)
         #expect(r.ok, "\(r.lines)")
         #expect(r.lines.contains { $0.contains("journal was unreadable") })
         #expect(eventually { !isStopped(appHog.pid) })

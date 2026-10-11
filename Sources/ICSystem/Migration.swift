@@ -27,7 +27,8 @@ public enum Migration {
         return fm.fileExists(atPath: paths.legacyBase.path) || fm.fileExists(atPath: legacyPlist(paths).path)
     }
 
-    public static func run(_ paths: Paths, removeOld: Bool, dryRun: Bool = false) -> Report {
+    /// `send` is replaceable so tests keep recovery's fallback scan to their own processes.
+    public static func run(_ paths: Paths, removeOld: Bool, dryRun: Bool = false, send: Signals.Sender = Signals.liveSender) -> Report {
         guard detect(paths) else { return Report(found: false, ok: true, lines: ["No iClean install found."]) }
         var l: [String] = []
         let old = paths.legacyBase
@@ -52,7 +53,7 @@ public enum Migration {
         let journal = JournalStore(url: journalURL)
         // Read without side effects: `recover` itself handles (and sets aside) a corrupt journal.
         let before = (try? Data(contentsOf: journalURL)).flatMap { try? JSONDecoder().decode(Journal.self, from: $0) }?.entries ?? []
-        let rec = Signals.recover(journal: journal)
+        let rec = Signals.recover(journal: journal, send: send)
         l.append(
             "Replayed the old journal: resumed \(rec.thawed), already gone \(rec.stale)"
                 + (rec.corrupt ? ", journal was unreadable (resumed stopped app processes instead)" : "") + ".")
