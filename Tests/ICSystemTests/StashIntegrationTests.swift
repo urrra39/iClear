@@ -48,7 +48,11 @@ import Testing
         #expect(eventually { fx.allSatisfy { !isStopped($0.pid) && shown($0) } })
         let after = fx.map(\.framesByNumber)
         for (b, a) in zip(before, after) {
-            #expect(!b.isEmpty && Set(b.keys) == Set(a.keys) && b.allSatisfy { $0.value.distance(to: a[$0.key]!) <= 4 }, "\(b) -> \(a)")
+            // Without Accessibility, pop activates through LaunchServices, whose reopen event
+            // once made a fixture open an extra window on macOS 26 (docs/QUALITY.md).
+            #expect(
+                !b.isEmpty && Set(b.keys) == Set(a.keys) && b.allSatisfy { $0.value.distance(to: a[$0.key]!) <= 4 },
+                "\(b) -> \(a); Accessibility \(AXIsProcessTrusted()), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         }
         if wasFront { #expect(eventually(10) { NSWorkspace.shared.frontmostApplication?.processIdentifier == fx[2].pid }) }
         #expect(d.journal.read().isEmpty)
