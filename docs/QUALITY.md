@@ -110,6 +110,51 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## 1.2.0-rc.1 release candidate: criteria and scorecard (2026-10-11)
+
+Criteria: [RELEASE_CRITERIA_v1.2.md](RELEASE_CRITERIA_v1.2.md), committed (d045dd5, pushed)
+before any v1.2 measurement. The owner uses the Mac on battery, but it stayed on AC (charge
+held at 80%) through this work, so every battery criterion is NOT RUN. Release rule:
+`v1.2.0` needs U, E, S6, S8, R1 and the regression gate; E and the battery regression did
+not run, so this is `v1.2.0-rc.1`.
+
+| # | Result | Met |
+|---|---|---|
+| U1-U7 (installed app, 10 runs, on AC) | U1 window in 0.29 s median, U2, U3 (0.30 s), U4, U5, U7 10/10; U6 icon: the Finder icon differs from a generic app's (Quick Look hangs on every app bundle on this macOS); U3 closed through `performClose` (Accessibility does not expose the close button) | yes, with the two stated substitutions |
+| E1 whole stack ≥ 60 min on battery | NOT RUN (on AC); daemon alone over 200 min: 0.150% mean, p95 0.200% | — |
+| E2 battery A/B | NOT RUN (on AC) | — |
+| E3 thaw latency on battery | NOT RUN (on AC) | — |
+| B1-B3 Battery Saver | B1 NOT RUN, so off by default; B2 self-disarm and B3 safety: tests pass | B3 yes |
+| S1 adaptive wake windows | NOT RUN (cut); off | — |
+| S2 SESSION class and class limits | tests pass; expiring-token fixture not run | tests yes |
+| S3 Pause anyway | test passes; multi-display not validated | tests yes |
+| S4 MRU and resume latency | MRU tests pass; swap-out latency on battery NOT RUN; pre-resume stays off | tests yes |
+| S5 notifications | NOT RUN (cut) | — |
+| S6 pop without Accessibility | 30/30 local, 0 extra windows; macOS 26 CI: S6_CI_RESULT | S6_MET |
+| S7 macOS 14 | NOT RUN (cut); a CI trial failed 2 of 329 tests | — |
+| S8 thaw message | test passes | yes |
+| R1 trial rollback | 6 triggers x 5/5, nothing left paused | yes |
+| Regression on battery | NOT RUN (on AC); the 1.1 lab results on AC still apply to this code's paths (C2, C7, C12, C13 19/19) | — |
+| CI | green on every runner for the tagged commit (see the release) | see release |
+| ICCore coverage | 95.80% of lines (4,217 lines, 177 missed) | yes |
+| Mapping | new CLI commands, config keys and menu items in TEST_MATRIX | yes |
+
+Feature modes: Battery Saver OFF by default; adaptive wake windows not built (Wake-on-Data
+OFF); pre-resume OFF; Panic Brake observe-only; Black Box, Thrash Guard, leak
+notifications OFF; the trial runs only when started.
+
+### Scorecard (1-10, from evidence; caps stated)
+
+| Area | Score | Evidence | Cap |
+|---|---|---|---|
+| Engineering and safety | 8 | journal-first changes, crash recovery 100/100 and 50/50 (1.1 lab, same paths), every new feature through the journaled paths with tests, 6 trial triggers 5/5, ICCore coverage 95.8% | one Mac; regression gate not re-run on battery |
+| Honesty and docs | 9 | criteria committed before measurement, every NOT RUN listed, substitutions stated, English and Uzbek in sync | — |
+| Test breadth | 7 | full suite 346 tests (149 + 197) passed locally at 571a245, rc 0, CI on macOS 15 (Apple Silicon and Intel) and 26, repeated flake runs | no Intel, macOS 13/14 or 8 GB hardware; macOS 14 CI trial fails 2 tests |
+| Real usefulness (battery, memory, measured) | 4 | 1.0 lab memory relief and latency; no battery benefit measured; real-use trial running, no data yet | battery tests need the Mac on battery; trial needs days |
+| Marquee features | 6 | pause/resume and stash validated; Auto-Context validated; brake and Black Box no result; Battery Saver unmeasured | lab limits on an 18 GB Mac with its apps open |
+| Own overhead and energy | 6 | daemon 0.150% over 200 min, 1.0.3 vs 1.0.2 0.374% vs 0.803%; adaptive sampling | E1/E2 on battery not run |
+| Install and polish | 7 | icon, window, onboarding, settings, U1-U7 10/10, screenshots regenerated | no notarization (Gatekeeper's Open Anyway); Accessibility does not expose the window's close button |
+
 ## 1.1.0-rc.2 release candidate: status (2026-10-11)
 
 Tag v1.1.0-rc.2 on 18acb20 (pre-release); CI green on macos-15, macos-15-intel and
