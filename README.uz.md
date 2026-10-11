@@ -333,8 +333,11 @@ tushirmaguningizcha joyida qoladi. `iclear migrate --dry-run` avval rejani ko'rs
 <summary>Auto-Context Stash, xotira o'sishi tendensiyasi, Panic Brake, Black Box, canary probe, Capacity Report, Wake-on-Data, Thrash Guard: har biri nima qiladi va nima qila olmaydi</summary>
 
 Ularning laboratoriya sinovlari ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) 4-bosqich,
-[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) 5 va 6-bosqichlar) hali
-o'tkazilmagan. Imkoniyat mezonlari o'tmaguncha, standart o'rnatish uni sozlamadan qat'i
+[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) 5 va 6-bosqichlar) faqat qisman
+o'tkazilgan: Auto-Context Stash almashtirish, bekor qilish, yolg'on signal va hook yuki
+mezonlaridan o'tdi, lekin 100 sinovlik ishdan chiqish mezonidan (X9) hali o'tmagan;
+qolganlari zaryaddagi (AC) ishga tushirishni kutmoqda
+([natijalar](docs/VALIDATION.md#v11-lab-gates-on-the-candidate-main-618c0f9-2026-10-11)). Imkoniyat mezonlari o'tmaguncha, standart o'rnatish uni sozlamadan qat'i
 nazar faqat kuzatish rejimida yoki o'chiq holda ishlatadi.
 
 - **Auto-Context Stash** (`iclear hook zsh|bash|fish`, `iclear context add | list |

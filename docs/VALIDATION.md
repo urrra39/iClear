@@ -456,3 +456,51 @@ compiling alone does not explain the soak's high days; what else differed on tho
 Apps flagged: 0, so 0/0 predictions to judge. The ≥ 80% rule of L5 cannot be shown
 from this trace, and L1-L4 (synthetic leakers) have not been run. Per the ship rule,
 leak notifications stay OFF; `iclear leaks` and the menu list only.
+
+## v1.1 lab gates on the candidate (main 618c0f9, 2026-10-11)
+
+Release build of 618c0f9 (`swift build -c release`), Accessibility on, lab fixtures
+scope-locked as in 1.0. Each phase started only with no input for 10 minutes, on AC,
+battery ≥ 50% and ≥ 20 GB free. The Mac switched to battery (80%) at 04:30 local, during
+the last minutes of the context phase; later phases wait for AC.
+
+**Stage 1 regression subset (R1).**
+
+| # | Result | Met |
+|---|---|---|
+| C12 overhead | 0.150% of one core over 10 min (10 s windows p50 0.074%, p95 0.547%), resident ≤ 40.7 MB | yes |
+| C2 crash recovery, apps paused | 100/100 running again within 2 s; p50 82.0, p99 84.9, max 85.1 ms | yes |
+| C2 crash recovery, stash active | 50/50 running and shown within 2 s; p50 111.4, p99 127.7 ms. In trial 137 the stash held 3 of the 4 apps (the planner left one out), so the lab's stricter "all four stashed" count is 49/50; that trial recovered in 91 ms | yes |
+| C7 stash/pop, 50 cycles of 4 apps | windows 350/350 within 0.0 pt; front app 50/50; 0 left paused or hidden; 0 hangs; pop p99 1.38 s. One stash held 3 of 4 apps (Chrome's start-up power assertion), as in 1.0 | yes |
+| C1 data safety, C3 teardown | 0 document changes, 0 crash reports, 0 lab processes left stopped in these phases | yes |
+
+**Stage 4, Auto-Context Stash** (5 lab apps in 3 contexts, one app shared).
+
+| # | Result | Met |
+|---|---|---|
+| X1 hook overhead (1,000 directory changes per run) | added p95: zsh 1.81 / 1.87 ms, bash 1.10 / 1.25 ms (daemon down / up); 2,081/2,081 events delivered. Measured on battery (80%). fish not tested | yes |
+| X2 wrong-app stash | 0 over 200 switches | yes |
+| X3 end of dwell → usable | p50 738, p95 913, p99 932, max 1,041 ms (N=200; limit p95 3 s) | yes |
+| X4 / X10 false triggers | 0 switches over 250 events (50 each: move inside the context, `cd /tmp`, `cd ~`, left and re-entered within the dwell time, inside the cooldown) | yes |
+| X5 undo | 50/50 | yes |
+| X6 kill -9 mid-switch | 50/50 running and shown within 2 s; p99 27 ms | yes |
+| X9 kill -9 mid-switch, 100 trials | not run yet (waits for AC) | — |
+| X7 defaults | tests (`ContextTests`) | yes |
+| X8 real use | not run: the owner is away | — |
+
+**Full selftest (C13) on the candidate, on battery (71%).** 18 of 19 checks passed; the
+canary-probe check failed with "A probe runs only on AC power", so C13 is **not met** on
+this run and must be re-run on AC. Everything else passed, including journal and watchdog
+recovery (20/20 within 2 s), hide/unhide bounds (30/30, worst 0.0 pt), stash/pop (10/10),
+context switch (5/5), the Panic Brake, Thrash Guard and Wake-on-Data checks, call
+detection and the stall probe. The release artifact's 19/19 result (QUALITY.md, cd3aca7
+tarball) was taken on AC.
+
+**Not run, because the Mac was on battery (72%) from 04:30 and the owner is away** (§1.4
+needs AC): X9 (100 kill trials mid-switch), `probe` (P1), `wake` (D1-D5), `thrash`
+(T1-T4), `brake` and `brake-fp` and `brake-replay` (G1-G9), `blackbox` (H1-H5), `leaks`
+(L1-L4), the capacity pilot, and X8. The runner was stopped at 06:34; nothing was skipped
+silently. Ship rules therefore stay as in rc.1: Panic Brake observe-only; Black Box,
+Thrash Guard, Wake-on-Data and leak notifications off. Auto-Context Stash passed X1-X6 and
+X10 but not X9, so it stays in suggest mode and is described as partly validated. How to
+resume: plug the Mac in and run `.work/v11lab/run.sh` (it waits for the §1.4 conditions).

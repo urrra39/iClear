@@ -307,7 +307,10 @@ shows the plan first.
 <summary>Auto-Context Stash, leak trend, Panic Brake, Black Box, canary probe, Capacity Report, Wake-on-Data, Thrash Guard: what each does and cannot do</summary>
 
 Their lab runs ([RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md) stage 4,
-[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) stages 5 and 6) have not run yet.
+[RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md) stages 5 and 6) have run only in part:
+Auto-Context Stash passed its switch, undo, false-trigger and hook-overhead criteria but
+not yet the 100-trial crash criterion (X9); the others need a run on AC power
+([results](docs/VALIDATION.md#v11-lab-gates-on-the-candidate-main-618c0f9-2026-10-11)).
 Until a feature's criteria pass, the default install runs it observe-only or off, whatever
 its config says.
 

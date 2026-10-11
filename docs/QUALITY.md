@@ -100,12 +100,14 @@ files. **C14 met.**
 | C10 / R3 CI matrix | BLOCKED | PR head | Runs 37429432665 and 37456161327: "account is locked due to a billing issue", no step ran | Owner resolves the GitHub billing lock; then the matrix runs on the final head |
 | C10 / R4 ICCore coverage ≥ 90% | PASSED | 657e1e0 | 97.3% (3980/4092 lines); ICBase 76.1%, ICSystem 56.3% (subprocesses not counted) | — |
 | C13 full selftest | PASSED | cd3aca7 tarball, same binaries as rc.1 | 19/19, 174 s, from the release artifact in an isolated home | — |
+| C13 full selftest on main 618c0f9, on battery | 18/19 | release build | Only the canary probe failed ("runs only on AC power") | Re-run on AC |
 | C14 release artifacts (local) | PASSED | 657e1e0 artifacts (CLI parts by hash from cd3aca7) | Checksums verified; all binaries universal; `codesign --verify --deep --strict` and `-dv` (ad-hoc); `--version` 1.1.0-rc.1; quick selftest, doctor and `migrate` (simulated iClean install) from the artifact; install, start-up recovery of a journaled process, status and uninstall (instance `rc1check`) | Published assets: NOT RUN (nothing published) |
-| C1, C2, C3, C7, C12 (R1 subset), R2 | NOT RUN | — | Lab work waits for the soak's wrap-up | From 2026-10-09 01:30 local, on rc.1 |
+| C1, C2, C3, C7, C12 (R1 subset) | PASSED | main 618c0f9 (release build) | 2026-10-11: C12 0.150% / 40.7 MB; C2 100/100 (p99 85 ms) and 50/50 with a stash (p99 128 ms; lab count 49/50 because one stash held 3 of 4 apps, recovered in 91 ms); C7 350/350 windows, front app 50/50; 0 document changes (VALIDATION.md, "v1.1 lab gates") | — |
 | R5 test mapping | PASSED | 657e1e0 | Every CLI command (37) and top-level config key is in TEST_MATRIX (automated check) | — |
-| Stage 4 X1-X10, L1-L4 | NOT RUN | — | Lab phases after the soak; the test-based clauses (X7, L6) have related passing tests, not audited clause by clause | Post-soak |
-| Stage 5 G1-G9, H1-H5 | NOT RUN | — | Ship rules applied: the Panic Brake observes only, the Black Box is off (`ReleaseGates`, `ReleaseGatesTests`) | Post-soak, owner told before pressure phases |
-| Stage 6 T1-T4, D1-D5, P1 | NOT RUN | — | Ship rules applied: Thrash Guard and Wake-on-Data off; leak notifications off (L5) | Post-soak |
+| Stage 4 X1-X6, X7, X10 | PASSED | main 618c0f9 | X1 added p95 ≤ 1.87 ms; X2 0/200; X3 p95 0.91 s; X4/X10 0/250; X5 50/50; X6 50/50 | — |
+| Stage 4 X8, X9, L1-L4 | NOT RUN | — | X9 and `leaks` need AC (the Mac was on battery, owner away); X8 needs the owner | Plug in, run `.work/v11lab/run.sh` |
+| Stage 5 G1-G9, H1-H5 | NOT RUN | — | Needs AC. Ship rules applied: the Panic Brake observes only, the Black Box is off (`ReleaseGates`, `ReleaseGatesTests`) | Plug in, run `.work/v11lab/run.sh` |
+| Stage 6 T1-T4, D1-D5, P1 | NOT RUN | — | Needs AC. Ship rules applied: Thrash Guard and Wake-on-Data off; leak notifications off (L5) | Plug in, run `.work/v11lab/run.sh` |
 | Capacity benchmark (a measurement, not a gate) | NOT RUN | — | No data; no capacity claim anywhere | Pilot first (`ic-lab validate capacity --pilot`) in the quiet window |
 | Menu states (rendered) | PASSED after fixes | 657e1e0 menu binary | Real daemon states rendered in English and Uzbek: unresolved resume, not answering, busy, longest emergency report. Three cut-off texts found and fixed | — |
 | Menu interaction (dismissal, Command-T, global hotkey, live use) | NOT RUN | — | The test icon's position was hit-tested to another app; synthetic clicks were not sent | MANUAL_TESTS 9-11 |
