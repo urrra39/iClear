@@ -63,13 +63,21 @@ public struct BatteryReceipt: Codable, Equatable, Sendable {
     public var action: String
     public var predictedW: Double
     public var measuredW: Double?
+    /// System power when the prediction was made (v1.2); savings are measured against it.
+    public var baselineW: Double?
 
-    public init(at: Double, action: String, predictedW: Double, measuredW: Double? = nil) {
+    public init(at: Double, action: String, predictedW: Double, measuredW: Double? = nil, baselineW: Double? = nil) {
         self.at = at
         self.action = action
         self.predictedW = predictedW
         self.measuredW = measuredW
+        self.baselineW = baselineW
     }
+
+    /// The saving the action was expected to bring, and the drop observed afterwards (not a
+    /// causal measurement: anything else that changed in between counts too).
+    public var predictedSavingW: Double? { baselineW.map { $0 - predictedW } }
+    public var observedSavingW: Double? { baselineW.flatMap { b in measuredW.map { b - $0 } } }
 
     public var relativeError: Double? { measuredW.map { abs($0 - predictedW) / max(predictedW, 0.1) } }
 }

@@ -16,6 +16,7 @@ extension Daemon {
             next[a.id] = (w, now)
         }
         saverWakeups = next
+        if saverDisarmUnsaved { saverPersistOff() }
         guard s.mode != .off, let r, !r.onAC else {
             saverReleaseAll(now: now)
             return
@@ -23,22 +24,24 @@ extension Daemon {
         // The engine thaws its pauses on activation and at the time limits; forget those.
         saverPaused = saverPaused.filter { engine.state.frozen[$0] != nil }
         for (id, procs) in saverDemoted where lastApps.first(where: { $0.id == id }).map({ $0.isFrontmost }) ?? true {
-            _ = try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)
-            saverDemoted[id] = nil
+            if (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil { saverDemoted[id] = nil }
         }
         let measured = battery.receipts.filter { $0.action.hasPrefix("battery saver") }.suffix(10).compactMap { rc in
-            rc.measuredW.map { (predictedW: rc.predictedW, measuredW: $0) }
+            rc.predictedSavingW.flatMap { p in rc.observedSavingW.map { (predictedSavingW: p, observedSavingW: $0) } }
         }
         if BatterySaver.shouldDisarm(Array(measured)) {
-            var c = engine.config
-            c.batterySaver.mode = .off
-            try? Files.atomicWrite(c.encoded(), to: paths.config)
-            reloadConfig()
-            configMTime = Self.mtime(paths.config)
-            saverReleaseAll(now: now)
+            // Off in this run first; a failed write cannot turn it back on.
+            engine.config.batterySaver.mode = .off
+            saverDisarmUnsaved = true
+            let saved = saverPersistOff()
+            let left = saverReleaseAll(now: now)
             notify(
                 title: "Battery Saver turned itself off",
-                body: "Its predicted savings differed from the measured battery power by more than 30% (median of the last receipts).",
+                body:
+                    "Its predicted savings differed from the observed drop in battery power by more than 30% (median of the last receipts)."
+                    + (left.isEmpty
+                        ? " Everything it changed is restored." : " Not restored yet: \(left.joined(separator: ", ")); retrying.")
+                    + (saved ? "" : " The config file could not be updated; it stays off until iClear restarts."),
                 appID: nil)
             return
         }
@@ -74,7 +77,7 @@ extension Daemon {
                 battery.receipts.append(
                     BatteryReceipt(
                         at: now, action: "battery saver \(step == .demote(id) ? "lower" : "pause") \(a.name)",
-                        predictedW: max(0.5, systemW - savedW)))
+                        predictedW: max(0.5, systemW - savedW), baselineW: systemW))
             }
             switch step {
             case .demote:
@@ -97,14 +100,37 @@ extension Daemon {
         }
     }
 
-    /// Undoes every Battery Saver change (AC power, mode off, disarm, shutdown).
-    func saverReleaseAll(now: Double) {
-        for (id, procs) in saverDemoted { _ = try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now) }
-        saverDemoted = [:]
+    /// Writes `batterySaver.mode = off` into the config file (keeping the rest of the file);
+    /// true once it is on disk.
+    @discardableResult
+    func saverPersistOff() -> Bool {
+        var c = ((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 }) ?? engine.config
+        c.batterySaver.mode = .off
+        do {
+            try configWriter(c.encoded(), paths.config)
+        } catch {
+            record("Battery Saver is off, but the config file could not be updated: \(error)")
+            return false
+        }
+        configMTime = Self.mtime(paths.config)
+        saverDisarmUnsaved = false
+        return true
+    }
+
+    /// Undoes every Battery Saver change (AC power, mode off, disarm, shutdown). Returns the
+    /// apps not restored yet: a lowered app stays listed (retried next tick), a pause that
+    /// did not take stays unresolved in the engine (journaled, retried).
+    @discardableResult
+    func saverReleaseAll(now: Double) -> [String] {
+        for (id, procs) in saverDemoted where (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil {
+            saverDemoted[id] = nil
+        }
         for id in saverPaused where engine.state.frozen[id] != nil {
             execute(engine.thaw(id, reason: Code.thawUser, at: now), immediate: true)
         }
+        let unresolved = saverPaused.filter { engine.state.unresolved?[$0] != nil }
         saverPaused = []
+        return (Array(saverDemoted.keys) + unresolved).sorted()
     }
 
     /// Activation restores a lowered app at once.
@@ -137,8 +163,9 @@ extension Daemon {
         for x in rc {
             lines.append(
                 String(
-                    format: "  %@: predicted %.1f W, measured %@", x.action, x.predictedW,
-                    x.measuredW.map { String(format: "%.1f W", $0) } ?? "pending"))
+                    format: "  %@: predicted saving %@, observed drop %@", x.action,
+                    x.predictedSavingW.map { String(format: "%.2f W", $0) } ?? "not recorded",
+                    x.observedSavingW.map { String(format: "%.2f W", $0) } ?? "pending"))
         }
         return Response(ok: true, text: lines.joined(separator: "\n"))
     }

@@ -132,7 +132,8 @@ extension Daemon {
         for id in plan.pause {
             guard let a = lastApps.first(where: { $0.id == id }) else { continue }
             let saved = (appPowers.first { $0.appID == id }?.watts ?? 0) * battery.calibration.fit.scale
-            battery.receipts.append(BatteryReceipt(at: now, action: "pause \(a.name)", predictedW: max(0.5, systemW - saved)))
+            battery.receipts.append(
+                BatteryReceipt(at: now, action: "pause \(a.name)", predictedW: max(0.5, systemW - saved), baselineW: systemW))
             execute([engine.externalFreeze(a, reason: Reason(Code.batteryTarget), at: now)])
             battery.target?.paused.append(id)
         }

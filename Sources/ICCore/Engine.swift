@@ -420,6 +420,9 @@ public final class Engine {
         return out
     }
 
+    /// An app's lowered priority was restored outside the tick (a trial rollback), or it is gone.
+    public func priorityRestored(_ id: String) { state.deprioritized[id] = nil }
+
     func restorePriorities(_ input: TickInput, cfg: Config) -> [Action] {
         let now = input.sample.time
         let byID = Dictionary(input.apps.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
