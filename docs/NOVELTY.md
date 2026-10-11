@@ -205,3 +205,29 @@ Only dated, evidence-backed statements of the form "as of 2026-09-30, we did not
 X in: ForceNap, auto-pause-mac-apps, caproom, ProcessX, GreenRAM, Canaryd,
 MemoryShield, mac-memory-guard", always followed by "not found is not proof of
 absence".
+
+## Re-check of the GitHub projects (2026-10-11)
+
+Each public GitHub repository in the comparison was re-read on 2026-10-11 through the
+GitHub API (README and repository metadata); websites, the memory_guard.py gist and
+Microsoft's documentation were not re-read (last read 2026-10-03). All 18 repositories
+were reachable and none is archived. Changes since 2026-10-03:
+- **turnstile** is now a memory-aware gate for builds and tests: heavy commands queue for
+  a slot and free memory; when memory runs low it lowers their parallelism and pauses the
+  newest compile at critical pressure. The earlier "job over its memory limit is paused,
+  then terminated" description no longer matches its README.
+- **Canaryd** no longer closes idle apps automatically; it alerts on a non-active
+  third-party app holding at least 1 GB RSS at no more than 1% CPU over three checks.
+- **RamRadar** still flags growth of at least 1 GB and 50% since an earlier check, and
+  now also suggests stopping left-over dev processes and heavy programs; stops are
+  confirmed first (Quit, SIGTERM, then optional Force Quit).
+- No change found in the rows for ForceNap, auto-pause-mac-apps, caproom, ProcessX,
+  GreenRAM, MemoryShield, mac-memory-guard, AppHalt, MacFreeze, wintertime,
+  ContextResume, earlyoom, Mac Performance Monitor, amphetamine and direnv.
+
+In those 18 READMEs we again did not find a pressure ETA forecast, regret-aware freezing,
+connection or write guards checked before pausing, a post-resume quarantine, or trace
+replay (searched terms: forecast, predict, ETA, regret, quarantine, replay, connection,
+socket; the hits were unrelated: download quarantine, a battery-runtime forecast, a
+clipboard replay check, warnings that pausing can drop connections). Absence of evidence
+is not proof.

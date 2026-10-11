@@ -460,7 +460,7 @@ bosim ostida o'z vazifalarini o'chirishdan oldin pauza qiladi.
 ## Boshqalar bilan taqqoslash
 
 <details>
-<summary>O'xshash muammolarni hal qiladigan loyihalar, ularning bir nechtasi ilgariroq (har bir qator 2026-10-03 da qayta o'qildi)</summary>
+<summary>O'xshash muammolarni hal qiladigan loyihalar, ularning bir nechtasi ilgariroq (GitHub qatorlari 2026-10-11 da, sayt va gist qatorlari 2026-10-03 da qayta o'qildi)</summary>
 
 | Loyiha | Yondashuv | iClear dan farqi |
 |---|---|---|
@@ -469,7 +469,7 @@ bosim ostida o'z vazifalarini o'chirishdan oldin pauza qiladi.
 | [caproom](https://github.com/intelogroup/caproom) | Buyruqlar uchun xotira chegarasi; bo'sh jarayon daraxtlarini SIGSTOP bilan "to'xtatib qo'yadi", chegaradan oshsa o'chiradi | Terminal ishlari va agentlar uchun qat'iy chegaralar bilan qurilgan. iClear GUI ilovalarni nishonga oladi va hech qachon o'chirmaydi |
 | [ProcessX](https://github.com/avantigroupai/ProcessX) | Jarayon/ustuvorlik monitori; protsessorni to'xtatib-davom ettirish orqali cheklaydi | Protsessor va ustuvorlikka qaratilgan. iClear xotira bosimiga qaratilgan |
 | [GreenRAM](https://github.com/lwj1994/greenram) | RAM/svop chegarasidan oshganda uzoq bo'sh turgan fon ilovalarini majburan yopadi | Yopish barcha xotirani bo'shatadi, lekin holat yo'qoladi. iClear pauza qiladi va holatni saqlaydi |
-| [Canaryd](https://github.com/ThaddeusJiang/canaryd) | To'xtab qolgan xizmatlar, Simulator, qizish va bo'sh xotira uchun kuzatuvchi; bo'sh og'ir ilovalardan yopilishni so'raydi | Dasturchi kompyuteri uchun kengroq kuzatuvchi. iClear yopish o'rniga pauza qiladi |
+| [Canaryd](https://github.com/ThaddeusJiang/canaryd) | Dasturchi Mac'lari uchun salomatlik monitori: to'xtab qolgan xizmatlar, unutilgan Simulator, qizish, bo'sh xotira, eskirgan build natijalari; kamida 1 GB ushlab turgan bo'sh ilovalar haqida ogohlantiradi va endi ularni avtomatik yopmaydi | Kengroq, ogohlantiradigan va xizmatlarni tiklaydigan monitor. iClear bosim ostida bo'sh ilovalarni pauza qiladi va davom ettiradi |
 | [MemoryShield](https://github.com/MaatheusGois/MemoryShield) | Har bir jarayon xotira tarixi; chegaradan oshganda avtomatik o'chira oladi | Tarix va ogohlantirishlar u yerda ham bor. iClear o'chirmaydi |
 | [mac-memory-guard](https://github.com/TomGranot/mac-memory-guard) | Xotira tufayli qotishdan oldin ogohlantiradi va ilovalarni birma-bir yopishga imkon beradi | Avval ogohlantiradi, qarorni inson qiladi. iClear o'zi harakat qiladi |
 | [WattMate](https://wattmateapp.com/) | Ilovalar quvvatini batareya daqiqalariga aylantiradi, oldin/keyin o'lchovi bilan | Batareya daqiqalari va "nima qaytardi" o'lchovi u yerda allaqachon bor; iClear'ning batareya taxminlari yangi emas va tasdiqlanmagan |
@@ -482,16 +482,16 @@ bosim ostida o'z vazifalarini o'chirishdan oldin pauza qiladi.
 | [SceneShift](https://tandukuda.github.io/SceneShift/) | Faqat Windows: ilovalar to'plamini o'chiradigan, to'xtatadigan, davom ettiradigan yoki qayta ochadigan terminal vositasi, bekor qilish bilan | Windows'dagi o'xshash to'xtatish-tiklash g'oyasi; iClear macOS uchun va xotira bosimiga qarab ishlaydi |
 | [earlyoom](https://github.com/rfjakob/earlyoom) (Linux) | Bo'sh xotira va svop 10% dan tushganda eng katta jarayonni o'chiradi (SIGTERM, keyin SIGKILL); mlockall, taxminan 2 MiB | Panic Brake macOS'da shu g'oyaga amal qiladi, lekin o'chirish o'rniga pauza qiladi va jurnal yuritadi |
 | [memory_guard.py](https://gist.github.com/jlevy/5b43e0d44166b9c7fe8157ee938cb0d5) | Siz ko'rsatgan jarayon daraxtlari uchun macOS kuzatuvchisi: kuzatish, mashq, faqat pauza va to'liq rejimlar; yaratuvchilarni pauza qiladi, keyin ishchilarni o'chiradi | Usuli yaqin. Panic Brake barcha jarayon daraxtlaringizni saralaydi, hech narsani o'chirmaydi va har bir pauzani qotishga qarab tekshiradi |
-| [turnstile](https://github.com/mcclowes/turnstile) | Vazifalar ishga tushirgichi: xotira chegarasidan oshgan vazifa bosim ostida pauza qilinadi, bosim 15 s davom etsagina o'chiriladi | Faqat o'z vazifalari bilan ishlaydi |
+| [turnstile](https://github.com/mcclowes/turnstile) | Build va testlar uchun xotirani hisobga oluvchi navbat: og'ir buyruqlar bo'sh joy va bo'sh xotirani kutadi; xotira kamayganda ularning parallelligini kamaytiradi, kritik bosimda eng yangi kompilyatsiyani pauza qiladi | O'zi boshqaradigan build va test buyruqlariga ta'sir qiladi; iClear bo'sh GUI ilovalariga |
 | [Bunch](https://bunchapp.co/) | Ilovalarni ochadigan, yopadigan va skript ishga tushiradigan matnli "Bunch"lar, menyudan | Qo'lda ochadi va yopadi; Auto-Context terminalingizdagi loyiha o'zgarganda ilovalar guruhini pauza qiladi |
 | [Commute](https://apps.apple.com/app/id1564572231) | Ilovalar to'plamini ochib, boshqalarini yopadigan profillar, tugma bilan | Bunch bilan bir xil farq |
 | [Ikuna](https://www.brnsft.com/blog/best-mac-apps-for-project-switching-save-browser-tabs-apps-and-files-instantly-in-2026) | Joriy ish muhitini yopib, boshqasini tiklaydi (ilovalar, tablar, oyna joylari), tugma bilan; nashriyotchi aytishicha "uch soniyadan kam" | Yopib qayta ochadi; iClear joyida pauza qiladi |
-| [RamRadar](https://github.com/gemscng/RamRadar) | Oldingi tekshiruvdan beri kamida 1 GB va 50% o'sgan dasturlarni belgilaydi va so'rov bilan to'xtatadi | Ikki o'lchovli chegara va yopish; xotira o'sishi tendensiyasi bo'sh holatdagi o'lchovlar bo'yicha barqaror tendensiyadan foydalanadi va majburan yopmaydi |
+| [RamRadar](https://github.com/gemscng/RamRadar) | Qaysi dasturlar xotira ishlatayotganini ko'rsatadi va nimani to'xtatishni taklif qiladi (qolib ketgan dasturchi jarayonlari, og'ir dasturlar, oldingi tekshiruvdan beri kamida 1 GB va 50% o'sish); tasdiqlangandan keyin Quit yoki SIGTERM bilan to'xtatadi | To'xtatishni taklif qiladi; xotira o'sishi tendensiyasi bo'sh holatdagi o'lchovlar bo'yicha barqaror tendensiyadan foydalanadi va majburan yopmaydi |
 | [Mac Performance Monitor](https://github.com/Zesty0wl/mac-performance-monitor) | Menyu panelidan protsessor, xotira, GPU, tarmoq va batareyani yozadi; o'sish tekshiruvlari tashxis emas, kuzatuv sifatida | Faqat kuzatish |
 | Windows [ControlChannelTrigger](https://learn.microsoft.com/en-us/uwp/api/Windows.Networking.Sockets.ControlChannelTrigger?view=winrt-22621) | To'xtatilgan Windows ilovasiga TCP ulanishni saqlash va ma'lumot kelganda uyg'onish imkonini beradi | Wake-on-Data g'oyasi shundan; macOS'da iClear pauzadagi ilovaning qabul navbatini tashqaridan, ilovaning yordamisiz kuzatadi |
 | [amphetamine](https://github.com/GriffinCanCode/amphetamine) (Rust crate) | Apple Silicon buyruq qatori: ilovalardan yopilishni so'raydi (majburan o'chirmaydi), raqib jarayonlarni `nice` bilan faqat aniq tiklay olsagina pasaytiradi, svop nega qolishini tushuntiradi, ikki papkadagi eski keshlarni o'chiradi | Pauza o'rniga yopadi va kesh o'chiradi; iClear pauza qiladi, holatni saqlaydi va fayl o'chirmaydi. Ikkalasi ham ustuvorlik o'zgarishini aynan qaytaradi |
 
-2026-10-03 holatiga ko'ra, biz bosim uchun ETA prognozi, afsusni hisobga oluvchi
+2026-10-11 holatiga ko'ra (GitHub README'lari o'sha kuni, boshqa sahifalar 2026-10-03 da qayta o'qildi), biz bosim uchun ETA prognozi, afsusni hisobga oluvchi
 muzlatish, pauzadan oldingi ulanish/yozish himoyalari, davom ettirishdan keyingi
 karantin yoki iz qayta ijrosini bu loyihalarda ham, GitHub va veb qidiruvlarimizda ham
 topmadik ([NOVELTY.md](docs/NOVELTY.md)). Chrome'ning o'zi Energy Saver rejimida yashirin,

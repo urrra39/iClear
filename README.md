@@ -402,7 +402,7 @@ of process trees you name on macOS; turnstile pauses its own jobs under pressure
 ## How it compares
 
 <details>
-<summary>Projects that solve overlapping problems, several of them earlier (every row re-read on 2026-10-03)</summary>
+<summary>Projects that solve overlapping problems, several of them earlier (GitHub rows re-read on 2026-10-11; website and gist rows on 2026-10-03)</summary>
 
 | Project | Approach | Difference from iClear |
 |---|---|---|
@@ -411,7 +411,7 @@ of process trees you name on macOS; turnstile pauses its own jobs under pressure
 | [caproom](https://github.com/intelogroup/caproom) | Memory caps for commands; parks idle process trees with SIGSTOP, escalates to kill over the cap | Built for terminal jobs and agents with hard caps. iClear targets GUI apps and never kills |
 | [ProcessX](https://github.com/avantigroupai/ProcessX) | Process/priority monitor; caps CPU by suspending and resuming | Focused on CPU and priority. iClear focuses on memory pressure |
 | [GreenRAM](https://github.com/lwj1994/greenram) | Force-quits long-idle background apps over RAM/swap limits | Quitting frees all memory at the cost of state. iClear pauses and keeps state |
-| [Canaryd](https://github.com/ThaddeusJiang/canaryd) | Watchdog for stalled services, Simulators, heat, idle memory; asks idle heavy apps to close | Broader developer-machine watchdog. iClear pauses instead of closing |
+| [Canaryd](https://github.com/ThaddeusJiang/canaryd) | Health monitor for developer Macs: stalled services, forgotten Simulators, heat, idle memory, stale build output; alerts on idle apps holding at least 1 GB and no longer closes them automatically | Broader developer-machine monitor that alerts and recovers services. iClear pauses idle apps under memory pressure and resumes them |
 | [MemoryShield](https://github.com/MaatheusGois/MemoryShield) | Per-process memory history; can auto-kill over a threshold | History and alerts exist there too. iClear does not kill |
 | [mac-memory-guard](https://github.com/TomGranot/mac-memory-guard) | Warns before a memory freeze, lets you quit apps one by one | Warning-first and human-in-the-loop. iClear acts on its own |
 | [WattMate](https://wattmateapp.com/) | Per-app watts as battery minutes, with a measured before/after | Does battery minutes and receipts already; iClear's battery estimates are not new and are not validated |
@@ -424,16 +424,16 @@ of process trees you name on macOS; turnstile pauses its own jobs under pressure
 | [SceneShift](https://tandukuda.github.io/SceneShift/) | Windows only: a terminal tool that kills, suspends, resumes or relaunches presets of apps, with undo | The same suspend-and-restore idea on Windows; iClear is for macOS and acts on memory pressure |
 | [earlyoom](https://github.com/rfjakob/earlyoom) (Linux) | Kills the largest process (SIGTERM, then SIGKILL) when available memory and swap fall below 10%; mlockall, about 2 MiB resident | The concept the Panic Brake follows on macOS, but it pauses instead of killing and keeps a journal |
 | [memory_guard.py](https://gist.github.com/jlevy/5b43e0d44166b9c7fe8157ee938cb0d5) | macOS sidecar for process trees you point it at: observe, rehearse, pause-only and full modes; pauses spawners (SIGSTOP), then sheds workers (SIGTERM, SIGKILL) on reclaimable-memory, pressure and compressor-slope signals | Close in method. The Panic Brake ranks all of your process trees, does not kill, and checks each pause against the stall |
-| [turnstile](https://github.com/mcclowes/turnstile) | Job runner: a job over its memory limit is paused (SIGSTOP) under pressure and terminated only if pressure persists 15 s | Acts on its own jobs only |
+| [turnstile](https://github.com/mcclowes/turnstile) | Memory-aware gate for builds and tests: heavy commands queue for a slot and free memory; when memory runs low it lowers their parallelism, then pauses the newest compile at critical pressure | Acts on the build and test commands it gates; iClear acts on idle GUI apps |
 | [Bunch](https://bunchapp.co/) | Plain-text "Bunches" that open and close apps and run scripts, from a menu | Opens and quits by hand; Auto-Context pauses an app group when your terminal's project changes |
 | [Commute](https://apps.apple.com/app/id1564572231) | Profiles that open a set of apps and close others, by keyboard shortcut | The same difference as Bunch |
 | [Ikuna](https://www.brnsft.com/blog/best-mac-apps-for-project-switching-save-browser-tabs-apps-and-files-instantly-in-2026) | Closes the current workspace and restores another (apps, tabs, window positions) by shortcut; "under three seconds" by its publisher's account | Quit and relaunch; iClear pauses in place |
-| [RamRadar](https://github.com/gemscng/RamRadar) | Flags programs that grew by at least 1 GB and 50% since an earlier check and stops them on request | A two-reading threshold that ends in quitting; the leak trend uses a robust trend over idle samples and never forces a quit |
+| [RamRadar](https://github.com/gemscng/RamRadar) | Shows which programs use memory and suggests what to stop (left-over dev processes, heavy programs, growth of at least 1 GB and 50% since an earlier check); stops them on confirmation with Quit or SIGTERM | Suggests stopping programs; the leak trend uses a robust trend over idle samples and never forces a quit |
 | [Mac Performance Monitor](https://github.com/Zesty0wl/mac-performance-monitor) | Logs CPU, memory, GPU, network and battery from the menu bar, with growth checks that report observations rather than diagnoses | Monitoring only |
 | Windows [ControlChannelTrigger](https://learn.microsoft.com/en-us/uwp/api/Windows.Networking.Sockets.ControlChannelTrigger?view=winrt-22621) | Lets a suspended Windows app keep a TCP connection and be woken when data arrives | The concept behind Wake-on-Data; on macOS iClear watches a paused app's receive queues from outside, without the app's help |
 | [amphetamine](https://github.com/GriffinCanCode/amphetamine) (Rust crate) | Apple Silicon command line: asks apps to quit rather than force-killing them, lowers rival processes with `nice` only when it can restore them exactly, explains why swap stays, and deletes old caches in two folders | Quits instead of pausing and deletes caches; iClear pauses, keeps state and does not delete files. Both restore priority changes exactly |
 
-As of 2026-10-03, we did not find a pressure ETA forecast, regret-aware freezing,
+As of 2026-10-11 (GitHub READMEs re-read that day; other pages on 2026-10-03), we did not find a pressure ETA forecast, regret-aware freezing,
 connection/write guards before pausing, a post-resume quarantine or trace replay in
 those projects or in our GitHub and web searches ([NOVELTY.md](docs/NOVELTY.md)). Chrome
 itself freezes hidden, silent, CPU-heavy tabs under Energy Saver (from Chrome 133) and
