@@ -60,10 +60,14 @@ public enum BatterySaver {
         return out
     }
 
-    /// Self-disarm (criterion B2): the median relative error of predicted vs measured system
-    /// power over at least 3 receipts above 30%.
-    public static func shouldDisarm(_ receipts: [(predictedW: Double, measuredW: Double)]) -> Bool {
-        let errors = receipts.filter { $0.measuredW > 0 }.map { abs($0.predictedW - $0.measuredW) / $0.measuredW }.sorted()
+    /// Self-disarm (criterion B2): the median relative error of the predicted saving vs the
+    /// observed drop in system power, over at least 3 receipts, above 30%. Only receipts
+    /// with a positive predicted saving count (the error is relative to it); a drop of zero
+    /// or less is an error of 100% or more. Fewer than 3 such receipts is not enough
+    /// evidence either way: Battery Saver stays as it is (it is off by default).
+    public static func shouldDisarm(_ receipts: [(predictedSavingW: Double, observedSavingW: Double)]) -> Bool {
+        let errors = receipts.filter { $0.predictedSavingW > 0 }.map { abs($0.observedSavingW - $0.predictedSavingW) / $0.predictedSavingW }
+            .sorted()
         guard errors.count >= 3 else { return false }
         return errors[errors.count / 2] > 0.3
     }

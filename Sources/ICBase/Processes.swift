@@ -281,6 +281,11 @@ public enum Signals {
         /// Ran without the lock: another process was in the middle of a change. It was
         /// told to undo it (recovery token), but that happens when it continues.
         public var pending = false
+        /// The recovery token could not be written (why): a writer in the middle of a
+        /// change was not told to undo it. Its record is in the journal (record first).
+        public var markerError: String?
+        /// The lock could not be used at all (not just busy).
+        public var lockError: String?
         /// No journal directory: nothing of this instance is installed, so nothing can be paused.
         public var absent = false
     }
@@ -290,7 +295,8 @@ public enum Signals {
     /// by `iclear thaw --all` when the daemon is not running. Idempotent: running it again
     /// (also after a crash part-way) resumes nothing twice that matters and loses no record.
     public static func recover(
-        journal: JournalStore, restorer: Restorer, send: Sender = liveSender, lockTimeout: Double = 5, restoreBudget: Double = 4
+        journal: JournalStore, restorer: Restorer, send: Sender = liveSender, lockTimeout: Double = 5, restoreBudget: Double = 4,
+        undeliveredWait: Double = 5
     ) -> RecoveryResult {
         // Nothing installed for this instance: no lock to take and nothing to resume.
         guard FileManager.default.fileExists(atPath: journal.url.deletingLastPathComponent().path) else {
@@ -300,17 +306,36 @@ public enum Signals {
         }
         // Before anything is resumed: any change in progress (a late writer, a stash part
         // way through) sees it and undoes itself.
-        journal.requestRecovery()
+        let markerError = journal.requestRecovery()
         do {
-            return try journal.locked(timeout: lockTimeout) {
+            var r = try journal.locked(timeout: lockTimeout) {
                 recoverLocked(journal, restorer: restorer, send: send, write: true, budget: restoreBudget)
             }
+            r.markerError = markerError
+            return r
         } catch {
             // The lock is held too long (a hung writer) or cannot be used: resume anyway
-            // (best effort, needs no ownership; the token above tells the writer to undo)
-            // and leave the file exactly as it is.
+            // (best effort, needs no ownership) and leave the file exactly as it is.
             var r = recoverLocked(journal, restorer: restorer, send: send, write: false, budget: restoreBudget)
+            r.markerError = markerError
+            if let e = error as? JournalStore.JournalLockUnavailable { r.lockError = e.description }
             r.pending = true
+            // Without the token the writer does not know to undo its change; it holds the
+            // lock until that change is recorded and done, so wait for it once more
+            // (bounded) and resume what it did.
+            if markerError != nil, r.lockError == nil,
+                let late = try? journal.locked(
+                    timeout: undeliveredWait,
+                    { recoverLocked(journal, restorer: restorer, send: send, write: true, budget: restoreBudget) })
+            {
+                r.thawed += late.thawed
+                r.stale += late.stale
+                r.restored += late.restored
+                r.unresolved = late.unresolved
+                r.corrupt = r.corrupt || late.corrupt
+                r.stashesDropped = max(r.stashesDropped, late.stashesDropped)
+                r.pending = false
+            }
             return r
         }
     }

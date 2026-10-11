@@ -82,3 +82,23 @@ coverage ≥ 90%; every new CLI command, config key and menu item mapped in
 **Release rule:** `v1.2.0` only if U, E, S6, S8, R1 and the regression gate pass with
 measured data; B and S1-S5 decide their features' modes and do not block the release.
 Otherwise `v1.2.0-rc.N` with each failure and its plan listed.
+
+## Amendments (dated; no bound above is changed)
+
+**A1 (2026-10-11), R1 battery-regression trigger.** The Trial Guard as built in
+`1.2.0-rc.1` rolls back when iClear's own CPU over the last hour (daemon and its direct
+children) exceeds 1% of one core. That measures iClear's overhead, not a battery
+regression of the stack, so R1's "battery regression" trigger is **not implemented** and
+R1 is **not met as registered**: 5 of the 6 registered triggers pass 5/5; the CPU trigger
+also passes 5/5 but counts only as evidence for a CPU guard. Fulfilling R1 needs a
+battery-drain trigger validated on battery. Until then, `v1.2.0` is blocked by R1 as well.
+
+**A2 (2026-10-11), B2 quantity.** B2 registers the error of the *predicted saving* against
+the *measured saving*. `1.2.0-rc.1` compared predicted and measured *total system power*,
+where a small error in total watts can hide a saving that did not happen. From
+`1.2.0-rc.2` each receipt records the system power when the prediction was made, and the
+disarm compares the predicted saving with the observed drop (median relative error over at
+least 3 receipts with a positive predicted saving, bound 30%, unchanged; a drop of zero or
+less is an error of 100% or more; receipts without that baseline do not count). The observed
+drop is an uncontrolled before/after observation, not a causal measurement of savings; B1
+remains the only test of a benefit.

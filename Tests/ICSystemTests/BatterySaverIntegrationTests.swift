@@ -36,4 +36,42 @@ import Testing
         #expect(eventually { !isStopped(hidden.pid) })
         #expect(eventually { d.journal.read().isEmpty })
     }
+
+    /// B2 with a config file that cannot be written: the disarm holds in the running daemon,
+    /// survives a reload of the stale file, undoes the pause, and is written once possible.
+    @Test func disarmHoldsWhenTheConfigWriteFails() throws {
+        struct WriteFailed: Error {}
+        let hidden = try hog()
+        defer { hidden.kill() }
+        let probe = FakeProbe()
+        probe.apps = [hogApp("com.example.hidden", [hidden])]
+        let d = try testDaemon(probe) {
+            $0.batterySaver.mode = .balanced
+            $0.batterySaver.idleMinutes = 1
+        }
+        defer { d.shutdown() }
+        d.tick()
+        d.appPowers = [AppPower(appID: "com.example.hidden", name: "h", watts: 2)]
+        let onBattery = BatteryReading(time: probe.now, onAC: false, percent: 60, remainingWh: 40, dischargeW: 8)
+        d.saverTick(onBattery, now: probe.now)
+        #expect(eventually { isStopped(hidden.pid) })
+        // Three receipts whose predicted 1 W saving did not happen (total power within 6%).
+        d.battery.receipts = (0..<3).map { _ in
+            BatteryReceipt(at: probe.now, action: "battery saver pause h", predictedW: 7, measuredW: 7.9, baselineW: 8)
+        }
+        d.configWriter = { _, _ in throw WriteFailed() }
+        d.saverTick(onBattery, now: probe.now + 60)
+        #expect(d.engine.config.batterySaver.mode == .off)
+        #expect(eventually { !isStopped(hidden.pid) })
+        #expect(try Config.load(json: Data(contentsOf: d.paths.config)).0.batterySaver.mode == .balanced, "the file still says balanced")
+        #expect(d.reloadConfig() == nil)
+        #expect(d.engine.config.batterySaver.mode == .off, "a reload of the stale file keeps it off")
+        d.saverTick(onBattery, now: probe.now + 120)
+        #expect(!isStopped(hidden.pid), "nothing paused again")
+        // Writes work again: the next tick saves it.
+        d.configWriter = { try Files.atomicWrite($0, to: $1) }
+        d.saverTick(onBattery, now: probe.now + 180)
+        #expect(try Config.load(json: Data(contentsOf: d.paths.config)).0.batterySaver.mode == .off)
+        #expect(!d.saverDisarmUnsaved)
+    }
 }

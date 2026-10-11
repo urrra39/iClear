@@ -158,7 +158,13 @@ case "thaw":
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
             if b.absent { out("No Panic Brake journal on this Mac: it has not run here, so it paused nothing.") }
-            if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
+            if b.pending {
+                out(
+                    b.markerError == nil
+                        ? "The Panic Brake's journal was locked; a change in progress was told to undo itself."
+                        : "The Panic Brake's journal was locked and its recovery file could not be written (\(b.markerError!)): a change in progress was NOT told to undo itself. Run `iclear thaw --all` again in a few seconds."
+                )
+            }
         }
     }
     // An emergency: a daemon that does not answer in 5 s is treated like one that is not running.
@@ -180,11 +186,18 @@ case "thaw":
         out(
             "\(why); thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
                 + (r.corrupt ? " (journal was unreadable: resumed every stopped app process)" : "") + ".")
-        if r.pending {
+        if let e = r.markerError {
+            out(
+                r.pending
+                    ? "iClear was busy changing something (journal locked) and the recovery file could not be written (\(e)): that change was NOT told to undo itself. It is recorded in the journal; run `iclear thaw --all` again in a few seconds."
+                    : "The recovery file could not be written (\(e)); everything recorded was resumed. Run `iclear thaw --all` again in a few seconds to catch a change that was still in progress."
+            )
+        } else if r.pending {
             out(
                 "iClear was busy changing something (journal locked); it was told to undo that change. Run `iclear thaw --all` again in a few seconds to confirm."
             )
         }
+        if let e = r.lockError { out("The journal lock could not be used: \(e).") }
         if r.unresolved > 0 {
             out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
             exit(1)

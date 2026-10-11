@@ -489,6 +489,8 @@ public enum Selftest {
         }
 
         check("canary probe (isolated)") {
+            // The probe refuses to run on battery by design; that is not a failure of this Mac.
+            if SystemSampler.powerState().onBattery { return (.skip, "not run on battery: the probe runs only on AC power", 0) }
             guard let f = try? GUIFixture(probe: tool("ic-ui-probe"), dir: home, name: "SelftestCanary", frame: "200,240,320,200"),
                 let id = f.identity
             else { return (.skip, "no GUI session (could not start a window)", 0) }

@@ -110,6 +110,43 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## 1.2.0-rc.2 release candidate: fixes and gate status (2026-10-11)
+
+rc.2 contains correctness fixes only (rollback and recovery), found by an independent review
+of rc.1. The Mac was on AC at 28% when they were made, so no battery measurement was taken
+on rc.2 code; the battery rows below come from rc.1 code (03ac5a8) and say so.
+
+| Defect | Before (1.2.0-rc.1 code, 1fd93a8) | After (fd303c9) |
+|---|---|---|
+| Trial rollback whose config write fails reloads the Active trial and reports success | `TrialRealWriteFailureTests`: Observe expected, Active found; trial still active; `trial stop` ok | pass; plus `TrialRollbackTests` (missing, unreadable, invalid config; reload; restart) |
+| "Nothing is paused" after a rollback whose resume failed | same suite: stop reported ok and "nothing is paused" with the app stopped | pass; partial and total failure, delayed retry, already unresolved, gone process, stale retry |
+| Battery Saver disarm: same write-then-reload pattern; B2 compared total power | no test | `disarmHoldsWhenTheConfigWriteFails`, `smallTotalPowerErrorButNoSavingDisarms` |
+| Recovery that cannot write its marker reports a late writer as told to undo, and the writer's pause survives | `RecoveryMarkerBeforeAfterTests`: process left stopped, `pending` reported | pass; `RecoveryMarkerTests` (EACCES, ENOSPC, EIO, real failure; before and after the change; hung writer; concurrent; exit; priority path) |
+
+Raw before/after output: kept with the lab notes; full suite at fd303c9: 362 tests (164 +
+198), rc 0, run serially in a clean worktree (in the long-used worktree, two GUI quit
+tests failed on every commit including unchanged ones, so that was the environment, not the code).
+
+| Gate (registered) | Status | Tested build | Evidence / next action |
+|---|---|---|---|
+| U1-U7 | PASS (with the two stated substitutions) | rc.1 installed app | ui-smoke 10/10; not re-run on rc.2 (no UI change) |
+| E1 | PASS | 03ac5a8 (rc.1 code) | 60 min on battery; not re-run on rc.2 |
+| E2 | NOT RUN | — | needs about 4.2 h on battery from at least 80%, idle: `ic-lab battery-ab` |
+| E3 | NOT RUN | — | on battery from at least 50% |
+| B1 | NOT RUN | — | no tool; Battery Saver stays off |
+| B2 | PASS (tests, amended quantity A2) | fd303c9 | `BatterySaverTests` |
+| B3 | PASS (tests) | fd303c9 | `pausesAndLowersOnBatteryAndUndoesEverything` |
+| S6 | PASS | ffa65a7 and later | 30/30 local, 22/22 macOS 26 CI |
+| S8 | PASS (test) | fd303c9 | `thawAllWithNothingInstalledSaysSo` |
+| R1 | **FAIL as registered** (amendment A1) | fd303c9 | 5 registered triggers 5/5; the battery-regression trigger is a CPU trigger. Next: a drain trigger validated on battery |
+| Regression gate on battery | NOT RUN | — | C2, C7, selftest on battery from at least 80% |
+| Full selftest on battery | NOT RUN | — | rc.1 quick selftest failed the canary on battery (fixed in rc.2: SKIP on battery) |
+
+Core release readiness: rc.2 fixes real defects with tests; `v1.2.0` stays blocked by
+E2, E3, R1 and the regression gate on battery. Experimental features keep their
+restricted modes (Battery Saver off, Panic Brake observe-only, Black Box, Thrash Guard,
+Wake-on-Data, leak notifications off).
+
 ## 1.2.0-rc.1 release candidate: criteria and scorecard (2026-10-11)
 
 Criteria: [RELEASE_CRITERIA_v1.2.md](RELEASE_CRITERIA_v1.2.md), committed (d045dd5, pushed)
@@ -134,7 +171,7 @@ and the regression gate on battery did not run, so this is `v1.2.0-rc.1`.
 | S6 pop without Accessibility | 30/30 local, 0 extra windows; macOS 26 CI: 22/22 runs (6 on bc9d1c9, 16 on ffa65a7; macOS 15 Apple Silicon and Intel 23/23 each), 0 extra windows | yes |
 | S7 macOS 14 | NOT RUN (cut); a CI trial failed 2 of 329 tests | — |
 | S8 thaw message | test passes | yes |
-| R1 trial rollback | 6 triggers x 5/5, nothing left paused | yes |
+| R1 trial rollback | 6 triggers x 5/5, nothing left paused | corrected 2026-10-11: **not met as registered** (the battery-regression trigger is a CPU trigger; amendment A1) |
 | Regression on battery | NOT RUN (battery 39% after E1, below the 50% start floor); the 1.1 lab results on AC apply to the same recovery and stash paths (C2, C7, C12, C13 19/19) | — |
 | CI | green on every runner for the tagged commit (see the release) | see release |
 | ICCore coverage | 95.80% of lines (4,217 lines, 177 missed) | yes |

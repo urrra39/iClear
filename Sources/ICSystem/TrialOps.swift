@@ -8,6 +8,8 @@ public struct TrialLog: Codable, Equatable, Sendable {
     public var resumeAll: [Double] = []
     public var rollbacks: [Rollback] = []
     public var lastDigestDay: String?
+    /// Start times of trials rolled back; a config file still holding one does not restart it.
+    public var ended: [Double]?
 
     public struct Rollback: Codable, Equatable, Sendable {
         public var at: Double
@@ -87,20 +89,93 @@ extension Daemon {
         }
     }
 
-    /// Back to Observe at once: every trial pause resumed, the trial ended, the reason kept.
-    func trialRollback(reason: String, now: Double) {
-        var c = engine.config
+    /// What a rollback achieved, kept apart: the live switch to Observe (always), whether
+    /// it reached the config file, and whether every trial pause is really resumed.
+    struct TrialRollbackResult {
+        var persistError: String?
+        var markerSaved = true
+        /// Trial apps with processes still stopped (kept in the journal, retried).
+        var pending: [String] = []
+        /// Trial apps whose lowered priority could not be restored yet.
+        var priorityPending: [String] = []
+
+        var complete: Bool { persistError == nil && pending.isEmpty && priorityPending.isEmpty }
+
+        var text: String {
+            var l = ["Back in Observe mode: nothing new is paused automatically."]
+            if pending.isEmpty && priorityPending.isEmpty {
+                l.append("Every trial pause is resumed.")
+            } else {
+                if !pending.isEmpty {
+                    l.append(
+                        "Not resumed yet: \(pending.joined(separator: ", ")) (kept in the journal, retrying; `iclear thaw --all` tries again)."
+                    )
+                }
+                if !priorityPending.isEmpty { l.append("Priority not restored yet: \(priorityPending.joined(separator: ", ")).") }
+            }
+            if let e = persistError {
+                l.append(
+                    "The config file could not be updated (\(e)): Observe holds until iClear restarts"
+                        + (markerSaved
+                            ? "; trial.json records the rollback, so a restart stays in Observe."
+                            : "; trial.json could not be written either, so a restart would run the trial again. Run `iclear trial stop` again once the folder is writable.")
+                )
+            }
+            return l.joined(separator: " ")
+        }
+    }
+
+    /// Back to Observe at once, in memory first (a failed write cannot undo it); then every
+    /// trial pause and lowered priority is restored and the outcome checked, not assumed.
+    /// Safe to repeat: a second call retries what is still pending.
+    @discardableResult
+    func trialRollback(reason: String, now: Double) -> TrialRollbackResult {
+        var r = TrialRollbackResult()
+        let t = engine.config.trial
+        let wasActive = t.active
+        if let s = t.startedAt { endedTrialStarts.insert(s) }
+        engine.config.mode = .observe
+        engine.config.trial.startedAt = nil
+        var log = loadTrialLog()
+        if wasActive { log.rollbacks.append(TrialLog.Rollback(at: now, reason: reason)) }
+        log.ended = endedTrialStarts.sorted()
+        r.markerSaved = (try? Files.writeJSON(log, to: trialURL)) != nil
+        // The file: the current one (when readable) with only the mode and the trial changed.
+        var c = ((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 }) ?? engine.config
         c.mode = .observe
         c.trial.startedAt = nil
-        try? Files.atomicWrite(c.encoded(), to: paths.config)
-        reloadConfig()
-        configMTime = Self.mtime(paths.config)
-        execute(engine.thawAll(reason: Code.thawUser, at: now), immediate: true)
-        var log = loadTrialLog()
-        log.rollbacks.append(TrialLog.Rollback(at: now, reason: reason))
-        try? Files.writeJSON(log, to: trialURL)
-        record("Trial rolled back to Observe: \(reason)")
-        notify(title: "iClear is back in Observe mode", body: "The real-use trial stopped: \(reason). Nothing is paused.", appID: nil)
+        do {
+            try configWriter(c.encoded(), paths.config)
+            configMTime = Self.mtime(paths.config)
+        } catch { r.persistError = "\(error)" }
+        // Restore what the trial owns: its pauses (live and already unresolved) and lowered priorities.
+        let apps = Set(t.apps)
+        execute(
+            engine.state.frozen.keys.filter(apps.contains).sorted().flatMap { engine.thaw($0, reason: Code.thawUser, at: now) },
+            immediate: true)
+        for (id, u) in (engine.state.unresolved ?? [:]) where apps.contains(id) && !stashedAppIDs.contains(id) {
+            retryResumeNow(u.processes, appID: id, name: u.app.name, generation: u.generation, attempt: 0)
+        }
+        reconcileUnresolved()
+        for id in engine.state.deprioritized.keys.filter(apps.contains).sorted() {
+            guard let procs = lastApps.first(where: { $0.id == id })?.processes else {
+                engine.priorityRestored(id)  // gone
+                continue
+            }
+            if (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil {
+                engine.priorityRestored(id)
+            } else {
+                r.priorityPending.append(id)
+            }
+        }
+        r.pending = (engine.state.unresolved ?? [:]).keys.filter(apps.contains).sorted()
+        record("Trial rolled back to Observe (\(reason)): " + r.text)
+        if wasActive {
+            notify(
+                title: r.complete ? "iClear is back in Observe mode" : "iClear is in Observe mode; restoration incomplete",
+                body: "The real-use trial stopped: \(reason). " + r.text, appID: nil)
+        }
+        return r
     }
 
     func trialDigest(since: Double, until: Double) -> String {
@@ -154,8 +229,8 @@ extension Daemon {
                     "Trial started: Active mode for \(ids.joined(separator: ", ")) only; everything else stays observed. Emergency: Resume all, Control-Option-Command-T or `iclear thaw --all`. Stop: `iclear trial stop`."
             )
         case "stop":
-            trialRollback(reason: "stopped by you", now: now)
-            return Response(ok: true, text: "Trial stopped; back in Observe mode; nothing is paused.")
+            let r = trialRollback(reason: "stopped by you", now: now)
+            return Response(ok: r.complete, text: "Trial stopped. " + r.text)
         default:
             let t = engine.config.trial
             let log = loadTrialLog()

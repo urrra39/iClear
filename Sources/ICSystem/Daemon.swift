@@ -68,6 +68,14 @@ public final class Daemon {
     var trialCPUSamples: [(t: Double, cpu: UInt64)] = []
     var trialOwnCPU: (() -> Double?)?
     var trialInvariantCheck: (() -> String?)?
+    /// Trials rolled back in this run or recorded in trial.json (by start time): a config
+    /// file that still holds one, because its write failed, does not start it again.
+    var endedTrialStarts: Set<Double> = []
+    /// Battery Saver turned itself off but the config file could not be written: it stays
+    /// off in this run whatever the file says until a write succeeds.
+    var saverDisarmUnsaved = false
+    /// Writes the config file (a seam for failure tests).
+    var configWriter: (Data, URL) throws -> Void = { try Files.atomicWrite($0, to: $1) }
     var batteryReadings: [BatteryReading] = []
     public internal(set) var appPowers: [AppPower] = []
     var callDetector = CallDetector()
@@ -120,6 +128,20 @@ public final class Daemon {
             ((try? Files.readJSON(BatteryState.self, from: paths.base.appendingPathComponent("battery.json"))) ?? nil) ?? BatteryState()
         contextState = ((try? Files.readJSON(ContextState.self, from: contextURL)) ?? nil) ?? ContextState()
         capacity = ((try? Files.readJSON(CapacityLedger.self, from: paths.capacity)) ?? nil) ?? CapacityLedger()
+        endedTrialStarts = Set(loadTrialLog().ended ?? [])
+        engine.config = keepingEnded(engine.config)
+    }
+
+    /// A config read from disk, minus what this daemon already ended (a rolled-back trial,
+    /// a disarmed Battery Saver) when the file could not be updated.
+    func keepingEnded(_ c: Config) -> Config {
+        var c = c
+        if let s = c.trial.startedAt, endedTrialStarts.contains(s) {
+            c.trial.startedAt = nil
+            c.mode = .observe
+        }
+        if saverDisarmUnsaved { c.batterySaver.mode = .off }
+        return c
     }
 
     /// Loads the config, creating the default (Observe mode) on first run. An invalid
@@ -461,7 +483,7 @@ public final class Daemon {
         guard let data = try? Data(contentsOf: paths.config) else { return "config file missing" }
         do {
             let (loaded, warnings) = try Config.load(json: data)
-            let c = paths.gated(loaded).0
+            let c = keepingEnded(paths.gated(loaded).0)
             engine.config = c
             enforceObserveOnly()
             traces.update(settings: c.trace)
