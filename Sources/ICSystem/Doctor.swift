@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import ICCore
 
-public let iclearVersion = "1.0.3"
+public let iclearVersion = "1.0.4"
 
 /// `iclear doctor`: what this Mac is, which mechanisms work here, and daemon health.
 /// Mechanism checks only ever touch a child process the doctor starts itself.

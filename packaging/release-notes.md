@@ -2,6 +2,21 @@ iClear @VERSION@ is a bug-fix release of 1.0.0. iClear pauses idle background ap
 Mac that is running out of memory and resumes each one when you switch back to it. It
 starts in **Observe mode**, which only records what it would do.
 
+## Fixed in 1.0.4
+
+- Recovery records: a resume, unhide or priority-band restore that did not take could
+  drop its journal record, so a later recovery no longer knew the app was still paused,
+  hidden or in the background band. Records now stay until the change is seen undone.
+- A pause, band change or hide no longer goes ahead when its journal record cannot be
+  written or the journal lock cannot be used.
+- A recovery in another process can no longer run between a change's record and the
+  change; a change that was still in progress during an emergency recovery undoes
+  itself, and the result says so (or says that it could not be told).
+- A journal that cannot be read, or comes from a newer format, is kept in place instead
+  of being replaced or deleted.
+- `iclear thaw --all`, the menu and the daemon report what is still paused instead of
+  reporting success. 22 regression tests cover these.
+
 ## Fixed in 1.0.3
 
 - Daemon CPU: a forecast ETA that is only shown, never acted on (the forecast is off by

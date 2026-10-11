@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.0.4
+
+- **Fix: a resume that did not take lost its journal record.** Thawing removed every
+  record of a tree even when SIGCONT failed, and recovery deleted the journal even when
+  some processes stayed stopped, so a later recovery (daemon start, watchdog, `iclear
+  thaw --all`) no longer knew about them. A record now stays until the same process is
+  seen running again, or is gone. The same holds for the freeze rollback.
+- **Fix: a failed unhide or priority-band restore lost its record.** Recovery counted a
+  hidden app as shown when the unhide request could be sent, and `setBackground(false)`
+  forgot every record. A change now counts as undone only when it is observed undone
+  (checked with retries, PID and start time verified before each request); recovery
+  spends at most 4 s on these and keeps the rest.
+- **Fix: a pause, band change or hide could happen without its record.** A band change
+  or hide went ahead when its journal record could not be written. A journal write
+  failure, and a journal lock that cannot be used, now refuse the change and are
+  reported (the daemon's freeze answer is no longer "ok" then).
+- **Fix: a recovery in another process could run between a record and its change.**
+  Writers and recovery now share a lock on `<journal>.lock`, held from the record to the
+  change. A recovery that cannot get it within 5 s writes a marker beside the journal and
+  resumes anyway; a writer that sees the marker undo its own change. If the marker cannot
+  be written, the result says that the change may still happen.
+- **Fix: an unreadable or newer-format journal could be replaced or deleted.** A journal
+  that exists but cannot be read was treated as empty: the next write replaced it and
+  recovery deleted it. It is now left in place, writes are refused, and recovery runs its
+  fallback scan. A journal from a newer format is not rewritten.
+- **Fix: result text.** `iclear thaw --all`, the daemon's thaw and pop, the menu's Resume
+  all and uninstall now say how many records could not be resolved (`iclear thaw` exits
+  1 then) instead of reporting success.
+- 22 regression tests (`RecoveryIntegrityTests`). Lab and validation results in the docs
+  are from 1.0.0.
+
 ## 1.0.3 (2026-10-11)
 
 - **Fix: daemon CPU (7-day soak, W5).** The forecast's ETA to memory warning is shown
