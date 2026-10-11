@@ -9,7 +9,7 @@ when you switch back to it. It never deletes files.
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange)
 
-> **Latest release: 1.0.2.** Validated on one Mac (Apple M3 Pro, 18 GB, macOS 27.0.1) with
+> **Latest release: 1.0.3** (1.0.2 plus the daemon CPU fix below). Validated on one Mac (Apple M3 Pro, 18 GB, macOS 27.0.1) with
 > real apps a lab started, never with personal accounts. `main` also holds the
 > **1.1.0-rc.1** work, which is **not released**: anything marked "main only" below is not
 > in a download. CI (macOS 15 Apple Silicon and Intel, macOS 26) was green on main at 618c0f9 (run 38090952189); local runs are listed in
@@ -57,7 +57,7 @@ Every line is a measurement from the lab on one Mac; follow the link for N and c
 - **Starts in Observe mode and explains itself.** It does nothing until you switch it on, and
   `iclear why`, `iclear explain <app>` and `iclear stats` say what it saw and would have done.
   `iclear selftest` runs 19 checks on your Mac with its own test processes (main; 13 in
-  1.0.2). [Validation](docs/VALIDATION.md#selftest-c13)
+  1.0.3). [Validation](docs/VALIDATION.md#selftest-c13)
 - **English and Uzbek**, in the menu and the docs.
 
 ## Start in 60 seconds
@@ -173,8 +173,8 @@ and 40 MB (bound 0.5%). The 7-day soak of 1.0.0 did not meet the bound: daily me
 0.73-2.03% of one core ([soak W5](docs/VALIDATION.md#7-day-soak-on-100-final-result-w1-w7)).
 The main cause: a forecast estimate that is only shown, never acted on, still made the
 daemon check every 5 s and inspect apps' sockets and files whenever free memory sat below
-the warning level the forecast had learned. 1.0.2 and 1.1.0-rc.1 do this; it is fixed on
-`main` (not released). Same Mac, Observe mode, real apps, 2 hours at night: rc.1 0.25%,
+the warning level the forecast had learned. 1.0.2 and 1.1.0-rc.1 do this; it is fixed in
+**1.0.3** and on `main` (where the daemon also samples less often when calm). Same Mac, Observe mode, real apps, 2 hours at night: rc.1 0.25%,
 `main` 0.13-0.14% of one core, also when started from the soak's data (from which rc.1
 used 0.95% in a 30-minute run below that level). The week-long bound has not been re-run
 on `main` ([measurements](docs/VALIDATION.md#daemon-overhead-after-the-soak-w5-follow-up)).

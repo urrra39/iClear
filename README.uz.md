@@ -9,7 +9,7 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange)
 
-> **Oxirgi reliz: 1.0.2.** Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
+> **Oxirgi reliz: 1.0.3** (1.0.2 va quyidagi protsessor tuzatishi). Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
 > ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech qachon shaxsiy akkauntlar bilan
 > emas. `main` tarmog'ida **1.1.0-rc.1** ishi ham bor, u **chiqarilmagan**: quyida "faqat
 > main" deb belgilangan narsa yuklab olinadigan versiyada yo'q. CI (macOS 15 Apple Silicon va Intel, macOS 26) main'da 618c0f9 da yashil edi (run 38090952189);
@@ -60,7 +60,7 @@ Har bir qator bitta Mac'dagi laboratoriya o'lchovi; N va sharoitlar havolada.
 - **Kuzatish rejimida boshlanadi va o'zini tushuntiradi.** Siz yoqmaguningizcha hech narsa qilmaydi;
   `iclear why`, `iclear explain <ilova>` va `iclear stats` nimani ko'rgani va nima qilgan
   bo'lishini aytadi. `iclear selftest` Mac'ingizda o'z sinov jarayonlari bilan 19 ta
-  tekshiruv o'tkazadi (main; 1.0.2 da 13 ta). [Tasdiqlash](docs/VALIDATION.md#selftest-c13)
+  tekshiruv o'tkazadi (main; 1.0.3 da 13 ta). [Tasdiqlash](docs/VALIDATION.md#selftest-c13)
 - **Ingliz va o'zbek tillarida**, menyuda ham, hujjatlarda ham.
 
 ## 60 soniyada boshlash
@@ -184,7 +184,7 @@ soak sinovi bu chegarani bajarmadi: kunlik o'rtacha bitta yadroning 0.73-2.03%
 faqat ko'rsatiladigan, hech qachon amal qilinmaydigan prognoz bahosi bo'sh xotira prognoz
 o'rgangan ogohlantirish darajasidan past bo'lganda xizmatni har 5 soniyada tekshirishga va
 ilovalarning soket va fayllarini ko'rib chiqishga majbur qilardi. 1.0.2 va 1.1.0-rc.1 da
-shunday; `main` da tuzatilgan (chiqarilmagan). O'sha Mac, Kuzatish rejimi, haqiqiy
+shunday; **1.0.3** da va `main` da tuzatilgan (main'da xizmat tinch paytda kamroq tekshiradi ham). O'sha Mac, Kuzatish rejimi, haqiqiy
 ilovalar, kechasi 2 soat: rc.1 0.25%, `main` bitta yadroning 0.13-0.14%, soak
 ma'lumotlaridan boshlanganda ham (rc.1 o'sha darajadan past 30 daqiqalik sinovda 0.95%
 ishlatgan). Bir haftalik chegara `main` da qayta o'lchanmagan
