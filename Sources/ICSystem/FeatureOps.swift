@@ -86,7 +86,13 @@ extension Daemon {
         }
         battery.receipts = Array(battery.receipts.suffix(200))
         targetTick(r, now: now)
-        try? Files.writeJSON(battery, to: batteryURL)
+        // Written when a receipt changes, otherwise every 10 minutes (no steady disk writes).
+        let receiptsKey = battery.receipts.count * 2 + battery.receipts.filter { $0.measuredW != nil }.count
+        if receiptsKey != lastBatteryReceiptsKey || now - lastBatteryWrite >= 600 {
+            try? Files.writeJSON(battery, to: batteryURL)
+            lastBatteryWrite = now
+            lastBatteryReceiptsKey = receiptsKey
+        }
     }
 
     /// Average battery power over the last few minutes (the gauge updates about once a minute).

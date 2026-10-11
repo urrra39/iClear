@@ -57,6 +57,8 @@ public final class Daemon {
     // Battery (F3), Call Mode and thermal shield (F4), stall forensics (F5).
     var battery = BatteryState()
     var lastEnergy: [ProcessIdentity: (nj: UInt64, t: Double)] = [:]
+    var lastBatteryWrite = 0.0
+    var lastBatteryReceiptsKey = -1
     /// Battery Saver's own holds (v1.2): lowered apps (restored on activation, AC, off) and
     /// the pauses it asked the engine for; per-app wakeup counts for the rate.
     var saverDemoted: [String: [ProcessIdentity]] = [:]
