@@ -9,15 +9,16 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange)
 
-> **Oxirgi reliz: 1.0.3** (1.0.2 va quyidagi protsessor tuzatishi). Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
-> ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech qachon shaxsiy akkauntlar bilan
-> emas. `main` tarmog'ida 1.1 ishi ham bor, u faqat **1.1.0-rc.2** sinov relizi sifatida
-> chiqarilgan: quyida "faqat main" deb belgilangan narsa 1.0.3 da yo'q. CI (macOS 15 Apple
-> Silicon va Intel, macOS 26) rc.2 commit'i 18acb20 da yashil;
-> mahalliy natijalar [QUALITY.md](docs/QUALITY.md) da. iClear **Kuzatish rejimida** boshlanadi: u faqat nima qilgan bo'lardi, shuni yozadi.
+> **Oxirgi reliz: 1.0.3** (1.0.2 va xizmat protsessor yukining tuzatishi). Bitta Mac'da
+> (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya ishga tushirgan haqiqiy ilovalar bilan
+> tasdiqlangan, hech qachon shaxsiy akkauntlar bilan emas. `main` tarmog'ida keyingi ish ham
+> bor, u faqat **1.2.0-rc.1** sinov relizi sifatida chiqarilgan (ilova oynasi, Batareya
+> tejash, yon ta'sirlarni yumshatish, haqiqiy foydalanish sinovi): "faqat main" deb
+> belgilangan narsa 1.0.3 da yo'q. iClear **Kuzatish rejimida** boshlanadi: u faqat nima
+> qilgan bo'lardi, shuni yozadi.
 > [English](README.md) · [Holat va cheklovlar](#holat-va-cheklovlar) (hujjatlar ingliz tilida)
 
-<p align="center"><img src="docs/images/menu-uz.png" width="360" alt="iClear menyusi: Mac salomatligi 100/100, xotira me'yorida, Kuzatish rejimi"></p>
+<p align="center"><img src="docs/images/window-uz.png" width="360" alt="iClear oynasi (faqat main): Mac salomatligi 100/100, xotira me'yorida, Kuzatish rejimi, sozlamalar"> <img src="docs/images/menu-uz.png" width="360" alt="Xuddi shu mazmundagi iClear menyusi"></p>
 
 ```text
 $ iclear status
@@ -100,6 +101,10 @@ yuboriladi); `main` da `--no-mic` bu tekshiruvni o'tkazib yuboradi.
 | Panic Brake (`iclear brake`) | **faqat kuzatadi** | **faqat main**, laboratoriya mezonlari o'tmaguncha harakat qila olmaydi |
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **o'chiq** | **faqat main**, laboratoriya mezonlari o'tmaguncha o'chiq |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | siz so'raganingizda | **faqat main**, tasdiqlanmagan |
+| Dock belgisi bilan ilova oynasi, tanishtiruv kartalari, sozlamalar (ochilganda oynani ko'rsatish, Dock'da qoldirish, tizimga kirganda ochish) | ilova ochilganda oyna ochiladi | **faqat main** (1.2.0-rc.1); `ic-lab ui-smoke` U1-U7 10/10 |
+| Batareya tejash (`iclear battery saver`) | **o'chiq**; faqat batareyada | **faqat main**; foydasi **o'lchanmagan** ([BATTERY.md](docs/BATTERY.md)) |
+| SESSION sinfi, har bir sinf uchun eng uzun pauza, MRU himoyasi, ko'rinib turgan ilova uchun "Baribir pauza qilish" (`iclear freeze <ilova> --visible`) | yoqilgan ("Baribir pauza qilish" so'raganingizda) | **faqat main**; birlik va integratsiya testlari ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
+| Haqiqiy foydalanish sinovi (`iclear trial start\|stop\|status`) | boshlanmaguncha ishlamaydi | **faqat main**; orqaga qaytarish himoyasi har bir sabab uchun 5/5 sinalgan |
 
 Faqat main'dagi imkoniyatlar va ular nima qila olmasligi: [quyida](#maindagi-imkoniyatlar-chiqarilmagan).
 
@@ -177,6 +182,14 @@ ta'sirlar. Raqamlar: [Tasdiqlangan doira](#tasdiqlangan-doira).
 - `main` da: Panic Brake faqat kuzatadi; Black Box, Thrash Guard, Wake-on-Data va xotira
   o'sishi bildirishnomalari o'chiq, har biri oldindan belgilangan laboratoriya mezonlari
   o'tmaguncha ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
+- `main` da (1.2.0-rc.1): Batareya tejash sukut bo'yicha o'chiq, chunki uning juft batareya
+  sinovi o'tkazilmagan; iClear'ning batareyada o'zi sarflaydigan energiyasi (E1, E2) ham
+  o'lchanmagan: bu ish davomida Mac zaryadga ulangan edi
+  ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
+
+**Haqiqiy foydalanish sinovi 2026-10-11 dan beri davom etmoqda:** egasining Mac'ida faqat
+Microsoft Word, PowerPoint va Excel uchun Faol rejim, avtomatik ravishda Kuzatishga qaytish
+bilan ([REAL_USE.md](docs/REAL_USE.md)). Hali natija yo'q.
 
 **O'lchangan zaif tomon: xizmatning protsessor yuki.** 1.0 ning 10 daqiqalik laboratoriya
 sinovi bitta yadroning 0.48% va 40 MB ni o'lchadi (chegara 0.5%). 1.0.0 ning 7 kunlik
@@ -215,7 +228,12 @@ sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-resul
 - Faqat main'dagi imkoniyatlarning laboratoriya mezonlari: Panic Brake G1-G4, G7, G9;
   Black Box H1-H3; xotira o'sishi L1-L4 (xotira xavfsizlik chegaralarida to'xtadi);
   Thrash Guard, Wake-on-Data, canary probe sinovlari va sig'im benchmarki (o'tkazilmadi).
-  1.1.0-rc.2 sinov relizi.
+  1.2.0-rc.1 sinov relizi.
+- `main` da (v1.2): iClear'ning batareyada o'zi sarflaydigan energiyasi, Batareya tejash
+  ta'siri va svopdan keyin batareyada davom ettirish kechikishi (Mac zaryadga ulangan edi);
+  batareyada canary probe (u zaryadni talab qiladi); moslashuvchan uyg'onish oynalari
+  (qurilmagan); push bildirishnomalari va pauzadagi ilova rejalashtirgan bildirishnomalar;
+  "Baribir pauza qilish"ning bir nechta displey holati; muddati o'tadigan token sinovi.
 - Developer ID imzosi va notarizatsiya: qilinmagan ("O'rnatish" ga qarang).
 
 **Qachon yordam bermaydi:** xotira bosimi yashil (macOS o'zi uddalaydi, iClear hech narsa
@@ -223,6 +241,19 @@ qilmaydi); xotirani siz ishlatayotgan ilova yoki to'xtamasligi kerak bo'lgan nar
 model, virtual mashina, qo'ng'iroq) egallagan; uyg'onmasdan jim turgan ilovalar (macOS
 ularni baribir siqadi); yoki kundalik ishingiz uchun RAM shunchaki yetmaydi (bir haftalik
 ma'lumotdan keyin `iclear advise` buni aytadi).
+
+### Ma'lum yon ta'sirlar
+
+| Yon ta'sir | Sababi | iClear nima qiladi |
+|---|---|---|
+| Tarmoq va WebSocket uzilishlari | pauzadagi ilova heartbeat'ga javob bera olmaydi | chat, pochta, taqvim va media sukut bo'yicha pauza qilinmaydi; faol ulanish, audio, qo'ng'iroq yoki yuklab olish bor paytda hech narsa pauza qilinmaydi; ixtiyoriy uyg'onish oynalari |
+| Muddati o'tgan sessiya va tokenlar | pauza paytida vaqt o'tishda davom etadi | SESSION ilovalari (parol menejerlari, VPN, tizimga kirish) sukut bo'yicha pauza qilinmaydi; har bir sinf uchun eng uzun pauza (faqat main) |
+| Pauzadagi oyna yangilanmaydi | ilova hech qanday kod bajarmaydi | ko'rinadigan ilovalar hech qachon avtomatik pauza qilinmaydi; "Baribir pauza qilish" faqat so'rov bilan (faqat main) |
+| Svopdan keyingi birinchi davom ettirish sekinroq | xotira diskdan qayta o'qilishi kerak | oxirgi 30 daqiqada ishlatilgan oxirgi 3 ta ilova pauza qilinmaydi (faqat main) |
+| Kechikkan yoki chiqmagan bildirishnomalar | ilova kod bajarmaydi | xabar qabul qiladigan ilovalar sukut bo'yicha himoyalangan |
+| macOS 26 da Accessibility'siz pop'dan keyin ortiqcha oyna (1.0.3 gacha) | takroriy qayta ochish hodisalari | main'da tuzatilgan; 1.0.x bilan macOS 26 da stash/pop'dan oldin Accessibility ruxsatini bering |
+
+Har biri uchun nima o'lchangani va siz nima qila olishingiz: [SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md).
 
 <details>
 <summary><b>Pauza ilovalarga nima qiladi</b> (o'lchangan yon ta'sirlar va ular sabab bo'lgan sukut sozlamalari)</summary>
@@ -290,6 +321,17 @@ bitta ilova uchun ko'rsatadi.
 | Mikrofon | faqat `iclear selftest` uchun | uning qo'ng'iroq tekshiruvi iClear'ning o'z sinov vositasini ishga tushiradi, u bir necha soniya yozib, darhol tashlab yuboradi | o'sha tekshiruv o'tkazib yuboriladi (main'da `--no-mic`) |
 | Ekranni yozib olish, Kamera | ishlatilmaydi | | |
 
+## Batareya
+
+iClear'ning o'z sarfi, shu Mac'da o'lchangan: haqiqiy ilovalar bilan 200 daqiqalik Kuzatish
+rejimida xizmat o'rtacha bitta yadroning 0.150% ini ishlatdi (daqiqalik p95 0.200%;
+daqiqalarning 153 tasi zaryadda, 46 tasi batareyada), chiqarilgan 1.0.3 xizmati esa soak
+ma'lumotlaridan boshlanganda 1.0.2 ning 0.803% iga qarshi 0.374% (30 daqiqa, zaryadda).
+iClear to'xtatilgan holatga nisbatan batareya sarfi va Batareya tejash ta'siri hali
+**o'lchanmagan**: oldindan belgilangan juft batareya sinovlari Mac batareyada bo'lishini
+talab qiladi ([BATTERY.md](docs/BATTERY.md)). Batareya tejash (faqat main) sukut bo'yicha
+o'chiq; `iclear battery` har bir ilova uchun taxminlarni "taxmin" belgisi bilan ko'rsatadi.
+
 ## O'rnatish
 
 macOS 13 va undan yangilari, Apple Silicon va Intel uchun qurilgan (universal ikkilik
@@ -312,7 +354,7 @@ da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Op
 tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
 iclear-<versiya>`, keyin uning ichida `./iclear install`.
 
-**Manba koddan** (Swift 6; `main` 1.1 ishini quradi (1.1.0-rc.2)):
+**Manba koddan** (Swift 6; `main` 1.2 ishini quradi (1.2.0-rc.1)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear

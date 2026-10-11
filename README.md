@@ -9,15 +9,14 @@ when you switch back to it. It never deletes files.
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-lightgrey)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange)
 
-> **Latest release: 1.0.3** (1.0.2 plus the daemon CPU fix below). Validated on one Mac (Apple M3 Pro, 18 GB, macOS 27.0.1) with
-> real apps a lab started, never with personal accounts. `main` also holds the
-> 1.1 work, published only as the pre-release **1.1.0-rc.2**: anything marked "main only"
-> below is not in 1.0.3. CI (macOS 15 Apple Silicon and Intel, macOS 26) is green on the
-> rc.2 commit 18acb20; local runs are listed in
-> [QUALITY.md](docs/QUALITY.md). iClear starts in **Observe mode**: it only records what it
-> would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
+> **Latest release: 1.0.3** (1.0.2 plus a daemon CPU fix). Validated on one Mac (Apple M3
+> Pro, 18 GB, macOS 27.0.1) with real apps a lab started, never with personal accounts.
+> `main` also holds later work, published only as the pre-release **1.2.0-rc.1** (the app
+> window, Battery Saver, side-effect mitigations, the real-use trial): anything marked
+> "main only" below is not in 1.0.3. iClear starts in **Observe mode**: it only records what
+> it would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
 
-<p align="center"><img src="docs/images/menu-en.png" width="360" alt="iClear menu: Mac Health 100/100, memory normal, Observe mode, no apps paused"></p>
+<p align="center"><img src="docs/images/window-en.png" width="360" alt="The iClear window (main only): Mac Health 100/100, memory normal, Observe mode, nothing paused, settings"> <img src="docs/images/menu-en.png" width="360" alt="The iClear menu-bar popover with the same content"></p>
 
 ```text
 $ iclear status
@@ -96,6 +95,10 @@ discarded); on `main`, `--no-mic` skips that check.
 | Panic Brake (`iclear brake`) | **observe only** | **main only**, cannot act until its lab criteria pass |
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **off** | **main only**, off until their lab criteria pass |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | when you ask | **main only**, not validated |
+| App window with Dock icon, onboarding cards, settings (show at launch, keep in Dock, open at login) | the window opens with the app | **main only** (1.2.0-rc.1); `ic-lab ui-smoke` U1-U7 10/10 |
+| Battery Saver (`iclear battery saver`) | **off**; battery only | **main only**; its benefit is **not measured** ([BATTERY.md](docs/BATTERY.md)) |
+| SESSION class, a maximum pause per class, MRU protection, "Pause anyway" for a visible app (`iclear freeze <app> --visible`) | on (Pause anyway when you ask) | **main only**; unit and integration tests ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
+| Real-use trial (`iclear trial start\|stop\|status`) | not running unless started | **main only**; rollback guard tested 5/5 per trigger |
 
 Details of the main-only features and of what they cannot do: [below](#features-on-main-not-released).
 
@@ -168,6 +171,13 @@ pop, the guards, and the side effects below. Numbers: [Validated scope](#validat
 - On `main`: Panic Brake observe only; Black Box, Thrash Guard, Wake-on-Data and leak
   notifications off, each until its pre-registered lab criteria pass
   ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
+- On `main` (1.2.0-rc.1): Battery Saver off by default, because its paired battery test
+  has not run; iClear's own drain on battery (E1, E2) has not been measured either: the
+  Mac stayed on AC through this work ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
+
+**Real-use trial in progress since 2026-10-11:** on the owner's Mac, Active mode for
+Microsoft Word, PowerPoint and Excel only, with automatic rollback to Observe
+([REAL_USE.md](docs/REAL_USE.md)). No results yet.
 
 **Measured weakness: daemon CPU.** A 10-minute lab run of 1.0 measured 0.48% of one core
 and 40 MB (bound 0.5%). The 7-day soak of 1.0.0 did not meet the bound: daily means of
@@ -202,7 +212,11 @@ been regretted. [Full result](docs/VALIDATION.md#7-day-soak-on-100-final-result-
   keys sent to a paused player; the thermal shield.
 - The main-only features' lab gates: Panic Brake G1-G4, G7, G9; Black Box H1-H3; leak
   trend L1-L4 (stopped at the lab's memory safety limits); Thrash Guard, Wake-on-Data,
-  canary probe runs and the capacity benchmark (not run). 1.1.0-rc.2 is a pre-release.
+  canary probe runs and the capacity benchmark (not run). 1.2.0-rc.1 is a pre-release.
+- On `main` (v1.2): iClear's own battery drain, Battery Saver's effect and resume latency
+  after swap-out on battery (the Mac stayed on AC); the canary probe on battery (it needs
+  AC); adaptive wake windows (not built); push notifications and notifications scheduled
+  by a paused app; the multi-display case of "Pause anyway"; the expiring-token fixture.
 - Developer ID signing and notarization: not done (see Install).
 
 **When it does not help:** memory pressure is green (macOS handles it, iClear stays idle);
@@ -210,6 +224,19 @@ the memory belongs to the app you are using, or to something that must keep runn
 build, a model, a VM, a call); apps that sit idle without waking (macOS compresses those
 anyway); or you are simply short of RAM for your daily work (`iclear advise` says so after
 a week of data).
+
+### Known side effects
+
+| Side effect | Why | What iClear does |
+|---|---|---|
+| Network and WebSocket drops | a paused app cannot answer heartbeats | chat, mail, calendar and media never paused by default; nothing paused with active connections, audio, calls or downloads; opt-in wake windows |
+| Expired sessions and tokens | the clock keeps running while an app is paused | SESSION apps (password managers, VPN, sign-in) never paused by default; a maximum pause per class (main only) |
+| A paused window stops redrawing | it runs no code | visible apps are never paused automatically; "Pause anyway" only on request (main only) |
+| A slower first resume after swap-out | memory must be read back from disk | the last 3 apps used within 30 minutes are not paused (main only) |
+| Late or missing notifications | the app runs no code | apps that receive messages are protected by default |
+| An extra window after pop on macOS 26 without Accessibility (up to 1.0.3) | repeated reopen events | fixed on main; with 1.0.x, grant Accessibility before using stash/pop on macOS 26 |
+
+What was measured for each, and what you can do: [SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md).
 
 <details>
 <summary><b>What pausing does to apps</b> (measured side effects and the defaults they led to)</summary>
@@ -266,6 +293,16 @@ Measured with simulators and Chrome on local pages ([VALIDATION.md](docs/VALIDAT
 | Microphone | only for `iclear selftest` | its call check runs iClear's own test tool, which records a few seconds and discards them | that check is skipped (`--no-mic` on main) |
 | Screen Recording, Camera | not used | | |
 
+## Battery
+
+iClear's own cost, measured on this Mac: the daemon used 0.150% of one core on average over
+200 minutes of Observe mode with real apps (per-minute p95 0.200%; 153 of the minutes on AC,
+46 on battery), and the published 1.0.3 daemon 0.374% against 1.0.2's 0.803% from the
+soak's data (30 minutes, on AC). Its battery drain compared with iClear stopped, and
+Battery Saver's effect, have **not been measured** yet: the pre-registered paired battery
+tests need the Mac on battery ([BATTERY.md](docs/BATTERY.md)). Battery Saver (main only) is
+off by default; `iclear battery` shows per-app estimates, labelled as estimates.
+
 ## Install
 
 Built for macOS 13 and later, Apple Silicon and Intel (universal binary); tested only as
@@ -286,7 +323,7 @@ Open Anyway (Apple removed the right-click route in macOS 15). On macOS 13 and 1
 right-click iClear.app, choose Open, confirm. Command-line tools:
 `xattr -dr com.apple.quarantine iclear-<version>`, then `./iclear install` inside it.
 
-**From source** (a Swift 6 toolchain; `main` builds the 1.1 work (1.1.0-rc.2)):
+**From source** (a Swift 6 toolchain; `main` builds the 1.2 work (1.2.0-rc.1)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear
