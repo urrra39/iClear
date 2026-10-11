@@ -563,6 +563,6 @@ this Mac's real apps, the main build, while the lab phases above ran): mean **0.
 one core; per-minute median 0.150%, p95 0.200%, max 0.600%; RSS ≤ 37.6 MB; 314-466 own
 processes; pressure normal at every 1-minute sample; thermal nominal. 153 of the minutes
 were on AC (median 0.150%, p95 0.250%) and 46 on battery (AC was lost 09:23-10:10). The
-one-week bound (W5) was not re-measured. A second fresh run on AC, 10:24-11:04 (40 min,
+one-week bound (W5) was not re-measured. A second fresh run on AC, 10:21-11:02 (40 min,
 leak-trend cleanup done, no lab phase running): mean 0.163%, per-minute median 0.117%,
 p95 0.167%, max 1.367%; with it, 193 minutes on AC in total.
