@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.2.0-rc.2 (2026-10-11; release candidate)
+
+Correctness fixes found by an independent review of 1.2.0-rc.1; no new features.
+
+- **Fixed: a trial rollback could leave the trial running.** The rollback wrote the Observe
+  config and then reloaded the file; when the write failed, the reload brought the Active
+  trial back while the rollback was reported as done. The trial now ends in the running
+  daemon first; a reload of a file that still holds the ended trial keeps it ended;
+  trial.json records it for a restart; a write failure is reported, not hidden.
+- **Fixed: "Nothing is paused" after a rollback whose resume failed.** The rollback and
+  `iclear trial stop` now report what actually happened: resumed, or which apps are still
+  paused (kept in the journal, retried within a bound), including trial apps already
+  waiting for a retry and lowered priorities. Only the trial's own pauses are resumed.
+- **Fixed: Battery Saver's self-disarm had the same write-then-reload pattern**; it now
+  turns off in the running daemon first and writes the file once it can. Its check now
+  compares the predicted saving with the observed drop in system power (B2 as registered),
+  not total system power.
+- **Fixed: a recovery that cannot write its marker** (the file that tells a change in
+  progress to undo itself) reported the change as cancelled. It now says so, waits once
+  more (at most 5 s) for that change to finish, and resumes what it did; if the change
+  still holds the journal, it reports that it was not cancelled.
+- **Lab harness:** a failed start or battery read stops the stack under test; blocks that
+  leave battery power or cross the 25% floor are invalid; the tested binaries are recorded.
+- **Selftest:** the canary probe is reported as skipped on battery (it runs only on AC
+  power by design); in 1.2.0-rc.1 it failed there.
+- **Criteria amendments** (dated, no bound changed): R1's battery-regression trigger is not
+  implemented (the guard measures iClear's CPU), so R1 is not met as registered; B2's
+  quantity corrected.
+
 ## 1.2.0-rc.1 (2026-10-11; release candidate)
 
 Criteria: `docs/RELEASE_CRITERIA_v1.2.md` (committed before any v1.2 measurement). The

@@ -1,13 +1,28 @@
 iClear @VERSION@ is a **release candidate** for 1.2, published for testing. It is not the
 stable 1.2.0: the pre-registered battery A/B tests (iClear's own drain against iClear stopped,
 Battery Saver's effect) and the regression run on battery did not fit in the battery time
-available, and the release rule then
-allows only a candidate (`docs/RELEASE_CRITERIA_v1.2.md`). iClear's own steady-state cost
-on battery was measured and met its bound.
+available, the trial guard's battery-regression trigger is not implemented (criterion R1,
+amendment A1), and the release rule then allows only a candidate
+(`docs/RELEASE_CRITERIA_v1.2.md`). iClear's own steady-state cost on battery was measured
+on 1.2.0-rc.1 code and met its bound.
 
 Keep 1.0.3 for daily use unless you want to help test. iClear pauses idle background apps
 on a Mac that is running out of memory and resumes each one when you switch back to it.
 It starts in **Observe mode**, which only records what it would do.
+
+## Fixed since 1.2.0-rc.1
+
+- A trial rollback whose config write failed could leave the trial running while saying
+  it had stopped; the trial now ends in the running daemon first, stays ended after a
+  reload or restart, and a write failure is reported.
+- A rollback or `iclear trial stop` said "Nothing is paused" even when a resume failed; it
+  now reports what is still paused (kept in the journal and retried).
+- Battery Saver's self-disarm had the same pattern; fixed. It now compares the predicted
+  saving with the observed drop in system power.
+- A recovery that cannot write its marker no longer reports a change in progress as
+  cancelled; it waits for it (at most 5 s) and resumes what it did.
+- `iclear selftest` reports the canary probe as skipped on battery (it failed there in
+  1.2.0-rc.1).
 
 ## New since 1.1.0-rc.2
 
@@ -35,14 +50,14 @@ It starts in **Observe mode**, which only records what it would do.
 
 Full list: `CHANGELOG.md`.
 
-## Measured on this candidate's code (one Mac, 2026-10-11)
+## Measured on 1.2.0-rc.1 code (one Mac, 2026-10-11; the rc.2 fixes do not touch these paths and were not re-measured)
 
 | Criterion | Result |
 |---|---|
 | U1-U7 app window and icon (`ic-lab ui-smoke`, installed app, 10 runs, on AC) | 10/10 each; U6 compared the Finder icon because Quick Look hangs on app bundles on this macOS; U3 closed the window through its close action (`performClose`) because Accessibility does not expose its close button |
 | S6 pop without Accessibility | 30/30 local runs with no extra window; macOS 26 CI runs: see `docs/QUALITY.md` |
 | S8 `thaw --all` with nothing installed | test passes |
-| R1 trial rollback | each of 6 triggers 5/5, nothing left paused |
+| R1 trial rollback | each of 6 triggers 5/5, nothing left paused; the battery-regression trigger is a CPU trigger, so R1 is **not met as registered**. rc.2 adds fault-injection tests (config write, reload and resume failures) |
 | Daemon overhead, Observe mode, real apps, 200 min (153 on AC, 46 on battery) | mean 0.150% of one core, per-minute p95 0.200% |
 | E1 whole stack, 60 min on battery (display on, thermal nominal) | CPU 0.163% of one core, 1.52 wakeups per second (bounds 0.25% and 2): met; a first run before the last fixes had 2.33 wakeups per second |
 | E2, E3, B1, S4 and the regression block on battery | **not run**: E2 needs about 4.2 h and could not fit above the 25% floor at the measured drain; the battery was below the 50% start floor after E1 |
