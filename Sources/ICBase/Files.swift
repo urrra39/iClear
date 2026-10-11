@@ -231,9 +231,20 @@ public final class JournalStore: @unchecked Sendable {
     /// "" when no recovery has written one yet.
     public func recoveryToken() -> String { (try? String(contentsOf: recoveryTokenURL, encoding: .utf8)) ?? "" }
 
-    /// False when the token could not be written (then a late writer is not stopped).
+    /// Writes the recovery marker (a seam for failure tests).
+    public var writeMarker: (Data, URL) throws -> Void = { try Files.atomicWrite($0, to: $1) }
+
+    /// Nil when the token is written; otherwise why not. Then a writer in the middle of a
+    /// change is NOT told to undo it: the caller must not report it as cancelled.
     @discardableResult
-    public func requestRecovery() -> Bool { (try? Files.atomicWrite(Data(UUID().uuidString.utf8), to: recoveryTokenURL)) != nil }
+    public func requestRecovery() -> String? {
+        do {
+            try writeMarker(Data(UUID().uuidString.utf8), recoveryTokenURL)
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
 
     /// Runs `body` holding the journal lock. Throws, without running `body`, `JournalBusy`
     /// when another holder keeps it past `timeout` seconds (one monotonic deadline for the

@@ -84,6 +84,8 @@
 "brake.notRunning" = "The Panic Brake is not running.";
 "loading" = "Loading…";
 "frozen.unresolved" = "%@: could not be resumed yet (still paused). Resume all tries again.";
+"thawAll.notTold" = "iClear was in the middle of a change and could not be told to undo it (its recovery file could not be written). The change is in the journal; press Resume all again in a few seconds.";
+"thawAll.markerFailed" = "The recovery file could not be written. Everything recorded was resumed; press Resume all again in a few seconds to catch a change that was still in progress.";
 "thawAll.pending" = "iClear was in the middle of a change and was told to undo it. Press Resume all again in a few seconds to confirm.";
 "action.busy" = "Too many actions are waiting; this one was not sent.";
 "thawAll.notAll" = "Not everything could be resumed:";
