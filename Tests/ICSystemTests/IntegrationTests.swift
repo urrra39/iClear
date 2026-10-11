@@ -188,6 +188,31 @@ import Testing
 }
 
 @Suite(.serialized) struct DaemonTests {
+    /// A forecast that is shown but never acted on (off by default) does not speed up the
+    /// tick: the 1.0 soak's Observe daemon ticked every 5 s on such an ETA.
+    @Test func disarmedForecastKeepsTheSlowTick() throws {
+        for enabled in [false, true] {
+            let probe = FakeProbe()
+            let paths = tempHome()
+            var c = Config()
+            c.mode = .observe
+            c.forecast.enabled = enabled
+            try Files.atomicWrite(c.encoded(), to: paths.config)
+            var st = EngineState(startedAt: probe.now - 86400)
+            st.forecast.warningLevels = [70, 70, 70]  // above the probe's 60% available: ETA 0
+            st.forecast.slope = 0  // a trend exists
+            try Files.writeJSON(st, to: paths.state)
+            let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
+            d.clock = { probe.now }
+            d.scheduleHealthChecks = false
+            try d.start(watchdogExecutable: nil, live: false)
+            defer { d.shutdown() }
+            d.tick()
+            #expect(d.engine.lastForecast.etaWarning == 0)
+            #expect(d.interval(for: .normal) == (enabled ? 5 : 30))
+        }
+    }
+
     @Test func freezesUnderPressureAndThawsFirstOnActivation() throws {
         let probe = FakeProbe()
         let a = try hog(["--mb", "64"])

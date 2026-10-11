@@ -263,9 +263,15 @@ public final class Daemon {
         pressureSource = m
     }
 
+    /// The ETA the policy may act on: none while the forecast is disarmed (off by default,
+    /// or over its false-alarm budget), when it is shown but never acted on.
+    var actionableETA: Double? { engine.lastForecast.armed ? engine.lastForecast.etaWarning : nil }
+
+    /// Fast ticks only for a forecast the policy may act on: a display-only ETA used to
+    /// force 5 s ticks (and guard inspections) for as long as it lasted.
     func interval(for level: PressureLevel) -> Double {
         switch level {
-        case .normal: return engine.lastForecast.etaWarning != nil ? 5 : 30
+        case .normal: return actionableETA != nil ? 5 : 30
         case .warning: return 3
         case .critical: return 2
         }
@@ -330,7 +336,7 @@ public final class Daemon {
         // S4 guards cost syscalls per descriptor, so only inspect when iClear may act.
         let horizon = engine.config.forecast.horizonMinutes
         let mayAct =
-            sample.pressure >= .warning || (engine.lastForecast.etaWarning.map { $0 <= horizon } ?? false)
+            sample.pressure >= .warning || (actionableETA.map { $0 <= horizon } ?? false)
             || engine.state.wakeRefreezeAt.values.contains { $0 <= now }
         if mayAct {
             let ctx = engine.eligibilityContext(at: now)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3 (2026-10-11)
+
+- **Fix: daemon CPU (7-day soak, W5).** The forecast's ETA to memory warning is shown
+  even when the forecast is off (the default) or has switched itself off for false
+  alarms; such an ETA is never acted on, but it still made the daemon tick every 5 s
+  instead of every 30 s and inspect the sockets and files of up to 12 apps on each tick.
+  On a Mac whose free memory sat below the warning level the forecast had learned, this
+  lasted for hours. Only an armed forecast now changes the tick or the guard
+  inspections. One test covers it.
+
 ## 1.0.2 (2026-10-03)
 
 - **Fix: a corrupt freeze journal could lose the records of paused apps.** If the journal

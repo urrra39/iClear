@@ -123,6 +123,7 @@ and `conflictsAndProtectedRulesAreWarnings`. Behavior:
 | 1.0 #1 Restoration records (priority band, hidden state) | `restorationsKeepTheOriginalValueAndOnlyUndoChanges`, `backgroundBandIsJournaledAndRestored` |
 | 1.0 #2 Stashes never outlive the daemon | `staleStashIsDroppedOnStart`, `powerOffResumesStashesAndFreezes`, `daemonKilledMidPopRecoversTheRest`; lab `crash` (stash trials) |
 | 1.0.2 A corrupt journal is left for recovery, never replaced | `corruptJournalIsNeverReplacedByANewWrite`, `daemonRecoversWhenItMeetsACorruptJournal` |
+| 1.0.3 A display-only forecast ETA does not speed up the tick or start guard inspections | `disarmedForecastKeepsTheSlowTick` |
 | 1.0 #3 Disk headroom before a stash | `refusesWithoutDiskHeadroom` |
 | 1.0 #4 Call apps never paused during a call | `hardBlocksCannotBeOverridden`, `callModeLowersOthersAndRestoresWithinTwoSeconds`, `microphoneAndFlickerKeepTheCooldown`; lab `sideeffects` (E2) |
 | 1.0 #6 Lab work stays in its lab | `scopeLockRefusesUnregisteredProcesses`, `everyCommandRunsThroughTheCLI` |
