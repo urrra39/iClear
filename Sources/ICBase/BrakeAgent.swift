@@ -290,7 +290,7 @@ public final class BrakeAgent {
 
     static let fastPeriod: UInt64 = 250_000_000
 
-    /// Every 250 ms while anything is moving; every 2 s (5 s in lean mode) while the Mac is
+    /// Every 250 ms while anything is moving; every 3 s (5 s in lean mode) while the Mac is
     /// healthy: normal pressure, no swap-ins, few decompressions, nothing held, no stall.
     func samplePeriod(previous p: StallSignals?, current s: StallSignals) -> UInt64 {
         lock.lock()
@@ -298,7 +298,7 @@ public final class BrakeAgent {
         guard let p, !labMode, !simulateStall, pauses.isEmpty, quitting.isEmpty, detector.state == .healthy, s.pressure == 1,
             s.swapIns == p.swapIns, s.decompressions &- p.decompressions < 2_000
         else { return Self.fastPeriod }
-        return lean ? 5_000_000_000 : 2_000_000_000
+        return lean ? 5_000_000_000 : 3_000_000_000
     }
 
     func samplingLoop(_ reader: BrakeSignalReader) {
@@ -316,7 +316,7 @@ public final class BrakeAgent {
             let woke = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             let late = Double(woke &- next) / 1e6
             let s = reader.read(t: Date().timeIntervalSince1970, jitterMs: late)
-            // The Black Box keeps one sample per 2 s at any cadence.
+            // The Black Box keeps every sample at the healthy cadence, one per 2 s at 250 ms.
             ingest(
                 s, swapMB: reader.swapMB, compressedMB: reader.compressedMB, recordBlackBox: period != Self.fastPeriod || tick % 8 == 0,
                 lateMs: late)

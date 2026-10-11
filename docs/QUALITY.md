@@ -130,7 +130,7 @@ not run, so this is `v1.2.0-rc.1`.
 | S3 Pause anyway | test passes; multi-display not validated | tests yes |
 | S4 MRU and resume latency | MRU tests pass; swap-out latency on battery NOT RUN; pre-resume stays off | tests yes |
 | S5 notifications | NOT RUN (cut) | — |
-| S6 pop without Accessibility | 30/30 local, 0 extra windows; macOS 26 CI: S6_CI_RESULT | S6_MET |
+| S6 pop without Accessibility | 30/30 local, 0 extra windows; macOS 26 CI: 22/22 runs (6 on bc9d1c9, 16 on ffa65a7; macOS 15 Apple Silicon and Intel 23/23 each), 0 extra windows | yes |
 | S7 macOS 14 | NOT RUN (cut); a CI trial failed 2 of 329 tests | — |
 | S8 thaw message | test passes | yes |
 | R1 trial rollback | 6 triggers x 5/5, nothing left paused | yes |

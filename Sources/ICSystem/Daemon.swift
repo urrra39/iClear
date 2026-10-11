@@ -275,11 +275,13 @@ public final class Daemon {
         t.schedule(deadline: .now())
         t.resume()
         tickTimer = t
-        // Cheap 1 s poll of the pressure level; a change triggers an immediate tick.
+        // Cheap poll of the pressure level (1 s, 2 s while calm); a change triggers an
+        // immediate tick. The memory-pressure dispatch source below is a second trigger.
         let p = DispatchSource.makeTimerSource(queue: .main)
         p.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
         p.setEventHandler { [weak self] in
             guard let self else { return }
+            self.pacePressurePoll()
             let level = SystemSampler.pressure()
             if level != self.lastLevel { self.tick() }
             // Every second while a shield can act; otherwise every 5 s, which still counts
@@ -287,7 +289,7 @@ public final class Daemon {
             self.pollCount += 1
             let c = self.engine.config
             if c.callMode.enabled || c.thermalShield.enabled || c.antiBeachball.mitigation.enabled
-                || self.pollCount % (self.lean ? 15 : 5) == 0
+                || self.pollCount % max(1, Int(((self.lean ? 15 : 5) / self.pollInterval).rounded())) == 0
             {
                 self.shieldPoll()
             }
@@ -306,6 +308,19 @@ public final class Daemon {
     /// or over its false-alarm budget), when it is shown but never acted on.
     var actionableETA: Double? { engine.lastForecast.armed ? engine.lastForecast.etaWarning : nil }
 
+    /// Every 2 s while calm (normal pressure, nothing paused, no shield that acts per
+    /// second), 1 s otherwise: half the daemon's wakeups on a healthy Mac (v1.2 E1).
+    func pacePressurePoll() {
+        let c = engine.config
+        let calm =
+            lastLevel == .normal && engine.state.frozen.isEmpty && stashedAppIDs.isEmpty && !c.callMode.enabled
+            && !c.thermalShield.enabled && !c.antiBeachball.mitigation.enabled
+        let want = calm ? 2.0 : 1.0
+        guard want != pollInterval, let p = pollTimer else { return }
+        pollInterval = want
+        p.schedule(deadline: .now() + want, repeating: want, leeway: .milliseconds(Int(want * 250)))
+    }
+
     func interval(for level: PressureLevel) -> Double {
         Self.interval(
             for: level, etaWarning: actionableETA, horizonMinutes: engine.config.forecast.horizonMinutes,
@@ -315,6 +330,7 @@ public final class Daemon {
     /// Battery at or below 20%, or Low Power Mode: calm ticks and the call poll slow down;
     /// pressure still ticks at once (1 s poll). Set by each tick.
     var lean = false
+    var pollInterval = 1.0
 
     /// Fast ticks only while the forecast sees warning within three horizons: any slow
     /// drift used to switch to 5 s ticks, six times the idle cost for an ETA hours away.
