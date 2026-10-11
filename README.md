@@ -12,8 +12,7 @@ when you switch back to it. It never deletes files.
 > **Latest release: 1.0.2.** Validated on one Mac (Apple M3 Pro, 18 GB, macOS 27.0.1) with
 > real apps a lab started, never with personal accounts. `main` also holds the
 > **1.1.0-rc.1** work, which is **not released**: anything marked "main only" below is not
-> in a download. The CI badge is red because GitHub has not run any job since 2026-10-06
-> (an account billing lock), not because a test failed; local runs are listed in
+> in a download. CI (macOS 15 Apple Silicon and Intel, macOS 26) was green on main at 618c0f9 (run 38090952189); local runs are listed in
 > [QUALITY.md](docs/QUALITY.md). iClear starts in **Observe mode**: it only records what it
 > would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
 
@@ -147,7 +146,7 @@ flowchart LR
 | Pop until every stashed app is shown | p50 1.34 s, p99 1.36 s |
 | 60-minute run with every feature on, Active lab daemon | 0 failures: 12/12 stash/pop cycles, 6 pressure episodes, 6/6 simulated calls detected, 0 hangs |
 | `iclear selftest` (full) | 1.0.0: 13 of 13; main (1.1.0-rc.1 build): 19 of 19, no skip |
-| Tests | 1.0.x: 188, green on three CI runners; main: 328, passing locally (CI not run, see above); ICCore line coverage 97.3% |
+| Tests | 1.0.x: 188, green on three CI runners; main: 329 locally (CI green on the three runners at 618c0f9, which had 328 tests); ICCore line coverage 97.3% |
 
 All criteria and results: [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
 [VALIDATION.md](docs/VALIDATION.md), [QUALITY.md](docs/QUALITY.md). Everything without a

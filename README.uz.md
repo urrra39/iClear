@@ -12,10 +12,8 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 > **Oxirgi reliz: 1.0.2.** Bitta Mac'da (Apple M3 Pro, 18 GB, macOS 27.0.1) laboratoriya
 > ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech qachon shaxsiy akkauntlar bilan
 > emas. `main` tarmog'ida **1.1.0-rc.1** ishi ham bor, u **chiqarilmagan**: quyida "faqat
-> main" deb belgilangan narsa yuklab olinadigan versiyada yo'q. CI belgisi qizil, chunki
-> 2026-10-06 dan beri GitHub birorta ham ishni ishga tushirmadi (akkauntdagi to'lov
-> blokirovkasi), test yiqilgani uchun emas; mahalliy natijalar [QUALITY.md](docs/QUALITY.md)
-> da. iClear **Kuzatish rejimida** boshlanadi: u faqat nima qilgan bo'lardi, shuni yozadi.
+> main" deb belgilangan narsa yuklab olinadigan versiyada yo'q. CI (macOS 15 Apple Silicon va Intel, macOS 26) main'da 618c0f9 da yashil edi (run 38090952189);
+> mahalliy natijalar [QUALITY.md](docs/QUALITY.md) da. iClear **Kuzatish rejimida** boshlanadi: u faqat nima qilgan bo'lardi, shuni yozadi.
 > [English](README.md) · [Holat va cheklovlar](#holat-va-cheklovlar) (hujjatlar ingliz tilida)
 
 <p align="center"><img src="docs/images/menu-uz.png" width="360" alt="iClear menyusi: Mac salomatligi 100/100, xotira me'yorida, Kuzatish rejimi"></p>
@@ -154,7 +152,7 @@ flowchart LR
 | Pop: barcha yashirilgan ilovalar ko'ringuncha | p50 1.34 s, p99 1.36 s |
 | Barcha imkoniyatlar yoqilgan 60 daqiqalik sinov, Faol laboratoriya xizmati | 0 xato: 12/12 stash/pop sikli, 6 bosim epizodi, 6/6 simulyatsiya qilingan qo'ng'iroq aniqlandi, 0 qotish |
 | `iclear selftest` (to'liq) | 1.0.0: 13 tadan 13; main (1.1.0-rc.1 build): 19 tadan 19, o'tkazib yuborilgani yo'q |
-| Testlar | 1.0.x: 188 ta, uchta CI runnerida yashil; main: 328 ta, mahalliy o'tadi (CI ishlamadi, yuqoriga qarang); ICCore qatorlarini qamrab olish 97.3% |
+| Testlar | 1.0.x: 188 ta, uchta CI runnerida yashil; main: mahalliy 329 ta (CI 618c0f9 da uchala runnerda yashil, u yerda 328 ta test bor edi); ICCore qatorlarini qamrab olish 97.3% |
 
 Barcha mezon va natijalar: [RELEASE_CRITERIA.md](docs/RELEASE_CRITERIA.md),
 [VALIDATION.md](docs/VALIDATION.md), [QUALITY.md](docs/QUALITY.md). Testi yo'q hamma narsa

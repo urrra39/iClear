@@ -97,7 +97,7 @@ files. **C14 met.**
 | Requirement | Status | Build / artifact | Evidence | Next action or reason |
 |---|---|---|---|---|
 | Regression suite (C10 part, local) | PASSED | 657e1e0 | `scripts/test.sh`: 326 tests (139 + 187), 0 failed, 0 skipped, rc 0; strict lint clean | — |
-| C10 / R3 CI matrix | BLOCKED | PR head | Runs 37429432665 and 37456161327: "account is locked due to a billing issue", no step ran | Owner resolves the GitHub billing lock; then the matrix runs on the final head |
+| C10 / R3 CI matrix | PASSED | main 618c0f9, v1.1 455d4e3 | The billing lock cleared: runs 38090952189 (main) and 38090952152 (v1.1): macos-15, macos-15-intel and macos-26 all success, 9 steps each (the earlier runs, up to 38066686054, failed with the billing message). Run on the merge commit 618c0f9 (328 tests then; 329 now) | A run on the latest head 9b0635b is queued |
 | C10 / R4 ICCore coverage ≥ 90% | PASSED | 657e1e0 | 97.3% (3980/4092 lines); ICBase 76.1%, ICSystem 56.3% (subprocesses not counted) | — |
 | C13 full selftest | PASSED | cd3aca7 tarball, same binaries as rc.1 | 19/19, 174 s, from the release artifact in an isolated home | — |
 | C13 full selftest on main 618c0f9, on battery | 18/19 | release build | Only the canary probe failed ("runs only on AC power") | Re-run on AC |
