@@ -85,6 +85,8 @@ public final class Daemon {
     var lastLeakCheck = 0.0
     /// Tests run health checks by hand instead of on timers.
     public var scheduleHealthChecks = true
+    /// Whether iClear has Accessibility; tests force the path without it (v1.2 S6).
+    var axTrusted: () -> Bool = { AXIsProcessTrusted() }
     /// Test hook: called after every executed action.
     public var onAction: ((Action, String) -> Void)?
     /// Test hook: called before each app of a stash (index in hiding order).

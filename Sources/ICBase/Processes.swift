@@ -281,6 +281,8 @@ public enum Signals {
         /// Ran without the lock: another process was in the middle of a change. It was
         /// told to undo it (recovery token), but that happens when it continues.
         public var pending = false
+        /// No journal directory: nothing of this instance is installed, so nothing can be paused.
+        public var absent = false
     }
 
     /// Thaws everything in the journal (identity-checked), puts back recorded changes and
@@ -290,6 +292,12 @@ public enum Signals {
     public static func recover(
         journal: JournalStore, restorer: Restorer, send: Sender = liveSender, lockTimeout: Double = 5, restoreBudget: Double = 4
     ) -> RecoveryResult {
+        // Nothing installed for this instance: no lock to take and nothing to resume.
+        guard FileManager.default.fileExists(atPath: journal.url.deletingLastPathComponent().path) else {
+            var r = RecoveryResult()
+            r.absent = true
+            return r
+        }
         // Before anything is resumed: any change in progress (a late writer, a stash part
         // way through) sees it and undoes itself.
         journal.requestRecovery()

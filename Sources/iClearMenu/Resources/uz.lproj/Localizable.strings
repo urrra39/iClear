@@ -95,3 +95,12 @@
 "onboarding.exit" = "Favqulodda: \"Hammasini davom ettirish\" (yoki menyu ishlayotganda Control-Option-Command-T) iClear pauza qilgan barcha ilovalarni davom ettiradi, uning xizmati ishlamayotgan bo'lsa ham. Biror narsani darhol davom ettirib bo'lmasa, menyu buni aytadi.";
 "onboarding.done" = "Tushunarli";
 "brake.observeOnly" = "Panic Brake kuzatmoqda: xotira qotib qolganda qaysi ilovangizni pauza qilishini yozib boradi. Bu versiyada hali hech narsani pauza qilmaydi; buning uchun laboratoriya sinovlari kutilmoqda.";
+"onboarding.step" = "%d-qadam, jami %d";
+"onboarding.what" = "Mac'da xotira kamayganda iClear siz ishlatmayotgan ilovalarni pauza qiladi va qaysi biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Fayllarni hech qachon o'chirmaydi.";
+"onboarding.switches" = "Kalitlar: Kuzatish yoki Faol (oynaning yuqorisida); Panic Brake kuzatish rejimida boshlanadi va faqat laboratoriya tekshiruvlaridan o'tgandan keyin harakat qila oladi; Batareya tejash siz yoqmaguningizcha o'chiq.";
+"onboarding.next" = "Keyingi";
+"onboarding.back" = "Orqaga";
+"settings.showAtLaunch" = "iClear ochilganda bu oynani ko'rsatish";
+"settings.keepInDock" = "Dock'da qoldirish";
+"settings.launchAtLogin" = "Tizimga kirganda ochish (faqat menyu panelida)";
+"settings.loginFailed" = "Kirish elementini o'zgartirib bo'lmadi: %@";

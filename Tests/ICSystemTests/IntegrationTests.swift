@@ -444,6 +444,18 @@ import Testing
 }
 
 @Suite(.serialized) struct BinaryTests {
+    /// v1.2 S8: with nothing installed, `thaw --all` says nothing is paused, never "locked".
+    @Test func thawAllWithNothingInstalledSaysSo() throws {
+        let home = "/tmp/ic-t-empty-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let r = run("iclear", ["thaw", "--all"], env: ["ICLEAR_HOME": home])
+        #expect(r.status == 0, "\(r.out)")
+        #expect(!r.out.contains("locked"), "\(r.out)")
+        #expect(r.out.contains("nothing is paused"), "\(r.out)")
+        #expect(!FileManager.default.fileExists(atPath: home + "/Library"), "it must not create the instance")
+    }
+
     /// Safety invariant 1: SIGKILL the daemon while something is frozen; the watchdog thaws it.
     @Test func watchdogThawsAfterDaemonIsKilled() throws {
         let paths = tempHome()

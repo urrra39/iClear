@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 import ICCore
 import ICSystem
+import ServiceManagement
 import UserNotifications
 
 func localized(_ key: String) -> String { NSLocalizedString(key, bundle: .module, comment: "") }
@@ -31,6 +32,8 @@ final class Model: ObservableObject {
     var brakeActingOffered: Bool { paths.instance != nil || ReleaseGates.thisBuild.brakeActing }
     /// The first-run card: what iClear does, what it never touches, and the way out.
     @Published var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone")
+    @Published var onboardingCard = 0
+    @Published var loginItem = SMAppService.mainApp.status == .enabled
     private var lastBrakeEvent = Date().timeIntervalSince1970
 
     let paths = Paths()
@@ -50,9 +53,7 @@ final class Model: ObservableObject {
     init() {
         client = DaemonClient(paths: paths)
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        schedule()
         hotKeys = [HotKey(key: kVK_ANSI_T, id: 1) { [weak self] in Task { @MainActor in self?.thawAll() } }]
         let config = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 }
         if config?.stash.hotkeys == true {
@@ -63,6 +64,24 @@ final class Model: ObservableObject {
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         }
+    }
+
+    /// Open views (the popover, the window). Refresh every 5 s while one is open; while all
+    /// are hidden only a coalesced 60 s poll runs, which posts the daemon's notifications.
+    var openViews = 0 {
+        didSet {
+            if openViews > 0 && oldValue == 0 { refresh() }
+            schedule()
+        }
+    }
+
+    private func schedule() {
+        timer?.invalidate()
+        let every: TimeInterval = openViews > 0 ? 5 : 60
+        let t = Timer(timeInterval: every, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+        t.tolerance = every / 2
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     func refresh() {
@@ -169,6 +188,17 @@ final class Model: ObservableObject {
         brakePromptDone = true
         message = mode == .on ? localized("brake.nowOn") : localized("brake.nowObserve")
     }
+    /// Open at login through ServiceManagement; the login launch shows no window.
+    func setLoginItem(_ on: Bool) {
+        guard on != (SMAppService.mainApp.status == .enabled) else { return }
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            message = String(format: localized("settings.loginFailed"), error.localizedDescription)
+            loginItem = SMAppService.mainApp.status == .enabled
+        }
+    }
+
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboardingDone")
         onboardingDone = true

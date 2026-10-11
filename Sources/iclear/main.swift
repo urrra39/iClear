@@ -154,6 +154,7 @@ case "thaw":
         } else {
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
+            if b.absent { out("No Panic Brake journal on this Mac: it has not run here, so it paused nothing.") }
             if b.pending { out("The Panic Brake's journal was locked; a change in progress was told to undo itself.") }
         }
     }
@@ -164,6 +165,12 @@ case "thaw":
         if !r.ok { exit(1) }
     } else if all {
         let r = Signals.recover(journal: JournalStore(url: paths.journal))
+        if r.absent {
+            out(
+                "iClear is not installed for this user (no journal at \(paths.journal.deletingLastPathComponent().path)), so nothing is paused."
+            )
+            exit(0)
+        }
         let why =
             answer.failureValue == .absent
             ? "icleard is not running" : "icleard did not answer (\(answer.failureValue.map { "\($0)" } ?? ""))"
