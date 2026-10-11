@@ -172,8 +172,9 @@ pop, the guards, and the side effects below. Numbers: [Validated scope](#validat
   notifications off, each until its pre-registered lab criteria pass
   ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
 - On `main` (1.2.0-rc.1): Battery Saver off by default, because its paired battery test
-  has not run; iClear's own drain on battery (E1, E2) has not been measured either: the
-  Mac stayed on AC through this work ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
+  has not run; iClear's own steady cost on battery met its bound (E1), but its drain
+  compared with iClear stopped (E2) has not been measured: that test needs about 4 hours
+  of battery ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
 
 **Real-use trial in progress since 2026-10-11:** on the owner's Mac, Active mode for
 Microsoft Word, PowerPoint and Excel only, with automatic rollback to Observe
@@ -214,7 +215,7 @@ been regretted. [Full result](docs/VALIDATION.md#7-day-soak-on-100-final-result-
   trend L1-L4 (stopped at the lab's memory safety limits); Thrash Guard, Wake-on-Data,
   canary probe runs and the capacity benchmark (not run). 1.2.0-rc.1 is a pre-release.
 - On `main` (v1.2): iClear's own battery drain, Battery Saver's effect and resume latency
-  after swap-out on battery (the Mac stayed on AC); the canary probe on battery (it needs
+  after swap-out on battery, and the regression run on battery (not enough battery time); the canary probe on battery (it needs
   AC); adaptive wake windows (not built); push notifications and notifications scheduled
   by a paused app; the multi-display case of "Pause anyway"; the expiring-token fixture.
 - Developer ID signing and notarization: not done (see Install).
@@ -295,12 +296,14 @@ Measured with simulators and Chrome on local pages ([VALIDATION.md](docs/VALIDAT
 
 ## Battery
 
-iClear's own cost, measured on this Mac: the daemon used 0.150% of one core on average over
-200 minutes of Observe mode with real apps (per-minute p95 0.200%; 153 of the minutes on AC,
+iClear's own cost, measured on this Mac on battery: the whole stack (daemon, its watchdog,
+the Panic Brake watchdog, the menu app) used 0.163% of one core and 1.52 wakeups per
+second over 60 minutes (main only; display on, thermal nominal). Earlier, the daemon alone
+used 0.150% of one core on average over 200 minutes of Observe mode with real apps (per-minute p95 0.200%; 153 of the minutes on AC,
 46 on battery), and the published 1.0.3 daemon 0.374% against 1.0.2's 0.803% from the
 soak's data (30 minutes, on AC). Its battery drain compared with iClear stopped, and
 Battery Saver's effect, have **not been measured** yet: the pre-registered paired battery
-tests need the Mac on battery ([BATTERY.md](docs/BATTERY.md)). Battery Saver (main only) is
+tests need about 4 and 6 hours of battery time ([BATTERY.md](docs/BATTERY.md)). Battery Saver (main only) is
 off by default; `iclear battery` shows per-app estimates, labelled as estimates.
 
 ## Install

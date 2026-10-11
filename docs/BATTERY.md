@@ -26,9 +26,11 @@ nothing about battery drain.
 | Component | Before (1.1.0-rc.2) | v1.2 |
 |---|---|---|
 | Daemon tick | 60 s calm, 30 s while something is paused, 5 s near a forecast warning | the same; 120 s in lean mode (battery ≤ 20% or Low Power Mode) |
+| Pressure poll | every 1 s | every 2 s while calm (normal pressure, nothing paused), 1 s otherwise |
 | Call poll (screen sharing, mic, camera) | every 5 s | every 5 s; every 15 s in lean mode |
+| Watchdog helpers | woke every 5 s | the kernel's exit notification wakes them; a 60 s safety net otherwise |
 | Stall probe (Accessibility question to the front app) | every 2 s, always | only at memory pressure warning or worse, or within 2 minutes of a recorded stall |
-| Panic Brake watchdog sampling | every 250 ms, always (4 wakeups/s) | every 2 s while healthy (5 s in lean mode); 250 ms as soon as pressure, swap-ins or decompressions move, or while it holds an app |
+| Panic Brake watchdog sampling | every 250 ms, always (4 wakeups/s) | every 3 s while healthy (5 s in lean mode); 250 ms as soon as pressure, swap-ins or decompressions move, or while it holds an app |
 | Panic Brake main loop | every 1 s | every 5 s while healthy; 1 s otherwise |
 | Menu app | refreshed every 5 s, always | every 5 s while the popover or window is open; a coalesced 60 s poll while hidden (it posts the daemon's notifications) |
 | Battery bookkeeping file | written every tick | written when a receipt changes, otherwise every 10 minutes |
@@ -43,10 +45,11 @@ and recovery are the same code.
 |---|---|---|
 | — | Daemon alone, Observe mode, fresh state, real apps, 200 min on 2026-10-11 (153 min on AC, 46 on battery; lab runs shared the Mac) | mean 0.150% of one core; per-minute median 0.150%, p95 0.200%; RSS ≤ 37.6 MB ([VALIDATION.md](VALIDATION.md)) |
 | — | Published 1.0.2 vs 1.0.3 daemons from the soak's data, 30 min on AC | 0.803% vs 0.374% of one core |
-| E1 | Whole stack, ≥ 60 min, on battery | **not run**: the Mac stayed on AC through this release's work |
-| E2 | Battery A/B, iClear running vs stopped | **not run** (needs battery) |
-| E3 | Thaw-on-activation latency on battery | **not run** (needs battery) |
-| B1 | Battery Saver A/B, Off vs Balanced vs Max | **not run** (needs battery); Battery Saver stays **off by default** and no saving is claimed |
+| E1 (first run) | Whole stack, 60 min on battery, 2026-10-11 14:51-15:51, battery 80% to 64%, display on, Low Power Mode off, thermal nominal, build ffa65a7 | mean CPU **0.176%** of one core (median 0.169%, p95 0.226%; bound 0.25%: met); wakeups **2.33 per second** (p95 2.42; bound 2: **not met**): daemon 1.08, Panic Brake watchdog 0.73, each watchdog helper 0.20, menu app 0.13; energy counters 0.0015 W |
+| E1 (after the fix) | Same, build 03ac5a8 (pressure poll every 2 s while calm, Panic Brake healthy sampling 3 s, watchdog safety net 60 s) | 60 min on battery, 2026-10-11 15:58-16:58, 61% to 39%, display on, Low Power Mode off, thermal nominal: mean CPU **0.163%** (median 0.171%, p95 0.195%), wakeups **1.52 per second** (p95 1.82): daemon 0.57, Panic Brake watchdog 0.53, menu app 0.08, each watchdog helper 0.02. **E1 met** |
+| E2 | Battery A/B, iClear running vs stopped | **not run**: started at 64% and stopped before its first pair finished; at the measured drain of about 16% an hour (display on), the 6 pairs of 20-minute blocks (about 4.2 h) cannot fit above the 25% floor in one discharge |
+| E3 | Thaw-on-activation latency on battery | **not run**: the battery went below the 50% start floor after E1 |
+| B1 | Battery Saver A/B, Off vs Balanced vs Max | **not run**: no lab tool for it was built and it needs 18 blocks of 20 minutes; Battery Saver stays **off by default** and no saving is claimed |
 
 ## Battery Saver (off by default)
 

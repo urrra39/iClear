@@ -1,7 +1,9 @@
 iClear @VERSION@ is a **release candidate** for 1.2, published for testing. It is not the
-stable 1.2.0: the pre-registered battery measurements (iClear's own drain, Battery Saver's
-effect) could not run because the test Mac stayed on AC power, and the release rule then
-allows only a candidate (`docs/RELEASE_CRITERIA_v1.2.md`).
+stable 1.2.0: the pre-registered battery A/B tests (iClear's own drain against iClear stopped,
+Battery Saver's effect) and the regression run on battery did not fit in the battery time
+available, and the release rule then
+allows only a candidate (`docs/RELEASE_CRITERIA_v1.2.md`). iClear's own steady-state cost
+on battery was measured and met its bound.
 
 Keep 1.0.3 for daily use unless you want to help test. iClear pauses idle background apps
 on a Mac that is running out of memory and resumes each one when you switch back to it.
@@ -17,9 +19,10 @@ It starts in **Observe mode**, which only records what it would do.
   running app to activate itself and uses LaunchServices at most once, only when a window
   is on screen.
 - **Fixed:** `iclear thaw --all` on a Mac with nothing installed said the journal was locked.
-- **Own energy:** the Panic Brake watchdog samples every 2 s while the Mac is healthy (250
-  ms when anything moves); the stall probe runs only under memory pressure; lean mode at
-  battery ≤ 20% or Low Power Mode; the menu app refreshes every 5 s only while open.
+- **Own energy:** the Panic Brake watchdog samples every 3 s while the Mac is healthy (250
+  ms when anything moves); the pressure poll runs every 2 s while calm; the stall probe runs
+  only under memory pressure; lean mode at battery ≤ 20% or Low Power Mode; the menu app
+  refreshes every 5 s only while open.
 - **Battery Saver** (`iclear battery saver`, off by default, battery only): lowers idle
   visible apps and pauses idle hidden apps with high measured background energy; undone on
   activation, on AC power and when turned off. Its benefit is **not measured**.
@@ -41,7 +44,8 @@ Full list: `CHANGELOG.md`.
 | S8 `thaw --all` with nothing installed | test passes |
 | R1 trial rollback | each of 6 triggers 5/5, nothing left paused |
 | Daemon overhead, Observe mode, real apps, 200 min (153 on AC, 46 on battery) | mean 0.150% of one core, per-minute p95 0.200% |
-| E1, E2, E3, B1 (on battery) | **not run**: the Mac stayed on AC |
+| E1 whole stack, 60 min on battery (display on, thermal nominal) | CPU 0.163% of one core, 1.52 wakeups per second (bounds 0.25% and 2): met; a first run before the last fixes had 2.33 wakeups per second |
+| E2, E3, B1, S4 and the regression block on battery | **not run**: E2 needs about 4.2 h and could not fit above the 25% floor at the measured drain; the battery was below the 50% start floor after E1 |
 | S1 adaptive wake windows, S5 notifications, S7 macOS 14 | not run (cut); Wake-on-Data stays off |
 
 ## Held back

@@ -183,8 +183,9 @@ ta'sirlar. Raqamlar: [Tasdiqlangan doira](#tasdiqlangan-doira).
   o'sishi bildirishnomalari o'chiq, har biri oldindan belgilangan laboratoriya mezonlari
   o'tmaguncha ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
 - `main` da (1.2.0-rc.1): Batareya tejash sukut bo'yicha o'chiq, chunki uning juft batareya
-  sinovi o'tkazilmagan; iClear'ning batareyada o'zi sarflaydigan energiyasi (E1, E2) ham
-  o'lchanmagan: bu ish davomida Mac zaryadga ulangan edi
+  sinovi o'tkazilmagan; iClear'ning batareyadagi doimiy sarfi o'z chegarasiga mos keldi
+  (E1), lekin iClear to'xtatilgan holatga nisbatan sarfi (E2) o'lchanmagan: bu sinov
+  taxminan 4 soatlik batareya vaqtini talab qiladi
   ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
 
 **Haqiqiy foydalanish sinovi 2026-10-11 dan beri davom etmoqda:** egasining Mac'ida faqat
@@ -230,7 +231,7 @@ sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-resul
   Thrash Guard, Wake-on-Data, canary probe sinovlari va sig'im benchmarki (o'tkazilmadi).
   1.2.0-rc.1 sinov relizi.
 - `main` da (v1.2): iClear'ning batareyada o'zi sarflaydigan energiyasi, Batareya tejash
-  ta'siri va svopdan keyin batareyada davom ettirish kechikishi (Mac zaryadga ulangan edi);
+  ta'siri va svopdan keyin batareyada davom ettirish kechikishi va batareyadagi regressiya sinovi (batareya vaqti yetmadi);
   batareyada canary probe (u zaryadni talab qiladi); moslashuvchan uyg'onish oynalari
   (qurilmagan); push bildirishnomalari va pauzadagi ilova rejalashtirgan bildirishnomalar;
   "Baribir pauza qilish"ning bir nechta displey holati; muddati o'tadigan token sinovi.
@@ -323,13 +324,16 @@ bitta ilova uchun ko'rsatadi.
 
 ## Batareya
 
-iClear'ning o'z sarfi, shu Mac'da o'lchangan: haqiqiy ilovalar bilan 200 daqiqalik Kuzatish
-rejimida xizmat o'rtacha bitta yadroning 0.150% ini ishlatdi (daqiqalik p95 0.200%;
+iClear'ning o'z sarfi, shu Mac'da batareyada o'lchangan: butun to'plam (xizmat, uning
+kuzatuvchisi, Panic Brake kuzatuvchisi, menyu ilovasi) 60 daqiqa davomida bitta yadroning
+0.163% ini va soniyasiga 1.52 uyg'onishni ishlatdi (faqat main; ekran yoqiq, harorat
+me'yorida). Avvalroq haqiqiy ilovalar bilan 200 daqiqalik Kuzatish rejimida xizmat
+o'zi o'rtacha bitta yadroning 0.150% ini ishlatdi (daqiqalik p95 0.200%;
 daqiqalarning 153 tasi zaryadda, 46 tasi batareyada), chiqarilgan 1.0.3 xizmati esa soak
 ma'lumotlaridan boshlanganda 1.0.2 ning 0.803% iga qarshi 0.374% (30 daqiqa, zaryadda).
 iClear to'xtatilgan holatga nisbatan batareya sarfi va Batareya tejash ta'siri hali
-**o'lchanmagan**: oldindan belgilangan juft batareya sinovlari Mac batareyada bo'lishini
-talab qiladi ([BATTERY.md](docs/BATTERY.md)). Batareya tejash (faqat main) sukut bo'yicha
+**o'lchanmagan**: oldindan belgilangan juft batareya sinovlari taxminan 4 va 6 soatlik
+batareya vaqtini talab qiladi ([BATTERY.md](docs/BATTERY.md)). Batareya tejash (faqat main) sukut bo'yicha
 o'chiq; `iclear battery` har bir ilova uchun taxminlarni "taxmin" belgisi bilan ko'rsatadi.
 
 ## O'rnatish

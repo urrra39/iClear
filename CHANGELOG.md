@@ -19,12 +19,16 @@ candidate.
   it without Accessibility.
 - **Fixed: `iclear thaw --all` on a Mac with nothing installed** said the journal was
   locked; it now says nothing is installed or paused.
-- **Own energy.** The Panic Brake watchdog samples every 2 s while the Mac is healthy (250
-  ms as soon as anything moves); its main loop runs every 5 s while healthy; the stall probe
+- **Own energy.** The Panic Brake watchdog samples every 3 s while the Mac is healthy (250
+  ms as soon as anything moves); its main loop runs every 5 s while healthy; the daemon's
+  pressure poll runs every 2 s while calm; the watchdog helpers wake on the kernel's exit
+  notification only (a 60 s safety net); the stall probe
   runs only under memory pressure or right after a stall; lean mode at battery ≤ 20% or Low
   Power Mode slows calm ticks; the menu app refreshes every 5 s only while it is open; the
-  battery file is written on change. `ic-lab energy-steady` and `ic-lab battery-ab` measure
-  it (`docs/BATTERY.md`).
+  battery file is written on change. Measured on battery (E1, 60 min): the whole stack used
+  0.163% of one core and 1.52 wakeups per second (the first run, before the poll and
+  watchdog changes, had 2.33 wakeups per second against the 2 per second bound).
+  `ic-lab energy-steady` and `ic-lab battery-ab` measure it (`docs/BATTERY.md`).
 - **Battery Saver** (`iclear battery saver`, off by default, battery only): lowers idle
   visible apps and pauses idle hidden apps with high measured background energy, journaled
   and undone on activation, AC and off; turns itself off when its predictions miss by more

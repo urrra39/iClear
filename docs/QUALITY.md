@@ -113,17 +113,18 @@ files. **C14 met.**
 ## 1.2.0-rc.1 release candidate: criteria and scorecard (2026-10-11)
 
 Criteria: [RELEASE_CRITERIA_v1.2.md](RELEASE_CRITERIA_v1.2.md), committed (d045dd5, pushed)
-before any v1.2 measurement. The owner uses the Mac on battery, but it stayed on AC (charge
-held at 80%) through this work, so every battery criterion is NOT RUN. Release rule:
-`v1.2.0` needs U, E, S6, S8, R1 and the regression gate; E and the battery regression did
-not run, so this is `v1.2.0-rc.1`.
+before any v1.2 measurement. The Mac stayed on AC (charge held at 80%) for most of this work; the owner then unplugged
+it at 80% and battery phases ran until the 50% start floor: E1 twice, E2 started and
+stopped (it cannot fit in one discharge at the measured drain). Release rule:
+`v1.2.0` needs U, E, S6, S8, R1 and the regression gate; E1 is met (after a fix), but E2, E3
+and the regression gate on battery did not run, so this is `v1.2.0-rc.1`.
 
 | # | Result | Met |
 |---|---|---|
 | U1-U7 (installed app, 10 runs, on AC) | U1 window in 0.29 s median, U2, U3 (0.30 s), U4, U5, U7 10/10; U6 icon: the Finder icon differs from a generic app's (Quick Look hangs on every app bundle on this macOS); U3 closed through `performClose` (Accessibility does not expose the close button) | yes, with the two stated substitutions |
-| E1 whole stack ≥ 60 min on battery | NOT RUN (on AC); daemon alone over 200 min: 0.150% mean, p95 0.200% | — |
-| E2 battery A/B | NOT RUN (on AC) | — |
-| E3 thaw latency on battery | NOT RUN (on AC) | — |
+| E1 whole stack ≥ 60 min on battery | first run (ffa65a7): CPU 0.176% met, wakeups 2.33/s **not met**; after the fix (03ac5a8): CPU 0.163%, wakeups 1.52/s (p95 1.82), 60 min, display on, thermal nominal | yes (after the fix) |
+| E2 battery A/B | NOT RUN: the 6 pairs (about 4.2 h) cannot fit above the 25% floor at the measured drain (16-22% an hour with the display on) | — |
+| E3 thaw latency on battery | NOT RUN (battery below the 50% start floor after E1) | — |
 | B1-B3 Battery Saver | B1 NOT RUN, so off by default; B2 self-disarm and B3 safety: tests pass | B3 yes |
 | S1 adaptive wake windows | NOT RUN (cut); off | — |
 | S2 SESSION class and class limits | tests pass; expiring-token fixture not run | tests yes |
@@ -134,7 +135,7 @@ not run, so this is `v1.2.0-rc.1`.
 | S7 macOS 14 | NOT RUN (cut); a CI trial failed 2 of 329 tests | — |
 | S8 thaw message | test passes | yes |
 | R1 trial rollback | 6 triggers x 5/5, nothing left paused | yes |
-| Regression on battery | NOT RUN (on AC); the 1.1 lab results on AC still apply to this code's paths (C2, C7, C12, C13 19/19) | — |
+| Regression on battery | NOT RUN (battery 39% after E1, below the 50% start floor); the 1.1 lab results on AC apply to the same recovery and stash paths (C2, C7, C12, C13 19/19) | — |
 | CI | green on every runner for the tagged commit (see the release) | see release |
 | ICCore coverage | 95.80% of lines (4,217 lines, 177 missed) | yes |
 | Mapping | new CLI commands, config keys and menu items in TEST_MATRIX | yes |
@@ -152,7 +153,7 @@ notifications OFF; the trial runs only when started.
 | Test breadth | 7 | full suite 346 tests (149 + 197) passed locally at 571a245, rc 0, CI on macOS 15 (Apple Silicon and Intel) and 26, repeated flake runs | no Intel, macOS 13/14 or 8 GB hardware; macOS 14 CI trial fails 2 tests |
 | Real usefulness (battery, memory, measured) | 4 | 1.0 lab memory relief and latency; no battery benefit measured; real-use trial running, no data yet | battery tests need the Mac on battery; trial needs days |
 | Marquee features | 6 | pause/resume and stash validated; Auto-Context validated; brake and Black Box no result; Battery Saver unmeasured | lab limits on an 18 GB Mac with its apps open |
-| Own overhead and energy | 6 | daemon 0.150% over 200 min, 1.0.3 vs 1.0.2 0.374% vs 0.803%; adaptive sampling | E1/E2 on battery not run |
+| Own overhead and energy | 7 | E1 on battery after the fix: whole stack 0.163% of one core, 1.52 wakeups/s; 1.0.3 vs 1.0.2 0.374% vs 0.803% | E2 (drain vs iClear stopped) not run |
 | Install and polish | 7 | icon, window, onboarding, settings, U1-U7 10/10, screenshots regenerated | no notarization (Gatekeeper's Open Anyway); Accessibility does not expose the window's close button |
 
 ## 1.1.0-rc.2 release candidate: status (2026-10-11)

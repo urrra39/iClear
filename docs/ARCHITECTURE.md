@@ -124,9 +124,9 @@ cannot run iClear.
   notifications.
 - **Cadence:** the daemon ticks every 60 s when pressure is normal and nothing is paused,
   30 s while something is paused, 5 s near an armed forecast warning, 3 s at warning, 2 s
-  critical; 120 s in lean mode (battery ≤ 20% or Low Power Mode). A 1 s pressure poll ticks
-  at once on a level change. The stall probe runs only at warning or worse or right after a
-  stall. The Panic Brake samples every 2 s while healthy (5 s lean) and every 250 ms as
+  critical; 120 s in lean mode (battery ≤ 20% or Low Power Mode). A pressure poll (2 s while
+  calm, 1 s otherwise) ticks at once on a level change. The stall probe runs only at warning or worse or right after a
+  stall. The Panic Brake samples every 3 s while healthy (5 s lean) and every 250 ms as
   soon as pressure, swap-ins or decompressions move.
 - **Battery Saver and the trial** run inside the daemon's tick (`SaverOps`, `TrialOps`);
   their decisions are pure functions in ICCore (`BatterySaver`, `TrialGuard`).
