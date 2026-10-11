@@ -201,7 +201,11 @@ sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-resul
 
 **Tasdiqlanmagan** (yordamingiz kerak):
 - Intel Mac'lar: u yerda faqat CI testlari ishladi ([#3](https://github.com/urrra39/iClear/issues/3)).
-- macOS 13 va 14 ([#4](https://github.com/urrra39/iClear/issues/4)).
+- macOS 13 va 14 ([#4](https://github.com/urrra39/iClear/issues/4)). macOS 14.8 dagi CI
+  sinovi (Xcode 16, Swift 6.0.3, Accessibility'siz, 2026-10-11) kodni qurdi, lekin ikki
+  urinishda 329 testdan 2 tasi yiqildi (kontekst almashtirish va uchta ilovadan birini
+  chetda qoldirgan stash), shuning uchun macOS 14 dalil bilan qo'llab-quvvatlanmaydi va CI
+  matritsasida yo'q.
 - 8 GB va undan kam xotirali Mac'lar ([#5](https://github.com/urrra39/iClear/issues/5)).
 - Pauza nishoni sifatida Safari ([#6](https://github.com/urrra39/iClear/issues/6)), Docker va Xcode ([#7](https://github.com/urrra39/iClear/issues/7)) hamda virtual mashinalar.
 - Haqiqiy Slack, Spotify yoki istalgan shaxsiy akkaunt ([#9](https://github.com/urrra39/iClear/issues/9)); [MANUAL_TESTS_APPS.md](docs/MANUAL_TESTS_APPS.md).
