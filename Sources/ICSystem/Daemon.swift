@@ -62,6 +62,10 @@ public final class Daemon {
     var saverDemoted: [String: [ProcessIdentity]] = [:]
     var saverPaused: Set<String> = []
     var saverWakeups: [String: (count: UInt64, t: Double)] = [:]
+    /// The real-use trial (v1.2): own-CPU samples; test hooks for the evidence it reads.
+    var trialCPUSamples: [(t: Double, cpu: UInt64)] = []
+    var trialOwnCPU: (() -> Double?)?
+    var trialInvariantCheck: (() -> String?)?
     var batteryReadings: [BatteryReading] = []
     public internal(set) var appPowers: [AppPower] = []
     var callDetector = CallDetector()
@@ -414,6 +418,7 @@ public final class Daemon {
             availableMB: SystemSampler.availableMB(), swapMB: sample.swapUsedMB, pressure: sample.pressure.rawValue,
             frozen: Set(engine.state.frozen.filter { !$0.value.dryRun }.keys), now: now)
         scheduleWakePoll()
+        trialTick(now: now)
         if now - lastSave >= 60 { saveState() }
         tickTimer?.schedule(deadline: .now() + interval(for: sample.pressure))
     }

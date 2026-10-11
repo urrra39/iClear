@@ -156,6 +156,7 @@ extension Daemon {
         case "thaw":
             let acts: [Action]
             if req.app == nil || req.app == "all" {
+                trialNoteResumeAll(now: now)
                 acts = engine.thawAll(reason: Code.thawUser, at: now)
             } else {
                 let id =
@@ -260,6 +261,8 @@ extension Daemon {
         case "events":
             let since = Double(req.value ?? "0") ?? 0
             return Response(ok: true, text: "", data: encode(events.filter { $0.t > since }))
+        case "trial":
+            return trialCommand(req.value)
         case "saver":
             return saverCommand(req.value)
         case "battery":

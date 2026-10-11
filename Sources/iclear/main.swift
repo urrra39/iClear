@@ -83,6 +83,7 @@ let usage = """
                                        --no-mic skips the call check, which uses the microphone)
       battery [target <2h30m | off>]   battery minutes per app (estimates)
       battery saver [off|balanced|max] Battery Saver (on battery only; off by default)
+      trial [start <id,...> | stop | status]  bounded real-use Active trial with automatic rollback
       beachball [stats | log]          recorded stalls of the frontmost app and their causes
       before <app>                     will launching this app push memory pressure up?
       compat <app>                     app class, tier and what pausing does to it
@@ -376,6 +377,9 @@ case "battery":
     } else {
         ask("battery")
     }
+
+case "trial":
+    ask("trial", value: rest.isEmpty ? "status" : rest.joined(separator: " "))
 
 case "beachball":
     ask("beachball", value: rest.first ?? "stats")

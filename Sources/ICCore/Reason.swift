@@ -46,6 +46,8 @@ public enum Code {
     public static let mru = "SKIP_RECENTLY_USED"
     /// Battery Saver lowered or paused an idle app with high background energy (v1.2).
     public static let batterySaver = "BATTERY_SAVER"
+    /// During the real-use trial only the allowlisted apps may be paused (v1.2).
+    public static let notInTrial = "SKIP_NOT_IN_TRIAL"
     public static let cpuActive = "SKIP_CPU_ACTIVE"
     public static let powerAssertion = "SKIP_POWER_ASSERTION"
     public static let audio = "SKIP_AUDIO_ACTIVE"

@@ -71,6 +71,7 @@ public enum Policy {
             return r  // nothing else matters, and nothing may override it
         }
         if c.deny.contains(app.id) { r.append(Reason(Code.denyRule)) }
+        if c.trial.active, !c.trial.apps.contains(app.id) { r.append(Reason(Code.notInTrial)) }
         if !app.isRegularApp { r.append(Reason(Code.notRegular, "menu-bar or background app")) }
         if ctx.quarantined.contains(app.id) { r.append(Reason(Code.quarantined)) }
         let allowed = ctx.isAllowed(app.id)
