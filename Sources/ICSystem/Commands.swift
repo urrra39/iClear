@@ -260,6 +260,8 @@ extension Daemon {
         case "events":
             let since = Double(req.value ?? "0") ?? 0
             return Response(ok: true, text: "", data: encode(events.filter { $0.t > since }))
+        case "saver":
+            return saverCommand(req.value)
         case "battery":
             if let v = req.value { return setBatteryTarget(v) }
             return batteryReport()

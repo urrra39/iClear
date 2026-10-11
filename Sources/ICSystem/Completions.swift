@@ -15,7 +15,7 @@ public enum Completions {
         "config": ["path", "show", "validate", "allow", "deny", "import", "export"], "thaw": ["--all"],
         "completions": ["zsh", "bash", "fish"], "doctor": ["--report"], "uninstall": ["--purge"], "migrate": ["--dry-run", "--remove-old"],
         "stash": ["list", "show", "drop", "--keep", "--include", "--include-heavy", "--force-unsaved", "--dry-run"],
-        "pop": ["--all", "--app"], "battery": ["target"], "selftest": ["--quick", "--no-mic", "--report", "--json"],
+        "pop": ["--all", "--app"], "battery": ["target", "saver"], "selftest": ["--quick", "--no-mic", "--report", "--json"],
         "beachball": ["stats", "log"],
     ]
 

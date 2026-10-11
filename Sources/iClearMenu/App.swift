@@ -25,6 +25,13 @@ import SwiftUI
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `ic-lab ui-smoke` launches with --ui-test and closes the window like its close
+        // button does (Accessibility does not expose this window's close button).
+        if CommandLine.arguments.contains("--ui-test") {
+            DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("io.github.urrra39.iclear.ui-test.close"), object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.window?.performClose(nil) } }
+        }
         if !launchedAtLogin && UserDefaults.standard.bool(forKey: Self.showAtLaunchKey) {
             showWindow()
         } else {
@@ -190,6 +197,10 @@ struct MenuView: View {
 
     var settings: some View {
         VStack(alignment: .leading, spacing: 4) {
+            Picker(localized("saver"), selection: Binding(get: { model.saverMode }, set: { model.setSaver($0) })) {
+                ForEach(["off", "balanced", "max"], id: \.self) { Text(localized("saver." + $0)).tag($0) }
+            }
+            Text(localized("saver.note")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle(localized("settings.showAtLaunch"), isOn: $showAtLaunch)
             Toggle(localized("settings.keepInDock"), isOn: $keepInDock)
                 .onChange(of: keepInDock) { _ in NSApp.setActivationPolicy(.regular) }

@@ -57,6 +57,11 @@ public final class Daemon {
     // Battery (F3), Call Mode and thermal shield (F4), stall forensics (F5).
     var battery = BatteryState()
     var lastEnergy: [ProcessIdentity: (nj: UInt64, t: Double)] = [:]
+    /// Battery Saver's own holds (v1.2): lowered apps (restored on activation, AC, off) and
+    /// the pauses it asked the engine for; per-app wakeup counts for the rate.
+    var saverDemoted: [String: [ProcessIdentity]] = [:]
+    var saverPaused: Set<String> = []
+    var saverWakeups: [String: (count: UInt64, t: Double)] = [:]
     var batteryReadings: [BatteryReading] = []
     public internal(set) var appPowers: [AppPower] = []
     var callDetector = CallDetector()
@@ -247,6 +252,7 @@ public final class Daemon {
     /// Shutdown, restart or logout is coming: resume every stash and every freeze now.
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
+        saverReleaseAll(now: clock())
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
         _ = Signals.recover(journal: journal, restorer: .appKit, send: sender)
         saveState()
@@ -464,7 +470,10 @@ public final class Daemon {
             ContextTracker.noteActivation(&contextState, appID: id)
             footprints.noteFront(id, at: clock())
         }
-        if let id = bundleID { wake.forget(id) }
+        if let id = bundleID {
+            wake.forget(id)
+            saverActivated(id)
+        }
         if let run = probeRun, run.result == nil, run.appID == bundleID || run.processes.contains(where: { $0.pid == pid }) {
             run.abort()
             for p in run.processes { _ = Signals.send(SIGCONT, to: p) }

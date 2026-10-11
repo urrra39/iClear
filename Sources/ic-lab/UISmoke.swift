@@ -63,8 +63,12 @@ enum UISmoke {
         return wait(5) { pids.allSatisfy { !alive($0) } } != nil
     }
 
-    /// Presses the close button of the app's windows (Accessibility).
+    /// Closes the window the way its close button does (`performClose`), through the
+    /// test-only notification the app listens to when launched with --ui-test; then tries
+    /// the Accessibility close button as well.
     static func closeWindows(_ pid: Int32) {
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("io.github.urrra39.iclear.ui-test.close"), object: nil, userInfo: nil, deliverImmediately: true)
         let app = AXUIElementCreateApplication(pid)
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v) == .success, let ws = v as? [AXUIElement] else {
@@ -150,7 +154,7 @@ enum UISmoke {
         _ = quitAll(path)
         for i in 1...runs {
             r.runs += 1
-            open(path)
+            open(path, args: ["--ui-test"])
             var pid: Int32 = 0
             let t1 = wait(5) {
                 guard let a = instances(path).first else { return false }

@@ -61,6 +61,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var maxPauseMinutes: [String: Double] = [:]
     /// MRU protection: the last `mruApps` apps used within `mruMinutes` are never paused
     /// automatically (0 apps turns it off).
+    /// Battery Saver (v1.2): off by default; acts only on battery.
+    public var batterySaver = BatterySaverSettings()
     public var mruApps = 3
     public var mruMinutes = 30.0
     public var cooldownMinutes = 10.0
@@ -318,6 +320,9 @@ extension Config {
             maxPauseMinutes.allSatisfy { AppClass(rawValue: $0.key) != nil && (0...1440).contains($0.value) }, "maxPauseMinutes",
             "keys must be browser, comm, media, session or other; values 0...1440")
         check((0...20).contains(mruApps) && (0...240).contains(mruMinutes), "mruApps/mruMinutes", "must be 0...20 apps and 0...240 minutes")
+        check(
+            batterySaver.idleMinutes >= 1 && batterySaver.minWatts > 0 && batterySaver.minWakeupsPerSecond > 0, "batterySaver",
+            "idleMinutes >= 1, minWatts and minWakeupsPerSecond > 0")
         check(cooldownMinutes >= 0, "cooldownMinutes", "must be >= 0")
         check(thawAfterNormalMinutes > 0, "thawAfterNormalMinutes", "must be > 0")
         check((1...50).contains(maxFrozenApps), "maxFrozenApps", "must be 1...50")

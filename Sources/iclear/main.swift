@@ -82,6 +82,7 @@ let usage = """
                                        check that iClear works on this Mac (2-5 min; --quick 30 s;
                                        --no-mic skips the call check, which uses the microphone)
       battery [target <2h30m | off>]   battery minutes per app (estimates)
+      battery saver [off|balanced|max] Battery Saver (on battery only; off by default)
       beachball [stats | log]          recorded stalls of the frontmost app and their causes
       before <app>                     will launching this app push memory pressure up?
       compat <app>                     app class, tier and what pausing does to it
@@ -367,7 +368,9 @@ case "selftest":
     exit(r.passed ? 0 : 1)
 
 case "battery":
-    if rest.first == "target" {
+    if rest.first == "saver" {
+        ask("saver", value: rest.count > 1 ? rest[1] : nil)
+    } else if rest.first == "target" {
         guard rest.count > 1 else { fail("usage: iclear battery target <2h30m | off>") }
         ask("battery", value: rest[1])
     } else {

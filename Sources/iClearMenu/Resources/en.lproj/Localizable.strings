@@ -105,3 +105,8 @@
 "settings.launchAtLogin" = "Open at login (menu bar only)";
 "settings.loginFailed" = "Could not change the login item: %@";
 "frozen.for" = "%d min";
+"saver" = "Battery Saver";
+"saver.off" = "Off";
+"saver.balanced" = "Balanced";
+"saver.max" = "Max";
+"saver.note" = "On battery only: lowers the priority of idle visible apps and pauses idle hidden apps with high background energy. Its benefit has not been measured yet.";

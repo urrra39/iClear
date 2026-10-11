@@ -86,6 +86,7 @@ final class Model: ObservableObject {
 
     func refresh() {
         accessibility = Permissions.status().accessibility
+        saverMode = ((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 })?.batterySaver.mode.rawValue ?? "off"
         client.refresh(since: (lastEvent, lastBrakeEvent)) { [weak self] snap in
             Task { @MainActor in self?.apply(snap) }
         }
@@ -219,6 +220,14 @@ final class Model: ObservableObject {
     func acceptContext() { run("context", app: "accept") }
     func dismissContext() { run("context", app: "dismiss") }
     func setProfile(_ p: String) { run("profile", value: p) }
+
+    /// Battery Saver mode as configured (read from the config file on refresh).
+    @Published var saverMode = "off"
+
+    func setSaver(_ m: String) {
+        saverMode = m
+        run("saver", value: m)
+    }
 
     func show(_ cmd: String, title: String) {
         detailTitle = title

@@ -70,7 +70,9 @@ extension Daemon {
         }
         lastEnergy = next
         appPowers = powers.sorted { $0.watts > $1.watts }
-        guard let r = SmartBattery().read(now: now) else { return }
+        let reading = SmartBattery().read(now: now)
+        defer { saverTick(reading, now: now) }
+        guard let r = reading else { return }
         let changed = batteryReadings.last.map { $0.dischargeW != r.dischargeW || $0.remainingWh != r.remainingWh } ?? true
         batteryReadings.append(r)
         batteryReadings = batteryReadings.filter { now - $0.time < 1800 }

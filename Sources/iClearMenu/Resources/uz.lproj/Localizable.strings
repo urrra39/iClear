@@ -105,3 +105,8 @@
 "settings.launchAtLogin" = "Tizimga kirganda ochish (faqat menyu panelida)";
 "settings.loginFailed" = "Kirish elementini o'zgartirib bo'lmadi: %@";
 "frozen.for" = "%d daq";
+"saver" = "Batareya tejash";
+"saver.off" = "O'chiq";
+"saver.balanced" = "Muvozanatli";
+"saver.max" = "Maksimal";
+"saver.note" = "Faqat batareyada: bo'sh turgan ko'rinadigan ilovalarning ustuvorligini pasaytiradi va fonda ko'p energiya sarflaydigan bo'sh yashirin ilovalarni pauza qiladi. Foydasi hali o'lchanmagan.";
