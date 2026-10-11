@@ -52,6 +52,9 @@ public final class Daemon {
     var observers: [NSObjectProtocol] = []
     var lastLevel: PressureLevel = .normal
     public var clock: () -> Double = { Date().timeIntervalSince1970 }
+    /// Signal sender for freezes, resumes and recovery (tests inject failures and keep
+    /// recovery's fallback scan to their own processes).
+    var sender: Signals.Sender = Signals.liveSender
     /// `ICLEAR_OBSERVE_ONLY=1`: this instance records what it would do and never acts,
     /// whatever its config says (the real-use trace during the soak).
     public var observeOnly = ProcessInfo.processInfo.environment["ICLEAR_OBSERVE_ONLY"] == "1"
@@ -132,11 +135,18 @@ public final class Daemon {
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { throw StartError.alreadyRunning }
         if labMode { ScopeLock.load(paths.labRegistry) }
         enforceObserveOnly()
-        let rec = Signals.recover(journal: journal)
-        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 {
+        let rec = Signals.recover(journal: journal, send: sender)
+        if rec.thawed > 0 || rec.stale > 0 || rec.corrupt || rec.restored > 0 || rec.unresolved > 0 {
             record(
                 "Recovered from a previous run: thawed \(rec.thawed), stale \(rec.stale), restored \(rec.restored)"
-                    + (rec.corrupt ? ", journal was corrupt" : ""))
+                    + (rec.unresolved > 0 ? ", \(rec.unresolved) record(s) unresolved and kept" : "")
+                    + (rec.corrupt ? ", journal was unreadable" : ""))
+        }
+        if rec.unresolved > 0 {
+            notify(
+                title: "Some processes could not be resumed",
+                body: "\(rec.unresolved) record(s) from the last run are still in the journal. `iclear thaw --all` tries again.",
+                appID: nil)
         }
         if rec.stashesDropped > 0 {
             notify(
@@ -166,7 +176,7 @@ public final class Daemon {
         pressureSource?.cancel()
         execute(engine.thawAll(reason: reason, at: clock()), immediate: true)
         // Anything the engine did not know about (should be nothing) is thawed from the journal.
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, send: sender)
         saveState()
         ipc?.stop()
         watchdog?.terminate()
@@ -223,7 +233,7 @@ public final class Daemon {
     public func powerOff() {
         pop("all", restoreFocus: false, reason: Code.thawShutdown)
         execute(engine.thawAll(reason: Code.thawShutdown, at: clock()), immediate: true)
-        _ = Signals.recover(journal: journal)
+        _ = Signals.recover(journal: journal, send: sender)
         saveState()
     }
 
@@ -442,28 +452,33 @@ public final class Daemon {
 
     // MARK: Executing actions
 
-    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) {
+    /// Runs actions; returns the outcomes of those run now (delayed thaws report later).
+    @discardableResult
+    func execute(_ actions: [Action], immediate: Bool = false, thawStartedAt: Double? = nil) -> [String] {
+        var out: [String] = []
         for a in actions {
             if a.kind == .thaw, a.delaySeconds > 0, !immediate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + a.delaySeconds) { [weak self] in self?.perform(a, thawStartedAt: nil) }
             } else {
-                perform(a, thawStartedAt: thawStartedAt)
+                out.append(perform(a, thawStartedAt: thawStartedAt))
             }
         }
+        return out
     }
 
-    func perform(_ a: Action, thawStartedAt: Double?) {
+    @discardableResult
+    func perform(_ a: Action, thawStartedAt: Double?) -> String {
         let now = clock()
         var outcome = a.dryRun ? "observe" : "ok"
         if !a.dryRun {
             switch a.kind {
             case .freeze:
-                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal)
-                if !r.ok, r.error?.contains("corrupt") == true {
+                let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal, send: sender)
+                if !r.ok, r.error?.contains("corrupt") == true || r.error?.contains("cannot be read") == true {
                     // Nothing new is paused on a journal that cannot be read; recovery resumes
-                    // every stopped app process and moves the damaged file aside.
-                    let rec = Signals.recover(journal: journal)
-                    record("The freeze journal was corrupt: resumed \(rec.thawed) process(es) and kept the file aside.")
+                    // every stopped app process and moves an undecodable file aside.
+                    let rec = Signals.recover(journal: journal, send: sender)
+                    record("The freeze journal could not be read: resumed \(rec.thawed) process(es); the file was kept.")
                 }
                 if !r.ok {
                     outcome = "failed: \(r.error ?? "unknown")"
@@ -471,13 +486,27 @@ public final class Daemon {
                 }
             case .thaw:
                 let before = lastApps.first { $0.id == a.appID }?.residentMB
-                let results = Signals.thawTree(a.processes, journal: journal)
-                if results.allSatisfy({ $0 == .stale }) { outcome = "already gone" }
+                let results = Signals.thawTree(a.processes, journal: journal, send: sender)
+                let stuck = results.filter { !$0.resolved }.count
+                if stuck > 0 {
+                    outcome = "failed: \(stuck) process(es) still paused; kept in the journal"
+                    record("Could not resume \(stuck) process(es) of \(a.name); they stay in the journal.")
+                    notify(
+                        title: "Could not resume \(a.name)",
+                        body: "\(stuck) process(es) are still paused. `iclear thaw --all` tries again; so does restarting iClear.",
+                        appID: a.appID)
+                } else if results.allSatisfy({ $0 == .stale }) {
+                    outcome = "already gone"
+                }
                 if outcome == "ok", scheduleHealthChecks { scheduleHealthCheck(a, startedAt: thawStartedAt ?? now, residentBefore: before) }
             case .deprioritize:
-                outcome = "\(Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                do {
+                    outcome = "\(try Signals.setBackground(a.processes, true, appID: a.appID, journal: journal, at: now)) processes"
+                } catch {
+                    outcome = "failed: \(error)"
+                }
             case .restorePriority:
-                outcome = "\(Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) processes"
+                outcome = "\((try? Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) ?? 0) processes"
             case .requestQuit:
                 let root = a.processes.first?.pid ?? 0
                 outcome = NSRunningApplication(processIdentifier: root)?.terminate() == true ? "requested" : "refused"
@@ -488,6 +517,18 @@ public final class Daemon {
         ActionLog.append(ActionLogEntry(t: now, action: a, outcome: outcome), paths: paths)
         traces.write(.action(a, at: now))
         onAction?(a, outcome)
+        return outcome
+    }
+
+    /// "Thaw all": after the engine's own thaws, every journal entry no stash holds is
+    /// resumed too (earlier resumes that did not take). Returns how many were resumed and
+    /// how many are still paused.
+    func resumeJournal() -> (resumed: Int, stuck: Int) {
+        let j = journal.read()
+        let live = Set(j.stashes.map(\.name))
+        let ids = j.entries.filter { e in e.stash.map { !live.contains($0) } ?? true }.map(\.identity)
+        let out = Signals.thawTree(ids, journal: journal, send: sender)
+        return (out.filter { $0 == .sent }.count, out.filter { !$0.resolved }.count)
     }
 
     /// S5: after a thaw, check the app is alive and (with Accessibility) responsive.

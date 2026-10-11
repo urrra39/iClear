@@ -207,6 +207,12 @@ public struct Installer: Sendable {
         }
         let rec = Signals.recover(journal: JournalStore(url: paths.journal))
         if rec.thawed > 0 { l.append("Thawed \(rec.thawed) process(es) left in the journal.") }
+        if rec.unresolved > 0 {
+            l.append("\(rec.unresolved) journal record(s) could not be resolved and were kept; run `iclear thaw --all`.")
+        }
+        if rec.pending, !rec.markerWritten {
+            l.append("The journal was locked and the recovery marker could not be written; run `iclear thaw --all` again.")
+        }
         if (try? FileManager.default.removeItem(at: plist)) != nil { l.append("Removed \(plist.path).") }
         if purge, (try? FileManager.default.removeItem(at: paths.base)) != nil { l.append("Deleted \(paths.base.path).") }
         return l.isEmpty ? "Nothing to uninstall." : l.joined(separator: "\n")

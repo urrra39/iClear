@@ -56,3 +56,6 @@
 "battery.estimate" = "(taxmin)";
 "battery.uncalibrated" = "(taxmin, hali kalibrlanmagan)";
 "battery.unreliable" = "(taxmin, bu Mac'da ishonchsiz)";
+"thawAll.stillPaused" = "%d ta yozuvni hal qilib bo'lmadi, ular jurnalda qoldi. Qayta urinib ko'ring.";
+"thawAll.pending" = "iClear o'zgarish kiritayotgan edi va uni bekor qilish so'raldi. Tasdiqlash uchun bir necha soniyadan keyin \"Hammasini davom ettirish\" ni yana bosing.";
+"thawAll.pendingUnmarked" = "iClear o'zgarish kiritayotgan edi, lekin uni bekor qilishni so'rab bo'lmadi, shuning uchun u hali amalga oshishi mumkin. U tugagach \"Hammasini davom ettirish\" ni yana bosing.";

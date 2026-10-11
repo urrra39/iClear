@@ -116,7 +116,9 @@ public struct StashRecord: Codable, Equatable, Sendable {
 }
 
 public struct Journal: Codable, Equatable, Sendable {
-    public var version = 1
+    /// The format this version writes. A journal with a higher version is never rewritten.
+    public static let formatVersion = 1
+    public var version = Journal.formatVersion
     public var entries: [JournalEntry] = []
     public var restorations: [Restoration] = []
     public var stashes: [StashRecord] = []

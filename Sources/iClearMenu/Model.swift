@@ -94,7 +94,10 @@ final class Model: ObservableObject {
             message = r.text
         } else {
             let r = Signals.recover(journal: JournalStore(url: paths.journal))
-            message = String(format: localized("thawAll.offline"), r.thawed)
+            var lines = [String(format: localized("thawAll.offline"), r.thawed)]
+            if r.unresolved > 0 { lines.append(String(format: localized("thawAll.stillPaused"), r.unresolved)) }
+            if r.pending { lines.append(localized(r.markerWritten ? "thawAll.pending" : "thawAll.pendingUnmarked")) }
+            message = lines.joined(separator: "\n")
         }
         refresh()
     }

@@ -133,11 +133,11 @@ case "thaw":
     let all = rest.isEmpty || rest.contains("--all")
     if let r = daemon(Request("thaw", app: all ? "all" : rest.first)) {
         out(r.text)
+        if !r.ok { exit(1) }
     } else if all {
-        let r = Signals.recover(journal: JournalStore(url: paths.journal))
-        out(
-            "icleard is not running; thawed \(r.thawed) process(es) from the journal" + (r.stale > 0 ? ", \(r.stale) already gone" : "")
-                + (r.corrupt ? " (journal was corrupt: resumed every stopped app process)" : "") + ".")
+        let rep = Signals.recover(journal: JournalStore(url: paths.journal)).report("icleard is not running")
+        out(rep.text)
+        if !rep.ok { exit(1) }
     } else {
         fail("icleard is not running. `iclear thaw --all` works without it.")
     }
