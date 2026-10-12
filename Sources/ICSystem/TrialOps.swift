@@ -49,7 +49,7 @@ extension Daemon {
             hangs: q.filter { $0.reason.hasPrefix("unresponsive") }.map(\.name),
             crashes: q.filter { $0.reason.hasPrefix("exited") }.map(\.name),
             regrettedToday: regretted, resumeAllToday: resumeAll, ownCPUPercentLastHour: ownCPUPercentLastHour(now: now),
-            invariant: trialInvariant())
+            stack: stackOverheadLastHour(now: now), invariant: trialInvariant())
     }
 
     /// iClear's own CPU over the last hour (daemon and its watchdog), once an hour of samples exists.
@@ -61,6 +61,53 @@ extension Daemon {
         trialCPUSamples = trialCPUSamples.filter { now - $0.t <= 3700 } + [(now, cpu)]
         guard let first = trialCPUSamples.first, now - first.t >= 3000, cpu >= first.cpu else { return nil }
         return Double(cpu - first.cpu) / 1e9 / (now - first.t) * 100
+    }
+
+    /// The processes of this iClear: the daemon, its children, and every process of this
+    /// user whose executable is inside the same app bundle (Panic Brake, its watchdog, the
+    /// menu app).
+    static func stackPIDs(_ table: [Int32: ProcInfo]) -> [Int32] {
+        let me = getpid()
+        let exe = table[me]?.path ?? ""
+        let bundle = exe.range(of: ".app/Contents/").map { String(exe[..<$0.upperBound]) }
+        return table.values.filter { p in
+            p.pid == me || p.ppid == me || (bundle.map { p.path.hasPrefix($0) } ?? false)
+        }.map(\.pid)
+    }
+
+    /// The whole stack's CPU, wakeups and energy over the last hour, once 50 minutes of
+    /// samples exist (amendment A3). Counted per process, so a restarted helper is counted
+    /// from its start and never as a negative delta.
+    func stackOverheadLastHour(now: Double) -> StackOverhead? {
+        if let f = trialStack { return f() }
+        let table = Proc.table()
+        let pids = Self.stackPIDs(table)
+        var next: [Int32: (cpu: UInt64, wake: UInt64, nj: UInt64?)] = [:]
+        var cpu: UInt64 = 0
+        var wake: UInt64 = 0
+        var nj: UInt64? = 0
+        for pid in pids {
+            guard let p = table[pid] else { continue }
+            let e = processEnergyNJ(pid)
+            next[pid] = (p.cpuNanos, p.wakeups, e)
+            guard let l = trialStackLast[pid] else { continue }  // new since the last tick: from the next one
+            cpu &+= p.cpuNanos >= l.cpu ? p.cpuNanos - l.cpu : 0
+            wake &+= p.wakeups >= l.wake ? p.wakeups - l.wake : 0
+            if let e, let le = l.nj, let n = nj { nj = n &+ (e >= le ? e - le : 0) } else { nj = nil }
+        }
+        let first = trialStackLast.isEmpty
+        trialStackLast = next
+        if !first, let lastT = trialStackDeltas.last?.t ?? trialStackStart {
+            trialStackDeltas.append((now, now - lastT, cpu, wake, nj, pids.count))
+        }
+        if first { trialStackStart = now }
+        trialStackDeltas = trialStackDeltas.filter { now - $0.t <= 3600 }
+        let span = trialStackDeltas.map(\.dt).reduce(0, +)
+        guard span >= 3000 else { return nil }
+        let c = trialStackDeltas.map { Double($0.cpu) }.reduce(0, +) / 1e9
+        let w = trialStackDeltas.map { Double($0.wake) }.reduce(0, +)
+        let e = trialStackDeltas.allSatisfy { $0.nj != nil } ? trialStackDeltas.map { Double($0.nj!) }.reduce(0, +) / 1e9 / span : nil
+        return StackOverhead(cpuPercent: c / span * 100, wakeupsPerSecond: w / span, energyW: e, processes: pids.count)
     }
 
     func trialInvariant() -> String? {

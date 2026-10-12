@@ -67,6 +67,12 @@ public final class Daemon {
     /// The real-use trial (v1.2): own-CPU samples; test hooks for the evidence it reads.
     var trialCPUSamples: [(t: Double, cpu: UInt64)] = []
     var trialOwnCPU: (() -> Double?)?
+    /// Per-tick usage of the whole iClear stack (A3): the last counters per process and the
+    /// deltas of the last hour; a test hook replaces the measurement.
+    var trialStackLast: [Int32: (cpu: UInt64, wake: UInt64, nj: UInt64?)] = [:]
+    var trialStackDeltas: [(t: Double, dt: Double, cpu: UInt64, wake: UInt64, nj: UInt64?, n: Int)] = []
+    var trialStack: (() -> StackOverhead?)?
+    var trialStackStart: Double?
     var trialInvariantCheck: (() -> String?)?
     /// Trials rolled back in this run or recorded in trial.json (by start time): a config
     /// file that still holds one, because its write failed, does not start it again.
