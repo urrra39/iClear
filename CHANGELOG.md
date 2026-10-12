@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0-rc.3 (2026-10-12; release candidate)
+
+Validation and release hygiene; no new features.
+
+- **Trial Guard, stack overhead (criteria amendment A3).** The trial also rolls back to
+  Observe when all iClear processes together (daemon and watchdog, Panic Brake and its
+  watchdog, the menu app) exceed the E1 bounds over the last hour: 0.25% of one core or 2
+  wakeups per second. Energy is recorded where readable. It is an overhead guard on
+  battery-relevant counters, not a drain measurement; a drain trigger needs E2 data.
+- **Selftest under load (amendment A4).** The shield-ladder and call checks report
+  INCONCLUSIVE, with the measured load of other processes, when other processes keep at
+  least one core busy; a failure on a quiet Mac, or a priority that is not restored, stays
+  FAIL. Seen on 2026-10-11: the shield-ladder check of 1.0.3 and 1.0.4 failed while other
+  apps used about 2 cores.
+- **Release workflow:** a tag now creates a draft release; a second job downloads the
+  draft's assets and verifies them (`scripts/verify-release.sh`: checksums, universal
+  binaries, signature, version, quick selftest, doctor, migrate); only then is the release
+  published. 1.2.0-rc.1 had been published before its checks, and its quick selftest failed
+  the canary probe on battery; its release page now says so.
+
 ## 1.2.0-rc.2 (2026-10-11; release candidate)
 
 Correctness fixes found by an independent review of 1.2.0-rc.1; no new features.

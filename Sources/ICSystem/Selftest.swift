@@ -11,6 +11,34 @@ public enum Selftest {
         case pass = "PASS"
         case fail = "FAIL"
         case skip = "SKIP"
+        /// The Mac was too busy for a check that needs quiet conditions (amendment A4).
+        case inconclusive = "INCONCLUSIVE"
+    }
+
+    /// Other processes' load (cores) at or above which a quiet-conditions check is inconclusive.
+    public static let busyCores = 1.0
+
+    /// A quiet-conditions check: PASS when it passed; INCONCLUSIVE when it did not but other
+    /// processes kept at least `busyCores` busy (and nothing load cannot explain went wrong);
+    /// otherwise FAIL.
+    public static func quietVerdict(passed: Bool, otherCores: Double, loadExplains: Bool = true) -> Status {
+        if passed { return .pass }
+        return loadExplains && otherCores >= busyCores ? .inconclusive : .fail
+    }
+
+    /// Runs `body` and measures the CPU used meanwhile by every process of this user except
+    /// this one and its children (the selftest's own fixtures), in cores.
+    public static func withOtherLoad<T>(excludingParent parent: Int32 = getpid(), _ body: () -> T) -> (T, Double) {
+        func sample() -> [Int32: UInt64] {
+            Proc.table().values.reduce(into: [:]) { m, p in if p.pid != parent && p.ppid != parent { m[p.pid] = p.cpuNanos } }
+        }
+        let a = sample()
+        let t0 = Date()
+        let r = body()
+        let b = sample()
+        let dt = max(0.001, Date().timeIntervalSince(t0))
+        let used = b.reduce(UInt64(0)) { s, kv in s &+ (kv.value &- min(kv.value, a[kv.key] ?? kv.value)) }
+        return (r, Double(used) / 1e9 / dt)
     }
 
     public struct Result: Codable, Sendable {
@@ -32,6 +60,7 @@ public enum Selftest {
         public var results: [Result]
 
         public var passed: Bool { !results.contains { $0.status == .fail } }
+        public var inconclusive: Int { results.filter { $0.status == .inconclusive }.count }
 
         public var text: String {
             var l = ["iClear \(version) selftest (\(quick ? "quick" : "full")) on \(model), \(arch), \(memoryGB) GB, macOS \(macOS):"]
@@ -41,7 +70,9 @@ public enum Selftest {
                         format: "  %@  %@ %5.1f s  n=%-4d %@", r.status.rawValue, r.name.padding(toLength: 30, withPad: " ", startingAt: 0),
                         r.seconds, r.n, r.detail))
             }
-            l.append(String(format: "%@ in %.0f s.", passed ? "No failures" : "FAILURES", seconds))
+            l.append(
+                String(format: "%@ in %.0f s.", passed ? "No failures" : "FAILURES", seconds)
+                    + (inconclusive > 0 ? " \(inconclusive) inconclusive (the Mac was busy): run again when it is quiet." : ""))
             return l.joined(separator: "\n")
         }
 
@@ -532,8 +563,17 @@ public enum Selftest {
 
         check("call detection") {
             if noMic { return (.skip, "not run (--no-mic): it records from the microphone", 0) }
-            guard let sim = try? SpawnedHog(path: tool("ic-call-sim"), args: ["--audio"]), sim.waitReady() else {
-                return (.fail, "could not start ic-call-sim", 0)
+            let (started, other) = withOtherLoad { () -> SpawnedHog? in
+                guard let sim = try? SpawnedHog(path: tool("ic-call-sim"), args: ["--audio"]) else { return nil }
+                if sim.waitReady() { return sim }
+                sim.kill()
+                return nil
+            }
+            guard let sim = started else {
+                return (
+                    quietVerdict(passed: false, otherCores: other),
+                    String(format: "could not start ic-call-sim (other processes used %.1f cores meanwhile)", other), 0
+                )
             }
             defer { sim.kill() }
             for _ in 0..<60 {
@@ -590,15 +630,21 @@ public enum Selftest {
                 return Double((Proc.info(target.pid)?.cpuNanos ?? 0) &- c0) / 1e9 / Date().timeIntervalSince(t0)
             }
             let journal = JournalStore(url: home.appendingPathComponent("shield-journal.json"))
-            let normal = share()
-            _ = try? Signals.setBackground([id], true, appID: "selftest", journal: journal)
-            let bg = share()
-            _ = try? Signals.setBackground([id], false, appID: "selftest", journal: journal)
+            let ((normal, bg), other) = withOtherLoad { () -> (Double, Double) in
+                let normal = share()
+                _ = try? Signals.setBackground([id], true, appID: "selftest", journal: journal)
+                let bg = share()
+                _ = try? Signals.setBackground([id], false, appID: "selftest", journal: journal)
+                return (normal, bg)
+            }
             usleep(200_000)
             let restored = !Proc.isBackground(target.pid)
+            // A priority that is not restored is a real failure whatever the load.
             return (
-                bg < normal * 0.5 && restored ? .pass : .fail,
-                String(format: "CPU share %.2f -> %.2f cores in the band; restored: %@", normal, bg, restored ? "yes" : "NO"), 2
+                quietVerdict(passed: bg < normal * 0.5 && restored, otherCores: other, loadExplains: restored),
+                String(
+                    format: "CPU share %.2f -> %.2f cores in the band; restored: %@; other processes %.1f cores", normal, bg,
+                    restored ? "yes" : "NO", other), 2
             )
         }
 

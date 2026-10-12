@@ -1,8 +1,12 @@
 name: Release
 
+# A tag builds the assets and creates a DRAFT release; a second job downloads the draft's
+# assets and verifies them (scripts/verify-release.sh); only then is the release published.
+# A manual run (workflow_dispatch) builds and verifies without creating any release.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -50,7 +54,15 @@ jobs:
           (cd dist && ditto -c -k --keepParent iClear.app "iClear-${GITHUB_REF_NAME#v}.zip")
       - name: Checksums
         run: cd dist && shasum -a 256 iClear-*.zip iclear-*-macos.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - name: Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/iClear-*.zip
+            dist/iclear-*-macos.tar.gz
+            dist/SHA256SUMS.txt
+      - name: Draft release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -65,6 +77,42 @@ jobs:
             echo '```'
           } > notes.md
           # A tag with a suffix (v1.0.0-rc.1) is a pre-release; a plain version tag is a release.
-          case "$VERSION" in *-*) KIND="--prerelease" ;; *) KIND="--latest" ;; esac
-          gh release create "$GITHUB_REF_NAME" $KIND --title "iClear $VERSION" --notes-file notes.md \
+          case "$VERSION" in *-*) KIND="--prerelease" ;; *) KIND="" ;; esac
+          gh release create "$GITHUB_REF_NAME" --draft $KIND --title "iClear $VERSION" --notes-file notes.md \
             dist/iClear-*.zip dist/iclear-*-macos.tar.gz dist/SHA256SUMS.txt
+
+  verify:
+    needs: release
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the assets (the draft's own files on a tag, the build's files otherwise)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -D assets
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'push'
+        with:
+          name: dist
+          path: assets
+      - name: Verify (no microphone on CI runners)
+        run: |
+          VERSION=$(sed -n 's/^public let iclearVersion = "\(.*\)"/\1/p' Sources/ICSystem/Doctor.swift)
+          if [ "${{ github.event_name }}" = push ] && [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the source version $VERSION"; exit 1
+          fi
+          scripts/verify-release.sh assets "$VERSION" --no-mic
+
+  publish:
+    needs: verify
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the verified draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) LATEST="" ;; *) LATEST="--latest" ;; esac
+          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false $LATEST

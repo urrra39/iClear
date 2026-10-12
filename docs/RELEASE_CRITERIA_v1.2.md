@@ -102,3 +102,27 @@ least 3 receipts with a positive predicted saving, bound 30%, unchanged; a drop 
 less is an error of 100% or more; receipts without that baseline do not count). The observed
 drop is an uncontrolled before/after observation, not a causal measurement of savings; B1
 remains the only test of a benefit.
+
+**A3 (2026-10-12, before any measurement it governs), what R1's battery-related trigger
+measures.** The registered R1 text above is kept. From `1.2.0-rc.3` the Trial Guard adds a
+**stack-overhead trigger**: every tick it samples CPU time, wakeups
+(`ri_interrupt_wkups` + `ri_pkg_idle_wkups`) and, where readable, energy (`ri_energy_nj`)
+of all iClear processes combined (the daemon and its watchdog, the Panic Brake and its
+watchdog, the menu app: every process of the same user whose executable is inside the
+installed app bundle, plus the daemon's children). Once at least 50 minutes of samples
+exist, it rolls the trial back to Observe when the mean over the last hour exceeds the E1
+bounds: **0.25% of one core** or **2 wakeups per second**. Energy is recorded in the
+evidence but is not a trigger (E1 registered no energy bound). This is an **overhead
+guard on battery-relevant counters, not a drain measurement**; R1's "battery regression"
+counts as met only by this trigger passing 5/5 with fixtures, and the text never calls it
+a drain guard. A drain trigger needs E2 data (iClear's measured added drain with its 95%
+bound); E2 has not run, so no drain trigger exists. The earlier daemon-only CPU trigger
+(1% of one core) stays as a second, looser trigger.
+
+**A4 (2026-10-12), selftest results under load.** Checks whose result depends on a quiet
+Mac (the shield ladder's CPU share, the call check's fixture start) report
+**INCONCLUSIVE** instead of FAIL when other processes used at least 1 core on average
+during the check, with the measured load in the detail; a check that fails on a quiet Mac,
+or fails for a reason load cannot explain (a priority not restored), stays FAIL. An
+INCONCLUSIVE check does **not** satisfy the regression gate's full selftest: that gate
+needs it re-run until PASS on a quiet Mac.
