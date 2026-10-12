@@ -29,16 +29,22 @@ public enum Selftest {
     /// Runs `body` and measures the CPU used meanwhile by every process of this user except
     /// this one and its children (the selftest's own fixtures), in cores.
     public static func withOtherLoad<T>(excludingParent parent: Int32 = getpid(), _ body: () -> T) -> (T, Double) {
-        func sample() -> [Int32: UInt64] {
-            Proc.table().values.reduce(into: [:]) { m, p in if p.pid != parent && p.ppid != parent { m[p.pid] = p.cpuNanos } }
-        }
-        let a = sample()
+        let a = Proc.table()
         let t0 = Date()
         let r = body()
-        let b = sample()
-        let dt = max(0.001, Date().timeIntervalSince(t0))
-        let used = b.reduce(UInt64(0)) { s, kv in s &+ (kv.value &- min(kv.value, a[kv.key] ?? kv.value)) }
-        return (r, Double(used) / 1e9 / dt)
+        let b = Proc.table()
+        return (r, otherCores(before: a, after: b, seconds: Date().timeIntervalSince(t0), excludingParent: parent))
+    }
+
+    /// CPU (cores) used between two process tables by every process except `parent` and its
+    /// children; a process that started in between is not counted (no baseline).
+    static func otherCores(before: [Int32: ProcInfo], after: [Int32: ProcInfo], seconds: Double, excludingParent parent: Int32) -> Double {
+        var used: UInt64 = 0
+        for (pid, p) in after where pid != parent && p.ppid != parent {
+            guard let q = before[pid], q.startTime == p.startTime, p.cpuNanos >= q.cpuNanos else { continue }
+            used &+= p.cpuNanos - q.cpuNanos
+        }
+        return Double(used) / 1e9 / max(0.001, seconds)
     }
 
     public struct Result: Codable, Sendable {
