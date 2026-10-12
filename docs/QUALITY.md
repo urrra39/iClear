@@ -110,6 +110,35 @@ built by the release workflow from tag `v1.0.0`), downloaded and checked on 2026
 isolated home with a simulated iClean install copies the settings and keeps the old
 files. **C14 met.**
 
+## 1.2.0-rc.3 release candidate: gate status (2026-10-12)
+
+rc.3 adds no features: the stack-overhead trial trigger (amendment A3, committed in
+d978ffb before any measurement), selftest INCONCLUSIVE under load (A4), and a draft-first
+release workflow. Full suite at a790d8e: 368 tests (170 + 198), rc 0, run serially; lint rc
+0; CI green on macos-15, macos-15-intel and macos-26. Release workflow dry run (manual,
+publishes nothing) on d86f5ca: build, draft-free verification of the built assets
+(checksums, universal binaries, ad-hoc signature, version, quick selftest 17 PASS and 2
+SKIP (`--no-mic`, no battery on the runner), doctor, migrate), all passed. The Mac was on
+battery at 39-47% with the owner at the keyboard throughout, so no battery measurement and
+no quiet-Mac selftest were possible (OD7: start at ≥ 50% and 10 idle minutes; section B:
+≥ 80%).
+
+| Gate (registered) | Status | Tested build | Evidence / next action |
+|---|---|---|---|
+| U1-U7 | PASS (two stated substitutions) | rc.1 app | not re-run (no UI change) |
+| E1 | PASS on rc.1 code; **NOT RUN on rc.3** | 03ac5a8 | re-run `ic-lab energy-steady` on the rc.3 app on battery |
+| E2 | **BLOCKED** | — | charge to ≥ 80%, unplug, leave idle about 5 h: `ic-lab battery-ab` |
+| E3 | **BLOCKED** | — | same session |
+| B1 | NOT RUN | — | no tool; Battery Saver stays Off |
+| B2, B3 | PASS (tests) | a790d8e | `BatterySaverTests`, integration tests |
+| S6 | PASS | ffa65a7+ | 30/30 local, 22/22 macOS 26 CI |
+| S8 | PASS (test) | a790d8e | — |
+| R1 | PASS with fixtures under A3 (8 triggers x 5); the stack-overhead trigger is an overhead guard, not a drain guard | a790d8e | a drain trigger needs E2 data |
+| Regression gate on battery (C2, C7, full selftest) | **BLOCKED** | — | same battery session |
+| Quick selftest on a quiet Mac, 1.0.4 and rc.2 | **BLOCKED** (Mac busy, battery under 50%) | — | on AC or ≥ 50%, after 10 idle minutes; a 1.0.4 shield-ladder FAIL then means a 1.0.5 |
+
+`v1.2.0` stays blocked by E1 on the candidate, E2, E3 and the regression gate on battery.
+
 ## 1.2.0-rc.2 release candidate: fixes and gate status (2026-10-11)
 
 rc.2 contains correctness fixes only (rollback and recovery), found by an independent review
