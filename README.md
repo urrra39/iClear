@@ -13,7 +13,7 @@ when you switch back to it. It never deletes files.
 > change is seen undone, changes fail closed without their record, a late change during an
 > emergency recovery undoes itself). Validated on one Mac (Apple M3 Pro, 18 GB, macOS
 > 27.0.1) with real apps a lab started, never with personal accounts. `main` also holds
-> later work, published only as the pre-release **1.2.0-rc.2** (the app window, Battery
+> later work, published only as the pre-release **1.2.0-rc.3** (the app window, Battery
 > Saver, side-effect mitigations, the real-use trial): anything marked "main only" below is
 > not in 1.0.4. iClear starts in **Observe mode**: it only records what
 > it would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
@@ -97,7 +97,7 @@ discarded); on `main`, `--no-mic` skips that check.
 | Panic Brake (`iclear brake`) | **observe only** | **main only**, cannot act until its lab criteria pass |
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **off** | **main only**, off until their lab criteria pass |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | when you ask | **main only**, not validated |
-| App window with Dock icon, onboarding cards, settings (show at launch, keep in Dock, open at login) | the window opens with the app | **main only** (1.2.0-rc.2); `ic-lab ui-smoke` U1-U7 10/10 |
+| App window with Dock icon, onboarding cards, settings (show at launch, keep in Dock, open at login) | the window opens with the app | **main only** (1.2.0-rc.3); `ic-lab ui-smoke` U1-U7 10/10 |
 | Battery Saver (`iclear battery saver`) | **off**; battery only | **main only**; its benefit is **not measured** ([BATTERY.md](docs/BATTERY.md)) |
 | SESSION class, a maximum pause per class, MRU protection, "Pause anyway" for a visible app (`iclear freeze <app> --visible`) | on (Pause anyway when you ask) | **main only**; unit and integration tests ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
 | Real-use trial (`iclear trial start\|stop\|status`) | not running unless started | **main only**; rollback guard tested 5/5 per trigger |
@@ -173,7 +173,7 @@ pop, the guards, and the side effects below. Numbers: [Validated scope](#validat
 - On `main`: Panic Brake observe only; Black Box, Thrash Guard, Wake-on-Data and leak
   notifications off, each until its pre-registered lab criteria pass
   ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
-- On `main` (1.2.0-rc.2): Battery Saver off by default, because its paired battery test
+- On `main` (1.2.0-rc.3): Battery Saver off by default, because its paired battery test
   has not run; iClear's own steady cost on battery met its bound (E1), but its drain
   compared with iClear stopped (E2) has not been measured: that test needs about 4 hours
   of battery ([RELEASE_CRITERIA_v1.2.md](docs/RELEASE_CRITERIA_v1.2.md)).
@@ -215,7 +215,7 @@ been regretted. [Full result](docs/VALIDATION.md#7-day-soak-on-100-final-result-
   keys sent to a paused player; the thermal shield.
 - The main-only features' lab gates: Panic Brake G1-G4, G7, G9; Black Box H1-H3; leak
   trend L1-L4 (stopped at the lab's memory safety limits); Thrash Guard, Wake-on-Data,
-  canary probe runs and the capacity benchmark (not run). 1.2.0-rc.2 is a pre-release.
+  canary probe runs and the capacity benchmark (not run). 1.2.0-rc.3 is a pre-release.
 - On `main` (v1.2): iClear's own battery drain, Battery Saver's effect and resume latency
   after swap-out on battery, and the regression run on battery (not enough battery time); the canary probe on battery (it needs
   AC); adaptive wake windows (not built); push notifications and notifications scheduled
@@ -328,7 +328,7 @@ Open Anyway (Apple removed the right-click route in macOS 15). On macOS 13 and 1
 right-click iClear.app, choose Open, confirm. Command-line tools:
 `xattr -dr com.apple.quarantine iclear-<version>`, then `./iclear install` inside it.
 
-**From source** (a Swift 6 toolchain; `main` builds the 1.2 work (1.2.0-rc.2)):
+**From source** (a Swift 6 toolchain; `main` builds the 1.2 work (1.2.0-rc.3)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear

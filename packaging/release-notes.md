@@ -1,14 +1,22 @@
 iClear @VERSION@ is a **release candidate** for 1.2, published for testing. It is not the
 stable 1.2.0: the pre-registered battery A/B tests (iClear's own drain against iClear stopped,
 Battery Saver's effect) and the regression run on battery did not fit in the battery time
-available, the trial guard's battery-regression trigger is not implemented (criterion R1,
-amendment A1), and the release rule then allows only a candidate
+available, and the release rule then allows only a candidate
 (`docs/RELEASE_CRITERIA_v1.2.md`). iClear's own steady-state cost on battery was measured
 on 1.2.0-rc.1 code and met its bound.
 
 Keep 1.0.3 for daily use unless you want to help test. iClear pauses idle background apps
 on a Mac that is running out of memory and resumes each one when you switch back to it.
 It starts in **Observe mode**, which only records what it would do.
+
+## Changed since 1.2.0-rc.2
+
+- The real-use trial also rolls back when all iClear processes together exceed the E1
+  bounds over the last hour (0.25% of one core, 2 wakeups per second); an overhead guard,
+  not a drain measurement.
+- `iclear selftest` reports a quiet-conditions check as INCONCLUSIVE, with the measured
+  load, when other apps keep the Mac busy; real failures stay FAIL.
+- This release was published only after its assets passed the automated checks.
 
 ## Fixed since 1.2.0-rc.1
 
@@ -57,7 +65,7 @@ Full list: `CHANGELOG.md`.
 | U1-U7 app window and icon (`ic-lab ui-smoke`, installed app, 10 runs, on AC) | 10/10 each; U6 compared the Finder icon because Quick Look hangs on app bundles on this macOS; U3 closed the window through its close action (`performClose`) because Accessibility does not expose its close button |
 | S6 pop without Accessibility | 30/30 local runs with no extra window; macOS 26 CI runs: see `docs/QUALITY.md` |
 | S8 `thaw --all` with nothing installed | test passes |
-| R1 trial rollback | each of 6 triggers 5/5, nothing left paused; the battery-regression trigger is a CPU trigger, so R1 is **not met as registered**. rc.2 adds fault-injection tests (config write, reload and resume failures) |
+| R1 trial rollback | 8 triggers 5/5 each, nothing left paused (rc.3 adds the whole-stack CPU and wakeup triggers of amendment A3, an overhead guard, not a drain measurement); fault-injection tests for config write, reload and resume failures |
 | Daemon overhead, Observe mode, real apps, 200 min (153 on AC, 46 on battery) | mean 0.150% of one core, per-minute p95 0.200% |
 | E1 whole stack, 60 min on battery (display on, thermal nominal) | CPU 0.163% of one core, 1.52 wakeups per second (bounds 0.25% and 2): met; a first run before the last fixes had 2.33 wakeups per second |
 | E2, E3, B1, S4 and the regression block on battery | **not run**: E2 needs about 4.2 h and could not fit above the 25% floor at the measured drain; the battery was below the 50% start floor after E1 |

@@ -14,7 +14,7 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 > paytidagi kechikkan o'zgarish o'zini bekor qiladi). Bitta Mac'da (Apple M3 Pro, 18 GB,
 > macOS 27.0.1) laboratoriya ishga tushirgan haqiqiy ilovalar bilan tasdiqlangan, hech
 > qachon shaxsiy akkauntlar bilan emas. `main` tarmog'ida keyingi ish ham bor, u faqat
-> **1.2.0-rc.2** sinov relizi sifatida chiqarilgan (ilova oynasi, Batareya tejash, yon
+> **1.2.0-rc.3** sinov relizi sifatida chiqarilgan (ilova oynasi, Batareya tejash, yon
 > ta'sirlarni yumshatish, haqiqiy foydalanish sinovi): "faqat main" deb belgilangan narsa
 > 1.0.4 da yo'q. iClear **Kuzatish rejimida** boshlanadi: u faqat nima
 > qilgan bo'lardi, shuni yozadi.
@@ -103,7 +103,7 @@ yuboriladi); `main` da `--no-mic` bu tekshiruvni o'tkazib yuboradi.
 | Panic Brake (`iclear brake`) | **faqat kuzatadi** | **faqat main**, laboratoriya mezonlari o'tmaguncha harakat qila olmaydi |
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **o'chiq** | **faqat main**, laboratoriya mezonlari o'tmaguncha o'chiq |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | siz so'raganingizda | **faqat main**, tasdiqlanmagan |
-| Dock belgisi bilan ilova oynasi, tanishtiruv kartalari, sozlamalar (ochilganda oynani ko'rsatish, Dock'da qoldirish, tizimga kirganda ochish) | ilova ochilganda oyna ochiladi | **faqat main** (1.2.0-rc.2); `ic-lab ui-smoke` U1-U7 10/10 |
+| Dock belgisi bilan ilova oynasi, tanishtiruv kartalari, sozlamalar (ochilganda oynani ko'rsatish, Dock'da qoldirish, tizimga kirganda ochish) | ilova ochilganda oyna ochiladi | **faqat main** (1.2.0-rc.3); `ic-lab ui-smoke` U1-U7 10/10 |
 | Batareya tejash (`iclear battery saver`) | **o'chiq**; faqat batareyada | **faqat main**; foydasi **o'lchanmagan** ([BATTERY.md](docs/BATTERY.md)) |
 | SESSION sinfi, har bir sinf uchun eng uzun pauza, MRU himoyasi, ko'rinib turgan ilova uchun "Baribir pauza qilish" (`iclear freeze <ilova> --visible`) | yoqilgan ("Baribir pauza qilish" so'raganingizda) | **faqat main**; birlik va integratsiya testlari ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
 | Haqiqiy foydalanish sinovi (`iclear trial start\|stop\|status`) | boshlanmaguncha ishlamaydi | **faqat main**; orqaga qaytarish himoyasi har bir sabab uchun 5/5 sinalgan |
@@ -184,7 +184,7 @@ ta'sirlar. Raqamlar: [Tasdiqlangan doira](#tasdiqlangan-doira).
 - `main` da: Panic Brake faqat kuzatadi; Black Box, Thrash Guard, Wake-on-Data va xotira
   o'sishi bildirishnomalari o'chiq, har biri oldindan belgilangan laboratoriya mezonlari
   o'tmaguncha ([RELEASE_CRITERIA_v1.1.md](docs/RELEASE_CRITERIA_v1.1.md)).
-- `main` da (1.2.0-rc.2): Batareya tejash sukut bo'yicha o'chiq, chunki uning juft batareya
+- `main` da (1.2.0-rc.3): Batareya tejash sukut bo'yicha o'chiq, chunki uning juft batareya
   sinovi o'tkazilmagan; iClear'ning batareyadagi doimiy sarfi o'z chegarasiga mos keldi
   (E1), lekin iClear to'xtatilgan holatga nisbatan sarfi (E2) o'lchanmagan: bu sinov
   taxminan 4 soatlik batareya vaqtini talab qiladi
@@ -231,7 +231,7 @@ sabab bo'lardi. [To'liq natija](docs/VALIDATION.md#7-day-soak-on-100-final-resul
 - Faqat main'dagi imkoniyatlarning laboratoriya mezonlari: Panic Brake G1-G4, G7, G9;
   Black Box H1-H3; xotira o'sishi L1-L4 (xotira xavfsizlik chegaralarida to'xtadi);
   Thrash Guard, Wake-on-Data, canary probe sinovlari va sig'im benchmarki (o'tkazilmadi).
-  1.2.0-rc.2 sinov relizi.
+  1.2.0-rc.3 sinov relizi.
 - `main` da (v1.2): iClear'ning batareyada o'zi sarflaydigan energiyasi, Batareya tejash
   ta'siri va svopdan keyin batareyada davom ettirish kechikishi va batareyadagi regressiya sinovi (batareya vaqti yetmadi);
   batareyada canary probe (u zaryadni talab qiladi); moslashuvchan uyg'onish oynalari
@@ -360,7 +360,7 @@ da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Op
 tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
 iclear-<versiya>`, keyin uning ichida `./iclear install`.
 
-**Manba koddan** (Swift 6; `main` 1.2 ishini quradi (1.2.0-rc.2)):
+**Manba koddan** (Swift 6; `main` 1.2 ishini quradi (1.2.0-rc.3)):
 
 ```sh
 git clone https://github.com/urrra39/iClear.git && cd iClear
