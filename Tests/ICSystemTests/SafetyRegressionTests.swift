@@ -85,6 +85,21 @@ import Testing
         #expect(!result.ok && FileManager.default.fileExists(atPath: paths.base.path))
     }
 
+    @Test func repeatedPurgePreservesDamagedJournalEvidence() throws {
+        let paths = tempHome()
+        let journal = JournalStore(url: paths.journal)
+        try Files.atomicWrite(Data("{".utf8), to: paths.journal)
+        guard case .corrupt(let backup) = journal.load() else {
+            Issue.record("expected the damaged journal to be moved aside")
+            return
+        }
+        let installer = Installer(paths: paths, daemonPath: "/missing")
+        for _ in 0..<2 {
+            let result = installer.uninstallResult(purge: true, control: unloaded)
+            #expect(!result.ok && FileManager.default.fileExists(atPath: backup.path))
+        }
+    }
+
     @Test func workspaceReportsExecutionFailure() throws {
         let h = try hog()
         defer { h.kill() }

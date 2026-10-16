@@ -524,7 +524,9 @@ case "brake":
             try Files.atomicWrite(c.encoded(), to: paths.config)
         } catch { fail("could not write \(paths.config.path): \(error)") }
         if sub == "off" {
-            out(brakeInstaller.uninstall(purge: false))
+            let removal = brakeInstaller.uninstallResult(purge: false)
+            out(removal.text)
+            if !removal.ok { exit(1) }
             out("Panic Brake off.")
         } else {
             if !brakeInstaller.isLoaded { out((try? brakeInstaller.install()) ?? "Panic Brake could not be installed.") }

@@ -264,6 +264,13 @@ public struct Installer: Sendable {
                                 records.version <= Journal.formatVersion
                             else { throw RecoveryDataNotEmpty() }
                         }
+                        // A previous recovery may have moved a damaged journal aside.
+                        // Repeating purge must not silently discard that recovery evidence.
+                        let files = try FileManager.default.contentsOfDirectory(atPath: paths.base.path)
+                        let damaged = files.filter {
+                            $0.hasPrefix("journal.json.corrupt-") || $0.hasPrefix("brake-journal.json.corrupt-")
+                        }
+                        guard damaged.isEmpty else { throw RecoveryDataNotEmpty() }
                         // A manually started daemon has no launchd job but holds this lock.
                         let fd = open(paths.lock.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
                         guard fd >= 0 else { throw POSIXError(.EIO) }
