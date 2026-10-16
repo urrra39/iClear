@@ -181,7 +181,7 @@ public struct Installer: Sendable {
     }
 
     @discardableResult
-    static func launchctl(_ args: [String]) -> (status: Int32, output: String) {
+    public static func launchctl(_ args: [String]) -> (status: Int32, output: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         p.arguments = args
@@ -213,15 +213,66 @@ public struct Installer: Sendable {
     /// Stops the daemon (which thaws everything on exit), thaws anything left in the
     /// journal, and removes the LaunchAgent. `purge` also deletes iClear's data.
     public func uninstall(purge: Bool) -> String {
+        uninstallResult(purge: purge).text
+    }
+
+    public struct UninstallResult: Sendable {
+        public var ok: Bool
+        public var text: String
+    }
+
+    /// A failed stop or recovery preserves the launch configuration and all recovery data.
+    /// The injected operations let tests exercise failures without touching launchd.
+    public func uninstallResult(
+        purge: Bool,
+        control: ([String]) -> (status: Int32, output: String) = Installer.launchctl,
+        recover: (JournalStore) -> Signals.RecoveryResult = { Signals.recover(journal: $0) }
+    ) -> UninstallResult {
         var l: [String] = []
-        if isLoaded {
-            let r = Self.launchctl(["bootout", "\(domain)/\(label)"])
-            l.append(r.status == 0 ? "Stopped \(label)." : "launchctl bootout: \(r.output)")
+        if control(["print", "\(domain)/\(label)"]).status == 0 {
+            let r = control(["bootout", "\(domain)/\(label)"])
+            guard r.status == 0, control(["print", "\(domain)/\(label)"]).status != 0 else {
+                return UninstallResult(ok: false, text: "Could not stop \(label): \(r.output). Recovery files were kept.")
+            }
+            l.append("Stopped \(label).")
         }
-        let rec = Signals.recover(journal: JournalStore(url: role == "brake" ? paths.brakeJournal : paths.journal))
-        if rec.thawed > 0 { l.append("Thawed \(rec.thawed) process(es) left in the journal.") }
-        if (try? FileManager.default.removeItem(at: plist)) != nil { l.append("Removed \(plist.path).") }
-        if purge, (try? FileManager.default.removeItem(at: paths.base)) != nil { l.append("Deleted \(paths.base.path).") }
-        return l.isEmpty ? "Nothing to uninstall." : l.joined(separator: "\n")
+        let rec = recover(JournalStore(url: role == "brake" ? paths.brakeJournal : paths.journal))
+        l.append(rec.summary)
+        guard rec.complete else {
+            return UninstallResult(ok: false, text: (l + ["Removal incomplete; recovery files were kept."]).joined(separator: "\n"))
+        }
+        do {
+            if FileManager.default.fileExists(atPath: plist.path) {
+                try FileManager.default.removeItem(at: plist)
+                l.append("Removed \(plist.path).")
+            }
+            if purge, FileManager.default.fileExists(atPath: paths.base.path) {
+                let other = Installer(paths: paths, daemonPath: daemonPath, role: role == "brake" ? "" : "brake")
+                guard control(["print", "\(domain)/\(other.label)"]).status != 0 else {
+                    return UninstallResult(ok: false, text: "Purge refused: \(other.label) is still loaded. Recovery files were kept.")
+                }
+                let daemonJournal = JournalStore(url: paths.journal)
+                let brakeJournal = JournalStore(url: paths.brakeJournal)
+                try daemonJournal.locked {
+                    try brakeJournal.locked {
+                        for j in [daemonJournal, brakeJournal] {
+                            guard case .ok(let records) = j.load(moveAside: false), records.isEmpty,
+                                records.version <= Journal.formatVersion
+                            else { throw JournalStore.CorruptJournal() }
+                        }
+                        // A manually started daemon has no launchd job but holds this lock.
+                        let fd = open(paths.lock.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                        guard fd >= 0 else { throw POSIXError(.EIO) }
+                        defer { close(fd) }
+                        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw Daemon.StartError.alreadyRunning }
+                        try FileManager.default.removeItem(at: paths.base)
+                    }
+                }
+                l.append("Deleted \(paths.base.path).")
+            }
+        } catch {
+            return UninstallResult(ok: false, text: (l + ["Removal incomplete: \(error). Remaining recovery files were kept."]).joined(separator: "\n"))
+        }
+        return UninstallResult(ok: true, text: l.joined(separator: "\n"))
     }
 }

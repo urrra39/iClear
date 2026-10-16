@@ -140,21 +140,55 @@ public final class AppCollector {
     }
 
     /// Fills in the S4 guard signals for one app (sockets and files of every process).
-    public static func inspectGuards(_ app: inout AppSnapshot, engine: Engine, now: Double) {
+    public static func inspectGuards(
+        _ app: inout AppSnapshot, engine: Engine, now: Double,
+        sockets: (Int32) -> [SocketFact]? = Inspector.checkedSockets,
+        files: (Int32, Double) -> [FileFact]? = { Inspector.checkedFiles($0, now: $1) }
+    ) {
         let g = engine.config.guards
-        let pids = app.processes.map(\.pid)
+        var socketFacts: [SocketFact] = []
+        var fileFacts: [FileFact] = []
+        var socketsComplete = !app.processes.isEmpty
+        var filesComplete = !app.processes.isEmpty
+        for id in app.processes {
+            guard Proc.startTime(id.pid) == id.startTime else {
+                socketsComplete = false
+                filesComplete = false
+                continue
+            }
+            if g.connections {
+                if let facts = sockets(id.pid) { socketFacts += facts } else { socketsComplete = false }
+            }
+            if g.writes {
+                if let facts = files(id.pid, now) { fileFacts += facts } else { filesComplete = false }
+            }
+            if Proc.startTime(id.pid) != id.startTime {
+                socketsComplete = false
+                filesComplete = false
+            }
+        }
         if g.connections {
-            let v = engine.connectionVerdict(app.id, sockets: pids.flatMap(Inspector.sockets), at: now)
-            app.signals.activeConnection = v.active
-            app.signals.servingListener = v.serving
+            if socketsComplete {
+                let v = engine.connectionVerdict(app.id, sockets: socketFacts, at: now)
+                app.signals.activeConnection = v.active
+                app.signals.servingListener = v.serving
+            } else {
+                app.signals.activeConnection = nil
+                app.signals.servingListener = nil
+            }
         } else {
             app.signals.activeConnection = false
             app.signals.servingListener = false
         }
         if g.writes {
-            let w = Guards.writes(pids.flatMap { Inspector.files($0, now: now) }, settings: g)
-            app.signals.recentWrite = w.recentWrite
-            app.signals.lockHeld = w.lockHeld
+            if filesComplete {
+                let w = Guards.writes(fileFacts, settings: g)
+                app.signals.recentWrite = w.recentWrite
+                app.signals.lockHeld = w.lockHeld
+            } else {
+                app.signals.recentWrite = nil
+                app.signals.lockHeld = nil
+            }
         } else {
             app.signals.recentWrite = false
             app.signals.lockHeld = false

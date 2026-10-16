@@ -24,7 +24,9 @@ extension Daemon {
         // The engine thaws its pauses on activation and at the time limits; forget those.
         saverPaused = saverPaused.filter { engine.state.frozen[$0] != nil }
         for (id, procs) in saverDemoted where lastApps.first(where: { $0.id == id }).map({ $0.isFrontmost }) ?? true {
-            if (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil { saverDemoted[id] = nil }
+            if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
+                saverDemoted[id] = nil
+            }
         }
         let measured = battery.receipts.filter { $0.action.hasPrefix("battery saver") }.suffix(10).compactMap { rc in
             rc.predictedSavingW.flatMap { p in rc.observedSavingW.map { (predictedSavingW: p, observedSavingW: $0) } }
@@ -122,21 +124,25 @@ extension Daemon {
     /// did not take stays unresolved in the engine (journaled, retried).
     @discardableResult
     func saverReleaseAll(now: Double) -> [String] {
-        for (id, procs) in saverDemoted where (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil {
-            saverDemoted[id] = nil
+        for (id, procs) in saverDemoted {
+            if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
+                saverDemoted[id] = nil
+            }
         }
         for id in saverPaused where engine.state.frozen[id] != nil {
             execute(engine.thaw(id, reason: Code.thawUser, at: now), immediate: true)
         }
         let unresolved = saverPaused.filter { engine.state.unresolved?[$0] != nil }
-        saverPaused = []
+        saverPaused = unresolved
         return (Array(saverDemoted.keys) + unresolved).sorted()
     }
 
     /// Activation restores a lowered app at once.
     func saverActivated(_ id: String) {
-        guard let procs = saverDemoted.removeValue(forKey: id) else { return }
-        _ = try? Signals.setBackground(procs, false, appID: id, journal: journal, at: clock())
+        guard let procs = saverDemoted[id] else { return }
+        if Signals.restoreBackground(procs, appID: id, journal: journal, at: clock(), restorer: priorityRestorer).complete {
+            saverDemoted[id] = nil
+        }
     }
 
     /// `iclear battery saver [off|balanced|max]`.
@@ -152,7 +158,12 @@ extension Daemon {
             }
             reloadConfig()
             configMTime = Self.mtime(paths.config)
-            if m == .off { saverReleaseAll(now: clock()) }
+            if m == .off {
+                let pending = saverReleaseAll(now: clock())
+                if !pending.isEmpty {
+                    return Response(ok: false, text: "Battery Saver is off; not restored yet: \(pending.joined(separator: ", ")). Recovery will retry.")
+                }
+            }
         }
         let s = engine.config.batterySaver
         var lines = [

@@ -66,7 +66,7 @@ extension Daemon {
                     name: name, path: path, apps: apps, keep: args["keep"] as? [String] ?? [], branch: args["branch"] as? String,
                     auto: args["auto"] as? Bool ?? false))
             if let e = c.validate().first(where: { $0.severity == .error }) { return Response(ok: false, text: e.description) }
-            saveConfigChange(c)
+            if let error = saveConfigChange(c) { return Response(ok: false, text: error) }
             return Response(
                 ok: true,
                 text:
@@ -78,7 +78,7 @@ extension Daemon {
             }
             var c = engine.config
             c.contexts.removeAll { $0.name == name }
-            saveConfigChange(c)
+            if let error = saveConfigChange(c) { return Response(ok: false, text: error) }
             if contextState.current == name { contextState.current = nil }
             saveContext()
             return Response(ok: true, text: "Removed context \(name).")
@@ -126,10 +126,14 @@ extension Daemon {
         }
     }
 
-    func saveConfigChange(_ c: Config) {
-        try? Files.atomicWrite(c.encoded(), to: paths.config)
-        reloadConfig()
+    /// Persist before applying; never promise a setting that could not be saved.
+    func saveConfigChange(_ c: Config) -> String? {
+        if let issue = c.validate().first(where: { $0.severity == .error }) { return issue.description }
+        do { try configWriter(c.encoded(), paths.config) }
+        catch { return "Could not write config: \(error)" }
+        if let error = reloadConfig() { return "Config was written but could not be applied: \(error)" }
         configMTime = Self.mtime(paths.config)
+        return nil
     }
 
     func contextStatus(now: Double) -> String {

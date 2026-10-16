@@ -144,6 +144,9 @@ public enum StashPlanner {
             } else if matches(options.keep, a) {
                 decision = .keep
                 notes.append("kept (--keep)")
+            } else if (config.guards.connections && s.activeConnection == nil) || (config.guards.writes && s.recentWrite == nil) {
+                decision = .blocked
+                notes.append("activity inspection incomplete; try again when it can be checked")
             } else {
                 // Soft risks: kept unless included by name.
                 var risks: [String] = []

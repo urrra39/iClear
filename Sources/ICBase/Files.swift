@@ -125,6 +125,14 @@ public enum Files {
 /// then stopped. Reads need no lock: files are replaced by rename, never torn.
 public final class JournalStore: @unchecked Sendable {
     public let url: URL
+    /// Live daemons require a ready watchdog before any new pause, hide or demotion.
+    /// Recovery never needs this permission. Set before starting concurrent work.
+    public var mayMutate: @Sendable () -> Bool = { true }
+
+    public struct MutationUnavailable: Error, CustomStringConvertible {
+        public init() {}
+        public var description: String { "the recovery watchdog is not ready; no new changes are allowed" }
+    }
 
     public init(url: URL) { self.url = url }
 

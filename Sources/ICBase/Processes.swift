@@ -195,6 +195,7 @@ public enum Signals {
     {
         do {
             return try journal.locked {
+                guard journal.mayMutate() else { throw JournalStore.MutationUnavailable() }
                 let token = since ?? journal.recoveryToken()
                 try journal.update {
                     $0.add(ids.map { JournalEntry(pid: $0.pid, startTime: $0.startTime, appID: appID, frozenAt: now, stash: stash) })
@@ -208,6 +209,7 @@ public enum Signals {
                     return (false, [], stuck.isEmpty ? error : error + kept)
                 }
                 for id in ids {
+                    if !journal.mayMutate() { return rollBack("\(JournalStore.MutationUnavailable())") }
                     if journal.recoveryToken() != token { return rollBack("\(RecoveryIntervened())") }
                     switch send(SIGSTOP, id) {
                     case .sent: stopped.append(id)
@@ -286,8 +288,24 @@ public enum Signals {
         public var markerError: String?
         /// The lock could not be used at all (not just busy).
         public var lockError: String?
+        public var journalError: String?
         /// No journal directory: nothing of this instance is installed, so nothing can be paused.
         public var absent = false
+
+        public var complete: Bool {
+            unresolved == 0 && !pending && !corrupt && markerError == nil && lockError == nil && journalError == nil
+        }
+
+        public var summary: String {
+            var lines = ["Resumed \(thawed) process(es), restored \(restored) change(s)."]
+            if unresolved > 0 { lines.append("\(unresolved) record(s) still paused or not restored; kept for recovery.") }
+            if pending { lines.append("A change is still in progress; run Resume all again to confirm.") }
+            if corrupt { lines.append("The journal was unreadable; fallback recovery cannot confirm every hidden or priority change.") }
+            if let markerError { lines.append("Recovery marker could not be written: \(markerError).") }
+            if let lockError { lines.append("Recovery lock error: \(lockError).") }
+            if let journalError { lines.append("Recovery journal error: \(journalError).") }
+            return lines.joined(separator: " ")
+        }
     }
 
     /// Thaws everything in the journal (identity-checked), puts back recorded changes and
@@ -335,6 +353,7 @@ public enum Signals {
                 r.corrupt = r.corrupt || late.corrupt
                 r.stashesDropped = max(r.stashesDropped, late.stashesDropped)
                 r.pending = false
+                r.journalError = late.journalError
             }
             return r
         }
@@ -381,7 +400,11 @@ public enum Signals {
         r.stashesDropped = j.stashes.count
         r.unresolved = keep.entries.count + keep.restorations.count
         // A journal from a newer format is never rewritten (its other records would be lost).
-        if write, j.version <= Journal.formatVersion { try? journal.replace(with: keep) }
+        if j.version > Journal.formatVersion {
+            r.journalError = "newer journal format; update iClear before discarding its records"
+        } else if write {
+            do { try journal.replace(with: keep) } catch { r.journalError = "\(error)" }
+        }
         return r
     }
 
@@ -476,49 +499,87 @@ public enum Signals {
         at now: Double = Date().timeIntervalSince1970, restorer: Restorer = .base,
         enter: (Int32) -> Bool = { setpriority(PRIO_DARWIN_PROCESS, id_t($0), PRIO_DARWIN_BG) == 0 }
     ) throws -> Int {
-        func run(write: Bool) throws -> Int {
+        if !on {
+            return restoreBackground(ids, appID: appID, journal: journal, at: now, restorer: restorer).restoredCount
+        }
+        func run() throws -> Int {
             let live = ids.filter { Proc.startTime($0.pid) == $0.startTime && ScopeLock.permits($0) }
             var n = 0
-            if on {
-                let token = journal?.recoveryToken()
-                try journal?.update { j in
-                    for id in live {
-                        j.record(
-                            Restoration(
-                                kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: Proc.isBackground(id.pid),
-                                at: now))
-                    }
-                }
-                for id in live where enter(id.pid) { n += 1 }
-                if let journal, journal.recoveryToken() != token {
-                    // A recovery ran meanwhile: take the band off again, keep what did not come off.
-                    let recs = journal.read().restorations.filter { $0.kind == .background && live.contains($0.identity) }
-                    let off = Set(recs.filter { restore($0, with: restorer).resolved }.map(\.identity))
-                    try? journal.update { $0.removeRestorations(.background, off) }
-                    throw RecoveryIntervened()
-                }
-            } else {
-                let records = journal?.read().restorations.filter { $0.kind == .background } ?? []
-                var stuck: Set<ProcessIdentity> = []
+            guard journal?.mayMutate() ?? true else { throw JournalStore.MutationUnavailable() }
+            let token = journal?.recoveryToken()
+            try journal?.update { j in
                 for id in live {
-                    // Without a record (old state unknown), leave the band only if iClear set it now.
-                    let r =
-                        records.first { $0.identity == id }
-                        ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
-                    guard !r.previous else { continue }
-                    switch restore(r, with: restorer) {
-                    case .restored: n += 1
-                    case .gone: break
-                    case .notRestored, .unknown: stuck.insert(id)
-                    }
+                    j.record(
+                        Restoration(
+                            kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: Proc.isBackground(id.pid),
+                            at: now))
                 }
-                if write { try? journal?.update { $0.removeRestorations(.background, Set(ids).subtracting(stuck)) } }
+            }
+            for id in live {
+                guard journal?.mayMutate() ?? true else {
+                    _ = restoreBackground(live, appID: appID, journal: journal, at: now, restorer: restorer)
+                    throw JournalStore.MutationUnavailable()
+                }
+                if enter(id.pid) { n += 1 }
+            }
+            if let journal, journal.recoveryToken() != token {
+                _ = restoreBackground(live, appID: appID, journal: journal, at: now, restorer: restorer)
+                throw RecoveryIntervened()
             }
             return n
         }
-        guard let journal else { return try run(write: true) }
-        if on { return try journal.locked { try run(write: true) } }
-        if let n = try? journal.locked({ try run(write: true) }) { return n }
-        return try run(write: false)
+        guard let journal else { return try run() }
+        return try journal.locked { try run() }
+    }
+
+    public struct BackgroundRestoreResult: Sendable {
+        public var restoredCount = 0
+        public var unresolved: [ProcessIdentity] = []
+        public var journalError: String?
+        public var complete: Bool { unresolved.isEmpty && journalError == nil }
+    }
+
+    /// Reports confirmed restoration separately from successful system calls. Callers
+    /// keep ownership until every identity is resolved and the journal update succeeds.
+    public static func restoreBackground(
+        _ ids: [ProcessIdentity], appID: String = "", journal: JournalStore? = nil,
+        at now: Double = Date().timeIntervalSince1970, restorer: Restorer = .base
+    ) -> BackgroundRestoreResult {
+        func run(write: Bool) -> BackgroundRestoreResult {
+            var result = BackgroundRestoreResult()
+            var records: [Restoration] = []
+            if let journal {
+                guard case .ok(let loaded) = journal.load(moveAside: false) else {
+                    result.unresolved = ids
+                    result.journalError = "the priority journal could not be read"
+                    return result
+                }
+                records = loaded.restorations.filter { $0.kind == .background }
+            }
+            var resolved: Set<ProcessIdentity> = []
+            for id in ids {
+                let record = records.first { $0.identity == id }
+                    ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
+                switch restore(record, with: restorer) {
+                case .restored:
+                    if !record.previous { result.restoredCount += 1 }
+                    resolved.insert(id)
+                case .gone: resolved.insert(id)
+                case .notRestored, .unknown: result.unresolved.append(id)
+                }
+            }
+            if write, let journal, !resolved.isEmpty {
+                do { try journal.update { $0.removeRestorations(.background, resolved) } }
+                catch { result.journalError = "\(error)" }
+            }
+            return result
+        }
+        guard let journal else { return run(write: false) }
+        do { return try journal.locked { run(write: true) } }
+        catch {
+            var result = run(write: false)
+            result.journalError = "\(error)"
+            return result
+        }
     }
 }

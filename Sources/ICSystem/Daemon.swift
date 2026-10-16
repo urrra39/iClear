@@ -27,6 +27,7 @@ public final class Daemon {
     var ipc: IPCServer?
     var lockFD: Int32 = -1
     var watchdog: Process?
+    let watchdogMonitor = WatchdogMonitor()
     var watchdogExecutable: URL?
     var configMTime: Date?
     public private(set) var configError: String?
@@ -46,6 +47,7 @@ public final class Daemon {
     public var clock: () -> Double = { Date().timeIntervalSince1970 }
     /// Signal sender for freezes and resumes (tests inject failures).
     var sender: Signals.Sender = Signals.liveSender
+    var priorityRestorer: Signals.Restorer = .base
     /// `ICLEAR_OBSERVE_ONLY=1`: this instance records what it would do and never acts,
     /// whatever its config says (the real-use trace during the soak).
     public var observeOnly = ProcessInfo.processInfo.environment["ICLEAR_OBSERVE_ONLY"] == "1"
@@ -180,6 +182,9 @@ public final class Daemon {
     /// Tests pass `false` for the process-wide parts (signal handlers, observers, timers)
     /// and drive `tick()` themselves.
     public func start(watchdogExecutable: URL?, live: Bool = true) throws {
+        watchdogMonitor.requireWatchdog(live)
+        let monitor = watchdogMonitor
+        journal.mayMutate = { monitor.permitsChanges }
         lockFD = open(paths.lock.path, O_RDWR | O_CREAT, 0o600)
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { throw StartError.alreadyRunning }
         if labMode { ScopeLock.load(paths.labRegistry) }
@@ -321,7 +326,7 @@ public final class Daemon {
             {
                 self.shieldPoll()
             }
-            if self.watchdog?.isRunning == false { self.startWatchdog() }
+            if self.watchdog?.isRunning != true { self.startWatchdog() }
         }
         p.resume()
         pollTimer = p
@@ -376,15 +381,24 @@ public final class Daemon {
 
     func startWatchdog() {
         guard let exe = watchdogExecutable else { return }
+        watchdogMonitor.ready(nil)
         let p = Process()
+        let ready = Pipe()
         p.executableURL = exe
         p.arguments = ["--watchdog", "\(getpid())"]
         p.environment = ProcessInfo.processInfo.environment
-        p.standardOutput = FileHandle.nullDevice
+        p.standardOutput = ready
         p.standardError = FileHandle.nullDevice
         do {
             try p.run()
+            ready.fileHandleForWriting.closeFile()
+            guard WatchdogMonitor.awaitReady(ready), p.isRunning else {
+                if p.isRunning { p.terminate() }
+                record("Watchdog did not acknowledge readiness; new changes are blocked.")
+                return
+            }
             watchdog = p
+            watchdogMonitor.ready(p)
             (probe as? LiveProbe)?.collector.lineage.insert(p.processIdentifier)
         } catch {
             record("Watchdog failed to start: \(error)")
@@ -693,17 +707,26 @@ public final class Daemon {
         }
     }
 
-    /// "Thaw all": after the engine's own thaws, every journal entry no stash holds is
-    /// resumed too (earlier resumes that did not take, a probe's pause). Returns the
-    /// number still paused.
-    func resumeJournal() -> Int {
+    /// The online emergency path has the same scope as offline recovery: all pauses,
+    /// completed stashes, hidden state and priority changes, without taking focus.
+    func resumeJournal() -> Signals.RecoveryResult {
         probeRun?.abort()
-        let j = journal.read()
-        let live = Set(j.stashes.map(\.name))
-        let ids = j.entries.filter { e in e.stash.map { !live.contains($0) } ?? true }.map(\.identity)
-        let stuck = Signals.thawTree(ids, journal: journal, send: sender).filter { !$0.resolved }.count
+        contextTimer?.cancel()
+        contextState.pending = nil
+        contextState.suggested = nil
+        contextState.current = nil
+        contextState.lastSwitch = nil
+        saveContext()
+        let result = Signals.recover(journal: journal, restorer: .appKit, send: sender)
+        if case .ok(let remaining) = journal.load(moveAside: false) {
+            let lowered = Set(remaining.restorations.filter { $0.kind == .background }.map(\.appID))
+            for id in engine.state.deprioritized.keys where !lowered.contains(id) { engine.priorityRestored(id) }
+            saverDemoted = saverDemoted.filter { lowered.contains($0.key) }
+            let paused = Set(remaining.entries.map(\.appID))
+            saverPaused = saverPaused.intersection(paused)
+        }
         reconcileUnresolved()
-        return stuck
+        return result
     }
 
     /// S5: after a thaw, check the app is alive and (with Accessibility) responsive.

@@ -209,7 +209,7 @@ extension Daemon {
                 engine.priorityRestored(id)  // gone
                 continue
             }
-            if (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil {
+            if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
                 engine.priorityRestored(id)
             } else {
                 r.priorityPending.append(id)

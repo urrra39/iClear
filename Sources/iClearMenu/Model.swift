@@ -162,6 +162,7 @@ final class Model: ObservableObject {
                 guard let self else { return }
                 var lines: [String] = []
                 if let a = r.answer { lines.append(r.answerDeclined ? localized("thawAll.notAll") + " " + a : a) }
+                lines += r.recoveryErrors
                 switch r.offline {
                 case nil: break
                 case .absent?: lines.append(String(format: localized("thawAll.offline"), r.offlineThawed))
