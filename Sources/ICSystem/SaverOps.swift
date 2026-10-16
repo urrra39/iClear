@@ -22,7 +22,7 @@ extension Daemon {
             return
         }
         // The engine thaws its pauses on activation and at the time limits; forget those.
-        saverPaused = saverPaused.filter { engine.state.frozen[$0] != nil }
+        saverPaused = saverPaused.filter { engine.state.frozen[$0] != nil || engine.state.unresolved?[$0] != nil }
         for (id, procs) in saverDemoted where lastApps.first(where: { $0.id == id }).map({ $0.isFrontmost }) ?? true {
             if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
                 saverDemoted[id] = nil

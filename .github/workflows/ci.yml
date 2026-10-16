@@ -27,7 +27,13 @@ jobs:
         # Serial: GUI suites share focus and the main queue; parallel runs flake on slow runners.
         run: swift test --no-parallel
       - name: Lint
-        run: swift format lint --strict --recursive Sources Tests spikes Package.swift
+        if: ${{ !cancelled() }}
+        run: |
+          if ! swift format lint --strict --recursive Sources Tests spikes Package.swift; then
+            swift format format --in-place --recursive Sources Tests spikes Package.swift
+            git diff --exit-code
+            exit 1
+          fi
       - name: Universal release build
         if: matrix.runner == 'macos-15'
         run: |

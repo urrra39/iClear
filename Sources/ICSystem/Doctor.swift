@@ -221,6 +221,10 @@ public struct Installer: Sendable {
         public var text: String
     }
 
+    private struct RecoveryDataNotEmpty: Error, CustomStringConvertible {
+        var description: String { "recovery data is unreadable, newer than this build, or still contains records" }
+    }
+
     /// A failed stop or recovery preserves the launch configuration and all recovery data.
     /// The injected operations let tests exercise failures without touching launchd.
     public func uninstallResult(
@@ -258,13 +262,17 @@ public struct Installer: Sendable {
                         for j in [daemonJournal, brakeJournal] {
                             guard case .ok(let records) = j.load(moveAside: false), records.isEmpty,
                                 records.version <= Journal.formatVersion
-                            else { throw JournalStore.CorruptJournal() }
+                            else { throw RecoveryDataNotEmpty() }
                         }
                         // A manually started daemon has no launchd job but holds this lock.
                         let fd = open(paths.lock.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
                         guard fd >= 0 else { throw POSIXError(.EIO) }
                         defer { close(fd) }
                         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw Daemon.StartError.alreadyRunning }
+                        let brakeFD = open(paths.brakeLock.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                        guard brakeFD >= 0 else { throw POSIXError(.EIO) }
+                        defer { close(brakeFD) }
+                        guard flock(brakeFD, LOCK_EX | LOCK_NB) == 0 else { throw POSIXError(.EWOULDBLOCK) }
                         try FileManager.default.removeItem(at: paths.base)
                     }
                 }

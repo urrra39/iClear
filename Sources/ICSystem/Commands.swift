@@ -141,6 +141,14 @@ extension Daemon {
         return Response(ok: true, text: l.joined(separator: "\n"))
     }
 
+    func actionResponse(_ actions: [Action], empty: String, immediate: Bool) -> Response {
+        let outcomes = execute(actions, immediate: immediate)
+        let lines = zip(actions, outcomes).map { action, outcome in
+            outcome.hasPrefix("failed") ? "\(action.name): \(outcome)" : action.summary
+        }
+        return Response(ok: !outcomes.contains { $0.hasPrefix("failed") }, text: lines.isEmpty ? empty : lines.joined(separator: "\n"))
+    }
+
     func setMode(_ m: Mode) -> Response {
         if observeOnly, m == .active {
             return Response(ok: false, text: "This instance is observe-only (ICLEAR_OBSERVE_ONLY=1) and cannot switch to Active.")
@@ -208,8 +216,7 @@ extension Daemon {
                 ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary + note)
         case "undo":
             let acts = engine.undo(at: now)
-            execute(acts, immediate: true)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to undo." : acts.map(\.summary).joined(separator: "\n"))
+            return actionResponse(acts, empty: "Nothing to undo.", immediate: true)
         case "mode":
             guard let m = req.value.flatMap(Mode.init(rawValue:)) else {
                 return Response(ok: true, text: "Mode: \(engine.config.mode.rawValue)")
@@ -275,8 +282,7 @@ extension Daemon {
                     text: engine.config.workspaces.map { "\($0.key): \($0.value.joined(separator: ", "))" }.sorted().joined(separator: "\n")
                 )
             }
-            execute(acts)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to do." : acts.map(\.summary).joined(separator: "\n"))
+            return actionResponse(acts, empty: "Nothing to do.", immediate: req.value == "thaw")
         case "advise":
             let a = Advisor.advise(days: Array(engine.state.days.values), physicalGB: engine.hardware.memoryGB)
             return Response(ok: true, text: a.text, data: req.json == true ? encode(a) : nil)
