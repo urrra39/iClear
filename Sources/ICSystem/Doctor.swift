@@ -279,7 +279,8 @@ public struct Installer: Sendable {
                 l.append("Deleted \(paths.base.path).")
             }
         } catch {
-            return UninstallResult(ok: false, text: (l + ["Removal incomplete: \(error). Remaining recovery files were kept."]).joined(separator: "\n"))
+            return UninstallResult(
+                ok: false, text: (l + ["Removal incomplete: \(error). Remaining recovery files were kept."]).joined(separator: "\n"))
         }
         return UninstallResult(ok: true, text: l.joined(separator: "\n"))
     }

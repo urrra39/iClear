@@ -129,8 +129,7 @@ extension Daemon {
     /// Persist before applying; never promise a setting that could not be saved.
     func saveConfigChange(_ c: Config) -> String? {
         if let issue = c.validate().first(where: { $0.severity == .error }) { return issue.description }
-        do { try configWriter(c.encoded(), paths.config) }
-        catch { return "Could not write config: \(error)" }
+        do { try configWriter(c.encoded(), paths.config) } catch { return "Could not write config: \(error)" }
         if let error = reloadConfig() { return "Config was written but could not be applied: \(error)" }
         configMTime = Self.mtime(paths.config)
         return nil

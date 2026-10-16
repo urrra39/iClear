@@ -7,6 +7,8 @@ import Testing
 @testable import ICSystem
 
 @Suite(.serialized) struct SafetyRegressionTests {
+    func unloaded(_ args: [String]) -> (status: Int32, output: String) { (113, "absent") }
+
     @Test func onlineResumeAllRestoresACompletedStash() throws {
         let paths = tempHome()
         let fixture = try GUIFixture(
@@ -31,7 +33,7 @@ import Testing
         let paths = tempHome()
         try Files.atomicWrite(Data("keep".utf8), to: paths.state)
         let installer = Installer(paths: paths, daemonPath: "/missing")
-        let result = installer.uninstallResult(purge: true, control: { _ in (113, "absent") }) { _ in
+        let result = installer.uninstallResult(purge: true, control: unloaded) { _ in
             var recovery = Signals.RecoveryResult()
             switch failure {
             case "unresolved": recovery.unresolved = 1
@@ -50,16 +52,17 @@ import Testing
     @Test func purgeStopsOnBootoutFailureAndKeepsTheOtherJournal() throws {
         let paths = tempHome()
         let installer = Installer(paths: paths, daemonPath: "/missing")
-        let stopped = installer.uninstallResult(purge: true, control: { args in
+        func failedStop(_ args: [String]) -> (status: Int32, output: String) {
             args.first == "print" ? (0, "loaded") : (1, "bootout failed")
-        }) { _ in
+        }
+        let stopped = installer.uninstallResult(purge: true, control: failedStop) { _ in
             Issue.record("recovery must not race a service that failed to stop")
             return Signals.RecoveryResult()
         }
         #expect(!stopped.ok && FileManager.default.fileExists(atPath: paths.base.path))
         let other = JournalStore(url: paths.brakeJournal)
         try other.update { $0.add([JournalEntry(pid: 999_999, startTime: 1, appID: "other", frozenAt: 1)]) }
-        let result = installer.uninstallResult(purge: true, control: { _ in (113, "absent") }) { _ in Signals.RecoveryResult() }
+        let result = installer.uninstallResult(purge: true, control: unloaded) { _ in Signals.RecoveryResult() }
         #expect(!result.ok && other.read().entries.count == 1)
     }
 
@@ -69,6 +72,30 @@ import Testing
             purge: true, control: { _ in (113, "absent") })
         #expect(result.ok, "\(result.text)")
         #expect(!FileManager.default.fileExists(atPath: paths.base.path))
+    }
+
+    @Test func purgeKeepsDataWhileAManualBrakeOwnsTheInstance() throws {
+        let paths = tempHome()
+        let fd = open(paths.brakeLock.path, O_RDWR | O_CREAT, 0o600)
+        #expect(fd >= 0)
+        defer { close(fd) }
+        #expect(flock(fd, LOCK_EX | LOCK_NB) == 0)
+        let result = Installer(paths: paths, daemonPath: "/missing").uninstallResult(
+            purge: true, control: { _ in (113, "absent") })
+        #expect(!result.ok && FileManager.default.fileExists(atPath: paths.base.path))
+    }
+
+    @Test func workspaceReportsExecutionFailure() throws {
+        let h = try hog()
+        defer { h.kill() }
+        let probe = FakeProbe()
+        probe.apps = [hogApp("com.example.workspace", [h])]
+        let d = try testDaemon(probe) { $0.workspaces["work"] = ["com.example.workspace"] }
+        defer { d.shutdown() }
+        d.watchdogMonitor.requireWatchdog(true)
+        let response = d.handle(Request("workspace", app: "work", value: "freeze"))
+        #expect(!response.ok && response.text.contains("failed"))
+        #expect(!isStopped(h.pid) && d.journal.read().isEmpty)
     }
 
     @Test func missingWatchdogBlocksChangesButNeverRecovery() throws {
@@ -104,6 +131,50 @@ import Testing
         p.terminate()
         p.waitUntilExit()
         #expect(!monitor.permitsChanges)
+    }
+
+    @Test func brakeRetriesAnInitialWatchdogLaunchFailure() throws {
+        let agent = BrakeAgent(paths: tempHome())
+        agent.watchdogMonitor.requireWatchdog(true)
+        agent.watchdogExecutable = URL(fileURLWithPath: "/missing/iclear-watchdog")
+        agent.startWatchdog()
+        #expect(!agent.watchdogMonitor.permitsChanges)
+        agent.watchdogExecutable = products.appendingPathComponent("icbrake")
+        agent.startWatchdog()
+        defer {
+            agent.watchdog?.terminate()
+            agent.watchdog?.waitUntilExit()
+        }
+        #expect(agent.watchdogMonitor.permitsChanges)
+    }
+
+    @Test func trialRestoresJournaledPriorityWithoutACachedAppSnapshot() throws {
+        let h = try hog()
+        defer { h.kill() }
+        let paths = tempHome()
+        let id = "com.example.trial-priority"
+        var config = Config()
+        config.trial.apps = [id]
+        config.trial.startedAt = 1
+        try Files.atomicWrite(config.encoded(), to: paths.config)
+        var state = EngineState(startedAt: 1)
+        state.deprioritized[id] = 2
+        try Files.writeJSON(state, to: paths.state)
+        let d = try Daemon(paths: paths, probe: FakeProbe(), hardware: Hardware(memoryGB: 16))
+        defer { d.shutdown() }
+        let process = h.identity!
+        try d.journal.update {
+            $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: id, previous: false, at: 2))
+        }
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in false }, inBackground: { _ in true }, requestUnhide: { _ in false }, isHidden: { _ in false })
+        #expect(d.lastApps.isEmpty)
+        #expect(d.trialRollback(reason: "test", now: 3).priorityPending == [id])
+        #expect(d.engine.state.deprioritized[id] != nil && !d.journal.read().restorations.isEmpty)
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in true }, inBackground: { _ in false }, requestUnhide: { _ in false }, isHidden: { _ in false })
+        #expect(d.trialRollback(reason: "retry", now: 4).complete)
+        #expect(d.engine.state.deprioritized.isEmpty && d.journal.read().restorations.isEmpty)
     }
 
     @Test(arguments: ["audio", "visible", "frontmost", "assertion"])
@@ -148,7 +219,8 @@ import Testing
         defer { d.shutdown() }
         let id = h.identity!
         try d.journal.update {
-            $0.record(Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: "com.example.priority", previous: false, at: 1))
+            $0.record(
+                Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: "com.example.priority", previous: false, at: 1))
         }
         d.saverDemoted["com.example.priority"] = [id]
         d.priorityRestorer = Signals.Restorer(

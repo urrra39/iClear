@@ -262,7 +262,13 @@ public final class BrakeAgent {
         server = IPCServer(path: paths.brakeSocket.path) { [weak self] in
             self?.handle($0) ?? Response(ok: false, text: "brake shutting down")
         }
-        try server?.start()
+        do { try server?.start() } catch {
+            close(instanceLockFD)
+            instanceLockFD = -1
+            watchdogMonitor.ready(nil)
+            if watchdog?.isRunning == true { watchdog?.terminate() }
+            throw error
+        }
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 1, repeating: 1)
         t.setEventHandler { [weak self] in self.map { $0.work(now: $0.clock()) } }
@@ -571,10 +577,11 @@ public final class BrakeAgent {
         record(id, p.pause.name, kind: .thaw, code: reason, note)
     }
 
-    public func resumeAll(reason: String) {
+    @discardableResult
+    public func resumeAll(reason: String) -> Signals.RecoveryResult {
         for id in Array(pauses.keys) { release(id, reason: reason, note: "resumed") }
         if let c = ladder.current, let t = trees[c] { Signals.thawTree(t.processes, journal: journal) }
-        _ = Signals.recover(journal: journal, restorer: .base)
+        return Signals.recover(journal: journal, restorer: .base)
     }
 
     /// Auto graceful quit (opt-in per app): skipped when the app reports unsaved work;
@@ -711,8 +718,8 @@ public final class BrakeAgent {
         case "resume":
             let q = (req.app ?? "").lowercased()
             if q == "all" {
-                resumeAll(reason: Code.thawUser)
-                return Response(ok: true, text: "Resumed every app the Panic Brake paused.")
+                let recovery = resumeAll(reason: Code.thawUser)
+                return Response(ok: recovery.complete, text: recovery.summary)
             }
             guard let id = pauses.first(where: { $0.key.lowercased() == q || $0.value.pause.name.lowercased() == q })?.key else {
                 return Response(ok: false, text: "The Panic Brake has not paused \(req.app ?? "that app").")

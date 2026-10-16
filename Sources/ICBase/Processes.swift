@@ -558,7 +558,8 @@ public enum Signals {
             }
             var resolved: Set<ProcessIdentity> = []
             for id in ids {
-                let record = records.first { $0.identity == id }
+                let record =
+                    records.first { $0.identity == id }
                     ?? Restoration(kind: .background, pid: id.pid, startTime: id.startTime, appID: appID, previous: false, at: now)
                 switch restore(record, with: restorer) {
                 case .restored:
@@ -569,14 +570,12 @@ public enum Signals {
                 }
             }
             if write, let journal, !resolved.isEmpty {
-                do { try journal.update { $0.removeRestorations(.background, resolved) } }
-                catch { result.journalError = "\(error)" }
+                do { try journal.update { $0.removeRestorations(.background, resolved) } } catch { result.journalError = "\(error)" }
             }
             return result
         }
         guard let journal else { return run(write: false) }
-        do { return try journal.locked { run(write: true) } }
-        catch {
+        do { return try journal.locked { run(write: true) } } catch {
             var result = run(write: false)
             result.journalError = "\(error)"
             return result

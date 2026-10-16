@@ -209,9 +209,10 @@ extension Daemon {
                 r.priorityPending.append(id)
                 continue
             }
-            let procs = Array(Set(
-                (lastApps.first(where: { $0.id == id })?.processes ?? [])
-                    + records.restorations.filter { $0.appID == id && $0.kind == .background }.map(\.identity)))
+            let procs = Array(
+                Set(
+                    (lastApps.first(where: { $0.id == id })?.processes ?? [])
+                        + records.restorations.filter { $0.appID == id && $0.kind == .background }.map(\.identity)))
             if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
                 engine.priorityRestored(id)
             } else {

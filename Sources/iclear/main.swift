@@ -206,7 +206,10 @@ case "thaw":
             out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
             exit(1)
         }
-        if !r.complete { out(r.summary); exit(1) }
+        if !r.complete {
+            out(r.summary)
+            exit(1)
+        }
     } else {
         fail(
             answer.failureValue == .absent

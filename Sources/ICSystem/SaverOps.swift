@@ -161,7 +161,8 @@ extension Daemon {
             if m == .off {
                 let pending = saverReleaseAll(now: clock())
                 if !pending.isEmpty {
-                    return Response(ok: false, text: "Battery Saver is off; not restored yet: \(pending.joined(separator: ", ")). Recovery will retry.")
+                    return Response(
+                        ok: false, text: "Battery Saver is off; not restored yet: \(pending.joined(separator: ", ")). Recovery will retry.")
                 }
             }
         }

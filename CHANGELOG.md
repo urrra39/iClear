@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Resume all restores completed stashes, hidden apps, and priority changes from the
+  journal. Incomplete recovery is reported by the CLI and menu instead of claiming success.
+- Uninstall preserves recovery data when stopping a service or recovering its changes
+  fails. Purge checks both journals and both service instance locks before removing data.
+- The daemon and Panic Brake require an acknowledged, running watchdog before making
+  new journaled changes, and retry a missing watchdog. Recovery remains available.
+- Failed or truncated activity scans block pausing; workspace freezes refresh activity
+  before deciding. Workspace and undo commands report execution failures.
+- Battery Saver and trial rollback retain unconfirmed priority restorations for retry;
+  trial rollback also uses journal identities when an app is absent from the last snapshot.
+- Config commands report persistence failures. Developer ID builds request a secure
+  signing timestamp; release verification propagates doctor and migration failures.
+- Regression coverage includes recovery, purge, watchdog readiness, fresh activity,
+  persistence errors, descriptor scans, and release-verifier failure propagation.
+
 ## 1.2.0-rc.3 (2026-10-12; release candidate)
 
 Validation and release hygiene; no new features.
