@@ -38,12 +38,14 @@ import Testing
     }
 
     @Test func pendingPriorityRestoreCannotAdvanceForecastPauseLadder() {
-        let e = engine(activeConfig { $0.forecast.enabled = true }, apps: [a])
-        e.state.normalSince = 0
-        e.state.deprioritized[a.id] = 0
-        e.state.forecast.lastTime = 540
-        e.state.forecast.lastAvailable = 35
-        e.state.forecast.slope = -5
+        var state = EngineState(startedAt: 0)
+        state.lastActiveAt[a.id] = -10_000
+        state.normalSince = 0
+        state.deprioritized[a.id] = 0
+        state.forecast.lastTime = 540
+        state.forecast.lastAvailable = 35
+        state.forecast.slope = -5
+        let e = Engine(config: activeConfig { $0.forecast.enabled = true }, hardware: hw16, state: state)
         let result = e.tick(TickInput(sample: sample(600, available: 30), apps: [a]))
         #expect(result.trigger == Code.forecast)
         #expect(result.actions.of(.restorePriority).ids == [a.id])
