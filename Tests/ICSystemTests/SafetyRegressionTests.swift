@@ -7,6 +7,61 @@ import Testing
 @testable import ICSystem
 
 @Suite(.serialized) struct SafetyRegressionTests {
+    @Test(arguments: [false, true])
+    func ordinaryPriorityRestoreRetriesUntilConfirmed(missingSnapshot: Bool) throws {
+        let h = try hog()
+        defer { h.kill() }
+        let paths = tempHome()
+        let id = "com.example.priority-retry"
+        var state = EngineState(startedAt: 1)
+        state.deprioritized[id] = 2
+        try Files.writeJSON(state, to: paths.state)
+        let probe = FakeProbe()
+        if !missingSnapshot {
+            var app = hogApp(id, [h])
+            app.isFrontmost = true
+            probe.apps = [app]
+        }
+        var config = Config()
+        config.mode = .active
+        try Files.atomicWrite(config.encoded(), to: paths.config)
+        let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
+        d.scheduleHealthChecks = false
+        defer { d.shutdown() }
+        let process = h.identity!
+        try d.journal.update {
+            $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: id, previous: false, at: 2))
+        }
+        var attempts = 0
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in attempts += 1; return false }, inBackground: { _ in true },
+            requestUnhide: { _ in false }, isHidden: { _ in false })
+        d.tick()
+        #expect(attempts > 0)
+        #expect(d.engine.state.deprioritized[id] != nil)
+        #expect(!d.journal.read().restorations.isEmpty)
+        #expect(ActionLog.read(paths: paths).contains { $0.action.kind == .restorePriority && $0.outcome.contains("failed") })
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in true }, inBackground: { _ in false },
+            requestUnhide: { _ in false }, isHidden: { _ in false })
+        d.tick()
+        #expect(d.engine.state.deprioritized[id] == nil && d.journal.read().restorations.isEmpty)
+    }
+
+    @Test func realHomeOverrideCannotBypassReleaseGates() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let alias = tempHome().home.appendingPathComponent("home-link")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: home)
+        for path in [home.path, home.appendingPathComponent(".").path, alias.path] {
+            let paths = Paths(environment: ["ICLEAR_HOME": path])
+            #expect(paths.instance == nil)
+            #expect(paths.gated(.actingBrake).0.brake.mode == .observe)
+        }
+        let escaped = Paths(environment: ["ICLEAR_INSTANCE": "x/../iClear"])
+        #expect(escaped.gated(.actingBrake).0.brake.mode == .observe)
+        #expect(tempHome().gated(.actingBrake).0.brake.mode == .on)
+    }
+
     func unloaded(_ args: [String]) -> (status: Int32, output: String) { (113, "absent") }
 
     @Test func onlineResumeAllRestoresACompletedStash() throws {
