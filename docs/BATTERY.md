@@ -74,7 +74,7 @@ record and blocks resume until its recorded group is inspected; retain the recor
 start a fresh plan rather than silently deleting evidence. The 95% paired t interval is
 computed only after six complete pairs. The E2 upper bound stays 0.20 W.
 
-This runner and its five evidence-accounting tests are **not battery results**. Hardware
+This runner's evidence-accounting and process-group cleanup tests are **not battery results**. Hardware
 execution, E1's fresh hour and E3's 200 battery cycles remain BLOCKED in a Windows workspace.
 B1 additionally needs its registered throwaway Chrome/Electron/echo workload and three
 Saver modes; this E2 runner cannot substitute for B1. B1 collection remains unimplemented

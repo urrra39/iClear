@@ -565,7 +565,8 @@ public final class BrakeAgent {
             if !resolved { ladder.cancelEpisode() }
             record(
                 id, trees[id]?.name ?? id, kind: .thaw, code: Code.panicResumed,
-                resolved ? "resumed: the stall went on while it was paused" : "resume incomplete; ladder cancelled, journal kept for recovery")
+                resolved
+                    ? "resumed: the stall went on while it was paused" : "resume incomplete; ladder cancelled, journal kept for recovery")
         case .confirmed(let id):
             let name = trees[id]?.name ?? id
             pauses[id] = (BrakePause(appID: id, name: name, pausedAt: now), trees[id]?.processes ?? [])

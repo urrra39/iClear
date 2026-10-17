@@ -1,16 +1,12 @@
 import AppKit
-
 import Foundation
-
 import Testing
 
 @testable import ICBase
-
 @testable import ICCore
-
-/// The Panic Brake on spawned ic-hog processes, with injected stall signals.
 @testable import ICSystem
 
+/// The Panic Brake on spawned ic-hog processes, with injected stall signals.
 @Suite(.serialized) struct BrakeIntegrationTests {
     @Test(arguments: ["resume", "activation"])
     func emergencyCancelsDelayedRepause(_ command: String) throws {

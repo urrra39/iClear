@@ -16,4 +16,4 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - run: swift build
-      - run: swift test --no-parallel --filter 'SafetyRegressionTests|BrakeIntegrationTests'
+      - run: swift test --no-parallel --filter 'SafetyRegressionTests|BrakeIntegrationTests|EngineTests|GoldenTraceTests|ReleaseGatesTests'

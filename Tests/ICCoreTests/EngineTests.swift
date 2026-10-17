@@ -30,6 +30,10 @@ import Testing
         #expect(f[0].reasons.contains { $0.code.hasPrefix("IDLE_") })
         #expect(f.allSatisfy { !$0.dryRun })
         #expect(e.state.frozen.count == 2)
+        #expect(e.state.deprioritized.count == 2)  // freezing does not restore Darwin priority
+        let restore = e.tick(TickInput(sample: sample(62, .warning), apps: [a, b])).actions.of(.restorePriority)
+        #expect(restore.ids == [a.id, b.id])
+        for action in restore { e.priorityRestored(action.appID) }
         #expect(e.state.deprioritized.isEmpty)
     }
 

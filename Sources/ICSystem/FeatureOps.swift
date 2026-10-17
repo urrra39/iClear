@@ -299,7 +299,7 @@ extension Daemon {
                 if outcome != "observe", outcome != "ok" { continue }
                 if !dry { ids += a.processes }
             }
-            shieldBackground[trigger] = ids
+            shieldBackground[trigger] = Array(Set((shieldBackground[trigger] ?? []) + ids))
         }
         if to >= .pause, from < .pause {
             let ctx = engine.eligibilityContext(at: now)

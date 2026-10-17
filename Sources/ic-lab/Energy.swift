@@ -10,9 +10,11 @@ enum EnergyLab {
     /// Read-only gate for bounded E2 sessions. Never stops an existing installation.
     static func preflight() -> [String: Any] {
         let power = SystemSampler.powerState()
+        let hardware = SystemSampler.hardware()
         var blocked: [String] = []
         if !power.onBattery || (power.percent ?? 0) < 50 { blocked.append("start unplugged with battery at least 50%") }
         if batteryWh() == nil { blocked.append("raw battery capacity/voltage unavailable") }
+        if SystemSampler.sample().freeDiskGB < 20 { blocked.append("at least 20 GB free disk required") }
         if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
             blocked.append("thermal state serious or critical")
         }
@@ -21,7 +23,10 @@ enum EnergyLab {
         if Proc.table().values.contains(where: { names.contains($0.name) }) {
             blocked.append("another iClear stack or workload is running; stop it explicitly before measuring")
         }
-        return ["ready": blocked.isEmpty, "blocked": blocked, "conditions": conditions()]
+        let machine: [String: Any] = [
+            "model": hardware.model, "arch": hardware.arch, "memoryGB": hardware.memoryGB, "macOS": hardware.osVersion,
+        ]
+        return ["ready": blocked.isEmpty, "blocked": blocked, "conditions": conditions(), "hardware": machine]
     }
 
     struct Usage {
@@ -83,7 +88,7 @@ enum EnergyLab {
 
         init(app: String) throws {
             let root = ProcessInfo.processInfo.environment["ICLEAR_ENERGY_ROOT"] ?? "/tmp"
-            home = URL(fileURLWithPath: root).appendingPathComponent("ic-energy-\(getpid())-\(UUID().uuidString)")
+            home = URL(fileURLWithPath: root).appendingPathComponent("e-\(UUID().uuidString.prefix(8))")
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             let env = ProcessInfo.processInfo.environment.merging(
                 ["ICLEAR_HOME": home.path, "ICLEAR_INSTANCE": "energy", "ICLEAR_OBSERVE_ONLY": "1"]
@@ -261,7 +266,8 @@ enum EnergyLab {
                 watts[running] = w
                 log(
                     String(
-                        format: "pair %d %@: drain %.9f W (%.9f -> %.9f Wh, %.3f s) %@", i + 1, running ? "running" : "stopped", w, e0, e1, elapsed,
+                        format: "pair %d %@: drain %.9f W (%.9f -> %.9f Wh, %.3f s) %@", i + 1, running ? "running" : "stopped", w, e0, e1,
+                        elapsed,
                         "\(conditions())"))
             }
             guard let r = watts[true], let s = watts[false] else { break }

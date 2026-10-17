@@ -1,13 +1,9 @@
 import AppKit
-
 import Foundation
-
 import Testing
 
 @testable import ICBase
-
 @testable import ICCore
-
 @testable import ICSystem
 
 @Suite(.serialized) struct SafetyRegressionTests {
@@ -37,6 +33,8 @@ import Testing
             leaveBackground: { _ in false }, inBackground: { _ in true }, requestUnhide: { _ in false }, isHidden: { _ in false })
         d.applyShield(.call, from: .background, to: .off, now: 3)
         #expect(d.shieldBackground[.call] == [process] && !d.journal.read().restorations.isEmpty)
+        d.applyShield(.call, from: .off, to: .background, now: 3.5)
+        #expect(d.shieldBackground[.call] == [process])  // a new episode cannot discard an earlier failed restore
         d.priorityRestorer = Signals.Restorer(
             leaveBackground: { _ in true }, inBackground: { _ in false }, requestUnhide: { _ in false }, isHidden: { _ in false })
         d.runShield(.call, active: false, interference: nil, settings: ShieldSettings(), now: 4)

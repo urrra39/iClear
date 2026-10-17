@@ -639,9 +639,12 @@ public final class Daemon {
                 }
             case .restorePriority:
                 if case .ok(let records) = journal.load(moveAside: false) {
-                    let identities = Array(Set(a.processes + records.restorations.filter {
-                        $0.appID == a.appID && $0.kind == .background
-                    }.map(\.identity)))
+                    let identities = Array(
+                        Set(
+                            a.processes
+                                + records.restorations.filter {
+                                    $0.appID == a.appID && $0.kind == .background
+                                }.map(\.identity)))
                     let result = Signals.restoreBackground(
                         identities, appID: a.appID, journal: journal, at: now, restorer: priorityRestorer)
                     if result.complete {

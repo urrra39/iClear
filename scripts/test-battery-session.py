@@ -1,5 +1,8 @@
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -40,6 +43,26 @@ class EvidenceTests(unittest.TestCase):
             session.save(path, {"results": [{"status": "invalid", "reason": "interrupted"}]})
             self.assertEqual(session.json.loads(path.read_text())["results"][0]["status"], "invalid")
             self.assertFalse(path.with_suffix(".tmp").exists())
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups")
+    def test_cleanup_stops_owned_descendants_without_touching_another_group(self):
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        own = subprocess.Popen(
+            [sys.executable, "-u", "-c",
+             "import subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); print(p.pid); time.sleep(60)"],
+            start_new_session=True, stdout=subprocess.PIPE, text=True)
+        try:
+            child = int(own.stdout.readline())
+            session.stop_group(own)
+            self.assertIsNotNone(own.poll())
+            self.assertIsNone(other.poll())
+            status = subprocess.run(["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True).stdout.strip()
+            self.assertTrue(not status or status.startswith("Z"), status)
+        finally:
+            if own.poll() is None:
+                session.stop_group(own)
+            other.terminate()
+            other.wait(timeout=5)
 
 
 unittest.main()

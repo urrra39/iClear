@@ -16,6 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -61,6 +62,17 @@ def summary(state):
     return result
 
 
+def stop_group(process):
+    """Stop only the fresh session we launched, including watchdog descendants."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        time.sleep(2)
+    process.wait(timeout=5)
+
+
 def run_pair(state, state_path, app, lab):
     if sys.platform != "darwin":
         raise ValueError("BLOCKED: a physical battery-powered Mac is required")
@@ -74,6 +86,10 @@ def run_pair(state, state_path, app, lab):
     preflight = json.loads(subprocess.check_output([str(lab), "battery-preflight"], text=True, timeout=15))
     if not preflight["ready"]:
         raise ValueError("BLOCKED: " + "; ".join(preflight["blocked"]))
+    previous = next((r["preflight"] for r in state["results"] if r["status"] == "valid"), None)
+    if previous and (previous["hardware"] != preflight["hardware"] or
+                     previous["conditions"]["lowPowerMode"] != preflight["conditions"]["lowPowerMode"]):
+        raise ValueError("hardware, OS or Low Power Mode changed; create a new plan")
     work = state_path.parent / ("attempt-%03d" % (len(state["results"]) + 1))
     work.mkdir()  # never overwrite an earlier attempt
     raw = work / "raw.txt"
@@ -82,12 +98,16 @@ def run_pair(state, state_path, app, lab):
     state["results"].append(entry)
     save(state_path, state)
     process = None
+    # macOS Unix sockets are limited to 104 bytes. Evidence may live in a long path,
+    # but the isolated daemon's home must stay short.
+    runtime = Path(tempfile.mkdtemp(prefix="ic-e-", dir="/tmp"))
+    entry["runtime"] = str(runtime)
     try:
         with (work / "console.txt").open("w") as console:
             process = subprocess.Popen(
                 [str(lab), "battery-ab", "--app", str(app), "--pairs", "1", "--block", "20",
                  "--running-first", str(state["running_first"][index]).lower(), "--out", str(raw)],
-                env={**os.environ, "ICLEAR_ENERGY_ROOT": str(work / "runtime")},
+                env={**os.environ, "ICLEAR_ENERGY_ROOT": str(runtime)},
                 stdout=console, stderr=subprocess.STDOUT, start_new_session=True)
             entry["process_group"] = process.pid
             save(state_path, state)
@@ -101,16 +121,9 @@ def run_pair(state, state_path, app, lab):
         entry.update(status="invalid", reason=str(error) or "interrupted")
     finally:
         if process is not None:
-            # Only the new session created above, including its watchdog descendants.
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                try:
-                    os.killpg(process.pid, sig)
-                except ProcessLookupError:
-                    break
-                time.sleep(2)
-            process.wait(timeout=5)
+            stop_group(process)
         # Runtime contains only this Observe collector's temporary state, never evidence.
-        shutil.rmtree(work / "runtime", ignore_errors=True)
+        shutil.rmtree(runtime, ignore_errors=True)
         save(state_path, state)
 
 

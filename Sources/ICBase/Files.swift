@@ -26,10 +26,22 @@ public struct Paths: Sendable {
         let lib = home.appendingPathComponent("Library")
         base = lib.appendingPathComponent("Application Support/iClear" + (name.map { "-" + $0 } ?? ""))
         let defaultBase = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/iClear")
-        let isDefault = base.resolvingSymlinksInPath().standardizedFileURL == defaultBase.resolvingSymlinksInPath().standardizedFileURL
+        let isDefault = Self.canonical(base) == Self.canonical(defaultBase)
         instance = isDefault ? nil : (name ?? "isolated")
         launchAgents = lib.appendingPathComponent("LaunchAgents")
         legacyBase = lib.appendingPathComponent("Application Support/iClean")
+    }
+
+    /// Foundation may leave a symlink unresolved when a suffix does not exist yet.
+    /// Resolve the nearest existing ancestor first, then append the missing suffix.
+    private static func canonical(_ url: URL) -> URL {
+        var ancestor = url.standardizedFileURL
+        var suffix: [String] = []
+        while !FileManager.default.fileExists(atPath: ancestor.path), ancestor.path != "/" {
+            suffix.append(ancestor.lastPathComponent)
+            ancestor.deleteLastPathComponent()
+        }
+        return suffix.reversed().reduce(ancestor.resolvingSymlinksInPath().standardizedFileURL) { $0.appendingPathComponent($1) }
     }
 
     public var config: URL { base.appendingPathComponent("config.json") }
