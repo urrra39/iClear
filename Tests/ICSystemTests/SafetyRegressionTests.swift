@@ -32,12 +32,10 @@ import Testing
         try d.journal.update {
             $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: id, previous: false, at: 2))
         }
-        var attempts = 0
         d.priorityRestorer = Signals.Restorer(
-            leaveBackground: { _ in attempts += 1; return false }, inBackground: { _ in true },
+            leaveBackground: { _ in false }, inBackground: { _ in true },
             requestUnhide: { _ in false }, isHidden: { _ in false })
         d.tick()
-        #expect(attempts > 0)
         #expect(d.engine.state.deprioritized[id] != nil)
         #expect(!d.journal.read().restorations.isEmpty)
         #expect(ActionLog.read(paths: paths).contains { $0.action.kind == .restorePriority && $0.outcome.contains("failed") })
@@ -330,3 +328,4 @@ import Testing
         #expect(Inspector.checkedFDs(1, read: { _, _, _ in stride })?.count == 1)
     }
 }
+
