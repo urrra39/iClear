@@ -430,10 +430,9 @@ public final class Engine {
         for (id, since) in state.deprioritized.sorted(by: { $0.key < $1.key }) {
             let app = byID[id]
             let calm = (state.normalSince.map { now - $0 >= 300 } ?? false) && now - since >= 300
-            if app == nil || app!.isFrontmost || app!.hasVisibleWindow || calm || state.frozen[id] != nil {
+            if cfg.mode == .observe || app == nil || app!.isFrontmost || app!.hasVisibleWindow || calm || state.frozen[id] != nil {
                 // Only the executor can confirm restoration. An absent snapshot still
                 // needs an action: its identities may remain in the durable journal.
-                if dryRun { state.deprioritized[id] = nil }
                 out.append(
                     Action(
                         kind: .restorePriority, appID: id, name: app?.name ?? id, processes: app?.processes ?? [],
@@ -705,7 +704,6 @@ public final class Engine {
         }
         var out = thaw(appID, reason: Code.thawActivated, at: now)
         if state.deprioritized[appID] != nil {
-            if dryRun { state.deprioritized[appID] = nil }
             out.append(
                 Action(
                     kind: .restorePriority, appID: appID, name: name, reasons: [Reason(Code.thawActivated)],

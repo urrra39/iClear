@@ -601,11 +601,33 @@ public final class Daemon {
     func perform(_ a: Action, thawStartedAt: Double?) -> String {
         let now = clock()
         var outcome = a.dryRun ? "observe" : "ok"
-        if !a.dryRun {
+        if a.kind == .restorePriority {
+            // Observe prevents new mutations, not recovery of an earlier Active
+            // change. Restore only journal-owned identities, never an unowned band.
+            if case .ok(let records) = journal.load(moveAside: false) {
+                let identities = records.restorations.filter { $0.appID == a.appID && $0.kind == .background }.map(\.identity)
+                let result = Signals.restoreBackground(
+                    identities, appID: a.appID, journal: journal, at: now, restorer: priorityRestorer)
+                if result.complete {
+                    engine.priorityRestored(a.appID)
+                    outcome = a.dryRun && identities.isEmpty ? "observe" : "\(result.restoredCount) processes restored"
+                } else {
+                    outcome = "failed: priority restoration pending; kept for retry\(result.journalError.map { ": " + $0 } ?? "")"
+                }
+            } else {
+                outcome = "failed: priority journal unreadable; kept for retry"
+            }
+        } else if !a.dryRun {
             switch a.kind {
             case .freeze:
                 let r = Signals.freezeTree(a.processes, appID: a.appID, at: now, journal: journal, send: sender)
                 if r.ok {
+                    if engine.state.deprioritized[a.appID] != nil {
+                        perform(
+                            Action(
+                                kind: .restorePriority, appID: a.appID, name: a.name, processes: a.processes,
+                                reasons: a.reasons, dryRun: false), thawStartedAt: nil)
+                    }
                     let mb = lastApps.first { $0.id == a.appID }?.footprintMB ?? 0
                     capacity.noteFreeze(appID: a.appID, footprintMB: mb, availableMB: SystemSampler.availableMB(), now: now)
                 }
@@ -638,24 +660,7 @@ public final class Daemon {
                     outcome = "failed: journal write failed: \(error)"
                 }
             case .restorePriority:
-                if case .ok(let records) = journal.load(moveAside: false) {
-                    let identities = Array(
-                        Set(
-                            a.processes
-                                + records.restorations.filter {
-                                    $0.appID == a.appID && $0.kind == .background
-                                }.map(\.identity)))
-                    let result = Signals.restoreBackground(
-                        identities, appID: a.appID, journal: journal, at: now, restorer: priorityRestorer)
-                    if result.complete {
-                        engine.priorityRestored(a.appID)
-                        outcome = "\(result.restoredCount) processes restored"
-                    } else {
-                        outcome = "failed: priority restoration pending; kept for retry\(result.journalError.map { ": " + $0 } ?? "")"
-                    }
-                } else {
-                    outcome = "failed: priority journal unreadable; kept for retry"
-                }
+                break  // handled above, including restoration after switching to Observe
             case .requestQuit:
                 let root = a.processes.first?.pid ?? 0
                 outcome = NSRunningApplication(processIdentifier: root)?.terminate() == true ? "requested" : "refused"

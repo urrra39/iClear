@@ -64,13 +64,29 @@ def summary(state):
 
 def stop_group(process):
     """Stop only the fresh session we launched, including watchdog descendants."""
+    def live_members():
+        rows = subprocess.check_output(["ps", "-axo", "pid=,pgid=,stat="], text=True, timeout=5)
+        return [row for line in rows.splitlines() if len(row := line.split()) == 3
+                and row[1] == str(process.pid) and not row[2].startswith("Z")]
+
     for sig in (signal.SIGTERM, signal.SIGKILL):
+        process.poll()  # reap our parent before inspecting the remaining group
+        if not live_members():
+            break
         try:
             os.killpg(process.pid, sig)
         except ProcessLookupError:
             break
+        except PermissionError:
+            # Darwin can report EPERM for a group containing only exited zombies.
+            # A live member is a real cleanup failure and must remain visible.
+            if live_members():
+                raise
+            break
         time.sleep(2)
     process.wait(timeout=5)
+    if live_members():
+        raise RuntimeError("collector process group still has live members")
 
 
 def run_pair(state, state_path, app, lab):

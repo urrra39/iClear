@@ -59,8 +59,8 @@ import Testing
         #expect(a.pauses.isEmpty && a.journal.read().isEmpty && !isStopped(h.pid))
     }
 
-    @Test(arguments: [false, true])
-    func ordinaryPriorityRestoreRetriesUntilConfirmed(missingSnapshot: Bool) throws {
+    @Test(arguments: [false, true], [Mode.active, Mode.observe])
+    func ordinaryPriorityRestoreRetriesUntilConfirmed(missingSnapshot: Bool, mode: Mode) throws {
         let h = try hog()
         defer { h.kill() }
         let paths = tempHome()
@@ -75,7 +75,7 @@ import Testing
             probe.apps = [app]
         }
         var config = Config()
-        config.mode = .active
+        config.mode = mode
         try Files.atomicWrite(config.encoded(), to: paths.config)
         let d = try Daemon(paths: paths, probe: probe, hardware: Hardware(memoryGB: 16))
         d.scheduleHealthChecks = false
@@ -110,6 +110,28 @@ import Testing
         let escaped = Paths(environment: ["ICLEAR_INSTANCE": "x/../iClear"])
         #expect(escaped.gated(.actingBrake).0.brake.mode == .observe)
         #expect(tempHome().gated(.actingBrake).0.brake.mode == .on)
+    }
+
+    @Test func freezeRestoresOwnedPriorityBeforeTheNextTick() throws {
+        let h = try hog()
+        defer { h.kill() }
+        let paths = tempHome()
+        let id = "com.example.freeze-priority"
+        var state = EngineState(startedAt: 1)
+        state.deprioritized[id] = 2
+        try Files.writeJSON(state, to: paths.state)
+        let d = try Daemon(paths: paths, probe: FakeProbe(), hardware: Hardware(memoryGB: 16))
+        defer { d.shutdown() }
+        let process = h.identity!
+        try d.journal.update {
+            $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: id, previous: false, at: 2))
+        }
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in true }, inBackground: { _ in false }, requestUnhide: { _ in false }, isHidden: { _ in false })
+        let action = Action(kind: .freeze, appID: id, name: id, processes: [process], reasons: [], dryRun: false)
+        #expect(d.perform(action, thawStartedAt: nil) == "ok")
+        #expect(isStopped(h.pid) && !d.journal.read().entries.isEmpty)
+        #expect(d.engine.state.deprioritized.isEmpty && d.journal.read().restorations.isEmpty)
     }
 
     func unloaded(_ args: [String]) -> (status: Int32, output: String) { (113, "absent") }

@@ -154,6 +154,9 @@ public enum Simulator {
                     r.freezes += 1
                     r.predictedReliefMB += a.reliefEstimateMB ?? 0
                     r.freezesByApp[a.appID, default: 0] += 1
+                    // The live executor restores owned background priority after a
+                    // successful freeze; replay assumes that restoration succeeds.
+                    engine.priorityRestored(a.appID)
                 case .deprioritize: r.deprioritizations += 1
                 // Replay assumes successful execution, as it does for pauses/thaws.
                 // Live execution acknowledges only after observing restoration.
