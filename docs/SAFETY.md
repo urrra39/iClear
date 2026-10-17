@@ -1,5 +1,13 @@
 # Safety model
 
+PR #15 recovery refinements: ordinary and shield priority restoration keep ownership
+until the original state is observed, including missing cached app snapshots. Brake
+Resume all cancels pending quit timeouts and the current stall episode before recovery;
+activation cancels a pending re-pause. Per-app resume reports an unresolved journal as
+incomplete. Home aliases and invalid instance path components cannot opt the ordinary
+installation out of release gates. Regression names and evidence are in TEST_MATRIX.md
+and QUALITY.md; these changes still require the candidate's full physical lab gate.
+
 iClear stops other people's programs. The rules below are what make that acceptable,
 and each has a test that must pass before a release.
 

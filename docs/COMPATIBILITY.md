@@ -1,7 +1,23 @@
 # Compatibility
 
-iClear adapts to any MacBook that runs macOS 13 or later: it reads the RAM size, disk
-type, battery and macOS version at start and picks thresholds from them (see
+## Current support scope (2026-10-17)
+
+- **Deployment target:** macOS 13 in Package.swift; this is not a runtime support test.
+- **Automated baseline:** commit `a2577bd86e32da6376597217434bec9d77ba57c5`, 384 tests on
+  macOS 15 arm64, macOS 15 Intel and macOS 26 ([CI 38902358238](https://github.com/urrra39/iClear/actions/runs/38902358238)).
+  PR #15's newer candidate must pass its own exact-head CI; see [QUALITY.md](QUALITY.md).
+- **Physical lab evidence:** historical Mac15,6 runs below and in VALIDATION.md.
+- **Daily-use validation:** completion of the bounded Active trial is unreported
+  ([REAL_USE.md](REAL_USE.md)); CI is not a daily-use report.
+- **macOS 14:** compilation was observed, integration failures remain unresolved;
+  S7's ten consecutive green runs have not happened. No support claim is made.
+- **macOS 13, low-memory Macs, multi-display and real Intel daily use:** unvalidated.
+
+The following tables and branch notes are dated historical evidence. The old billing
+failure below does not describe the current PR's CI availability.
+
+iClear selects thresholds using the Mac's reported RAM size, disk
+type, battery and macOS version at start (see
 [ARCHITECTURE.md](ARCHITECTURE.md), "Profiles"). That is not the same as "tested on
 every MacBook". This table lists only what was actually tested.
 

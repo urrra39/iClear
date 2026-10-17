@@ -1,5 +1,10 @@
 # Validation results
 
+**Current candidate:** see [QUALITY.md](QUALITY.md#current-readiness-2026-10-17).
+The dated v1.0/v1.1/v1.2 records below describe their own builds and machines, not a
+fresh pass for PR #15. In particular, the historical "every must-pass" verdict in the
+next paragraph applies to v1.0.0, and excludes the later partially failed weekly soak.
+
 Results for the criteria in [RELEASE_CRITERIA.md](RELEASE_CRITERIA.md), measured on
 2026-10-01 and 2026-10-02. **Verdict: every must-pass criterion of stage 1 (lab gate,
 C1-C14) and stage 3 (side-effect gate, E1-E4) is met on the reference machine; v1.0.0.**

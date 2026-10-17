@@ -34,9 +34,12 @@ ditto -c -k --keepParent "$ROOT/iClear.app" "$ROOT/assets/iClear-9.9.9.zip"
 printf '#!/bin/sh\necho "arm64 x86_64"\n' > "$ROOT/bin/lipo"
 printf '#!/bin/sh\necho "Identifier=test.fixture"\n' > "$ROOT/bin/codesign"
 printf '#!/bin/sh\nexit 0\n' > "$ROOT/bin/xattr"
+printf '#!/bin/sh\n[ "$FAIL_AT" != staple ] || exit 41\n' > "$ROOT/bin/xcrun"
+printf '#!/bin/sh\n[ "$FAIL_AT" != gatekeeper ] || exit 42\n' > "$ROOT/bin/spctl"
 chmod +x "$ROOT/bin/"*
 export PATH="$ROOT/bin:$PATH"
-for item in doctor:31 dry-run:32 migrate:33 none:0; do
+export REQUIRE_NOTARIZATION=true
+for item in doctor:31 dry-run:32 migrate:33 staple:41 gatekeeper:42 none:0; do
   FAIL_AT=${item%:*}; expected=${item#*:}; export FAIL_AT
   status=0
   sh "$VERIFY" "$ROOT/assets" 9.9.9 --no-mic > "$ROOT/result.log" 2>&1 || status=$?
@@ -52,4 +55,4 @@ for item in doctor:31 dry-run:32 migrate:33 none:0; do
     exit 1
   fi
 done
-echo 'Release verifier: success and all three command failures checked.'
+echo 'Release verifier: success, three command failures, stapling and Gatekeeper failures checked.'

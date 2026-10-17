@@ -153,6 +153,10 @@ extension Daemon {
             }
             var c = engine.config
             c.batterySaver.mode = m
+            let effective = paths.gated(c)
+            guard effective.0.batterySaver.mode == m else {
+                return Response(ok: false, text: effective.1.joined(separator: "\n"))
+            }
             do { try Files.atomicWrite(c.encoded(), to: paths.config) } catch {
                 return Response(ok: false, text: "Could not write config: \(error)")
             }

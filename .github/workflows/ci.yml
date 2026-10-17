@@ -19,10 +19,15 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Toolchain
         run: swift --version && sw_vers && uname -m
       - name: Release verifier regression tests
-        run: sh scripts/test-verify-release.sh
+        run: |
+          sh scripts/test-verify-release.sh
+          sh scripts/test-signing-preflight.sh
+          python3 scripts/test-battery-session.py
       - name: Build
         run: swift build
       - name: Test
@@ -36,8 +41,19 @@ jobs:
             git diff --exit-code
             exit 1
           fi
-      - name: Universal release build
+      - name: Package and verify universal candidate
         if: matrix.runner == 'macos-15'
-        run: |
-          swift build -c release --arch arm64 --arch x86_64
-          lipo -info .build/apple/Products/Release/icleard
+        env:
+          SIGN_IDENTITY: '-'
+        run: bash scripts/package-candidate.sh
+      - uses: actions/upload-artifact@v4
+        if: success() && matrix.runner == 'macos-15'
+        with:
+          name: candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 30
+          path: |
+            dist/iClear-*.zip
+            dist/iclear-*-macos.tar.gz
+            dist/SHA256SUMS.txt
+            dist/provenance.json
+            validation/*.log

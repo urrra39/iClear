@@ -7,6 +7,23 @@ import ICSystem
 /// The stack under test runs from an app bundle in an isolated home (observe-only, its own
 /// instance name), so it never touches the owner's install or apps.
 enum EnergyLab {
+    /// Read-only gate for bounded E2 sessions. Never stops an existing installation.
+    static func preflight() -> [String: Any] {
+        let power = SystemSampler.powerState()
+        var blocked: [String] = []
+        if !power.onBattery || (power.percent ?? 0) < 50 { blocked.append("start unplugged with battery at least 50%") }
+        if batteryWh() == nil { blocked.append("raw battery capacity/voltage unavailable") }
+        if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+            blocked.append("thermal state serious or critical")
+        }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { blocked.append("display must remain on") }
+        let names: Set<String> = ["icleard", "icbrake", "iClear", "iClearMenu", "ic-hog"]
+        if Proc.table().values.contains(where: { names.contains($0.name) }) {
+            blocked.append("another iClear stack or workload is running; stop it explicitly before measuring")
+        }
+        return ["ready": blocked.isEmpty, "blocked": blocked, "conditions": conditions()]
+    }
+
     struct Usage {
         var cpu: Double  // seconds
         var wakeups: UInt64
@@ -65,7 +82,8 @@ enum EnergyLab {
         var processes: [Process] = []
 
         init(app: String) throws {
-            home = URL(fileURLWithPath: "/tmp/ic-energy-\(getpid())-\(UUID().uuidString.prefix(4))")
+            let root = ProcessInfo.processInfo.environment["ICLEAR_ENERGY_ROOT"] ?? "/tmp"
+            home = URL(fileURLWithPath: root).appendingPathComponent("ic-energy-\(getpid())-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             let env = ProcessInfo.processInfo.environment.merging(
                 ["ICLEAR_HOME": home.path, "ICLEAR_INSTANCE": "energy", "ICLEAR_OBSERVE_ONLY": "1"]
@@ -115,6 +133,7 @@ enum EnergyLab {
 
     /// E1: steady state of the whole stack, sampled every minute after a 60 s warm-up.
     static func steady(app: String, minutes: Int, out: URL) throws {
+        guard (1...240).contains(minutes) else { throw POSIXError(.EINVAL) }
         let stack = try Stack(app: app)
         defer { stack.stop() }
         sleep(60)
@@ -185,7 +204,8 @@ enum EnergyLab {
 
     /// E2: alternating 20-minute blocks, iClear running vs stopped, randomized within each
     /// pair, with a fixed workload (`ic-hog --waker`) in both arms. Stops at battery <= 25%.
-    static func ab(app: String, pairs: Int, blockMinutes: Int, workload: String, out: URL) throws {
+    static func ab(app: String, pairs: Int, blockMinutes: Int, workload: String, out: URL, runningFirst: Bool? = nil) throws {
+        guard (1...6).contains(pairs), (1...20).contains(blockMinutes) else { throw POSIXError(.EINVAL) }
         var lines: [String] = []
         func log(_ s: String) {
             print(s)
@@ -198,7 +218,8 @@ enum EnergyLab {
         log("start \(Date()) \(build(app)) pairs \(pairs) block \(blockMinutes) min \(conditions())")
         for i in 0..<pairs {
             var watts: [Bool: Double] = [:]
-            for running in [true, false].shuffled() {
+            let order = runningFirst.map { [$0, !$0] } ?? [true, false].shuffled()
+            for running in order {
                 guard SystemSampler.powerState().onBattery, (SystemSampler.powerState().percent ?? 0) > 25 else {
                     log("stopped: not on battery or battery <= 25% \(conditions())")
                     return
@@ -208,6 +229,7 @@ enum EnergyLab {
                 sleep(60)  // settle; not counted
                 guard let e0 = batteryWh() else { throw POSIXError(.ENODEV) }
                 let t0 = Date()
+                let initialConditions = conditions()
                 // Checked every minute: a block that leaves battery power or crosses the floor is not evidence.
                 var invalid: String?
                 for _ in 0..<blockMinutes {
@@ -215,6 +237,13 @@ enum EnergyLab {
                     let p = SystemSampler.powerState()
                     if !p.onBattery { invalid = "power source changed to AC" }
                     if (p.percent ?? 0) <= 25 { invalid = "battery reached 25%" }
+                    let current = conditions()
+                    if current["display"] != initialConditions["display"] || current["lowPowerMode"] != initialConditions["lowPowerMode"] {
+                        invalid = "display or Low Power Mode changed"
+                    }
+                    if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+                        invalid = "thermal state serious or critical"
+                    }
                     if invalid != nil { break }
                 }
                 guard let e1 = batteryWh() else { throw POSIXError(.ENODEV) }
@@ -223,17 +252,26 @@ enum EnergyLab {
                     log("pair \(i + 1) \(running ? "running" : "stopped"): INVALID (\(invalid)); pair dropped, run stopped \(conditions())")
                     break
                 }
-                let w = (e0 - e1) / (Date().timeIntervalSince(t0) / 3600)
+                let elapsed = Date().timeIntervalSince(t0)
+                let w = (e0 - e1) / (elapsed / 3600)
+                guard w.isFinite, w > 0 else {
+                    log("pair \(i + 1): INVALID non-positive or non-finite battery discharge; run stopped")
+                    return
+                }
                 watts[running] = w
                 log(
                     String(
-                        format: "pair %d %@: drain %.3f W (%.3f -> %.3f Wh) %@", i + 1, running ? "running" : "stopped", w, e0, e1,
+                        format: "pair %d %@: drain %.9f W (%.9f -> %.9f Wh, %.3f s) %@", i + 1, running ? "running" : "stopped", w, e0, e1, elapsed,
                         "\(conditions())"))
             }
             guard let r = watts[true], let s = watts[false] else { break }
             diffs.append(r - s)
         }
         let n = Double(diffs.count)
+        guard n >= 2 else {
+            log("E2 \(diffs.count) complete pair(s): INCONCLUSIVE; at least two pairs needed for an interval, six for the E2 gate")
+            return
+        }
         let mean = diffs.reduce(0, +) / max(1, n)
         let sd = n > 1 ? (diffs.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / (n - 1)).squareRoot() : 0
         // Two-sided 95% t quantiles for n-1 = 1...9 degrees of freedom.
@@ -242,6 +280,6 @@ enum EnergyLab {
         log(
             String(
                 format: "E2 %d pairs: running minus stopped %.3f W, 95%% interval %.3f to %.3f W", diffs.count, mean, mean - half,
-                mean + half) + (diffs.count < pairs ? "; fewer pairs than planned (\(pairs)): INCONCLUSIVE for E2" : ""))
+                mean + half) + (diffs.count < max(6, pairs) ? "; fewer than six valid pairs: INCONCLUSIVE for E2" : ""))
     }
 }

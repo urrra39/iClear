@@ -638,7 +638,21 @@ public final class Daemon {
                     outcome = "failed: journal write failed: \(error)"
                 }
             case .restorePriority:
-                outcome = "\((try? Signals.setBackground(a.processes, false, appID: a.appID, journal: journal, at: now)) ?? 0) processes"
+                if case .ok(let records) = journal.load(moveAside: false) {
+                    let identities = Array(Set(a.processes + records.restorations.filter {
+                        $0.appID == a.appID && $0.kind == .background
+                    }.map(\.identity)))
+                    let result = Signals.restoreBackground(
+                        identities, appID: a.appID, journal: journal, at: now, restorer: priorityRestorer)
+                    if result.complete {
+                        engine.priorityRestored(a.appID)
+                        outcome = "\(result.restoredCount) processes restored"
+                    } else {
+                        outcome = "failed: priority restoration pending; kept for retry\(result.journalError.map { ": " + $0 } ?? "")"
+                    }
+                } else {
+                    outcome = "failed: priority journal unreadable; kept for retry"
+                }
             case .requestQuit:
                 let root = a.processes.first?.pid ?? 0
                 outcome = NSRunningApplication(processIdentifier: root)?.terminate() == true ? "requested" : "refused"

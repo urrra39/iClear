@@ -554,12 +554,18 @@ public final class BrakeAgent {
                 id, trees[id]?.name ?? id, kind: .freeze, code: Code.panicWould, "would have paused it (\(score)); observe mode",
                 dryRun: true)
         case .pause(let id):
-            guard let t = trees[id], settings.mode == .on else { return }
+            guard let t = trees[id], settings.mode == .on, ladder.current == id, !ladder.finished else { return }
             let r = Signals.freezeTree(t.processes, appID: id, at: now, journal: journal)
             record(id, t.name, kind: .freeze, code: Code.panicPause, r.ok ? "paused (\(score))" : "could not pause: \(r.error ?? "")")
+            if !r.ok { ladder.cancelEpisode() }
         case .resume(let id):
-            if let t = trees[id] { Signals.thawTree(t.processes, journal: journal) }
-            record(id, trees[id]?.name ?? id, kind: .thaw, code: Code.panicResumed, "resumed: the stall went on while it was paused")
+            let identities = trees[id]?.processes ?? journal.read().entries.filter { $0.appID == id }.map(\.identity)
+            let outcomes = Signals.thawTree(identities, journal: journal)
+            let resolved = outcomes.allSatisfy(\.resolved) && !journal.read().entries.contains { $0.appID == id }
+            if !resolved { ladder.cancelEpisode() }
+            record(
+                id, trees[id]?.name ?? id, kind: .thaw, code: Code.panicResumed,
+                resolved ? "resumed: the stall went on while it was paused" : "resume incomplete; ladder cancelled, journal kept for recovery")
         case .confirmed(let id):
             let name = trees[id]?.name ?? id
             pauses[id] = (BrakePause(appID: id, name: name, pausedAt: now), trees[id]?.processes ?? [])
@@ -571,17 +577,34 @@ public final class BrakeAgent {
         }
     }
 
-    func release(_ id: String, reason: String, note: String) {
-        guard let p = pauses.removeValue(forKey: id) else { return }
-        Signals.thawTree(p.processes, journal: journal)
-        record(id, p.pause.name, kind: .thaw, code: reason, note)
+    @discardableResult
+    func release(_ id: String, reason: String, note: String) -> Bool {
+        guard let p = pauses[id] else { return true }
+        quitting[id] = nil
+        let outcomes = Signals.thawTree(p.processes, journal: journal)
+        let identities = Set(p.processes)
+        let cleared: Bool
+        if case .ok(let records) = journal.load(moveAside: false) {
+            cleared = !records.entries.contains { identities.contains($0.identity) }
+        } else {
+            cleared = false
+        }
+        let complete = cleared && outcomes.allSatisfy(\.resolved)
+        if complete { pauses[id] = nil }
+        record(id, p.pause.name, kind: .thaw, code: reason, complete ? note : "resume incomplete; kept for recovery")
+        return complete
     }
 
     @discardableResult
     public func resumeAll(reason: String) -> Signals.RecoveryResult {
+        // Cancel intentions before recovery: a successful resume must not be undone
+        // by a pending quit timeout or by the next candidate in the same stall.
+        quitting.removeAll()
+        ladder.cancelEpisode()
         for id in Array(pauses.keys) { release(id, reason: reason, note: "resumed") }
-        if let c = ladder.current, let t = trees[c] { Signals.thawTree(t.processes, journal: journal) }
-        return Signals.recover(journal: journal, restorer: .base)
+        let recovery = Signals.recover(journal: journal, restorer: .base)
+        if recovery.complete { pauses.removeAll() }
+        return recovery
     }
 
     /// Auto graceful quit (opt-in per app): skipped when the app reports unsaved work;
@@ -597,8 +620,7 @@ public final class BrakeAgent {
                 "auto quit skipped: it reports unsaved work; it stays paused")
             return
         }
-        Signals.thawTree(p.processes, journal: journal)
-        pauses[id] = nil
+        guard release(id, reason: Code.panicQuit, note: "resumed to request quit") else { return }
         let asked = quitApp(root.pid)
         record(
             id, p.pause.name, kind: .requestQuit, code: Code.panicQuit,
@@ -649,6 +671,13 @@ public final class BrakeAgent {
     /// An activation of a paused app (reported by the daemon) resumes it.
     public func handleActivation(pid: Int32) {
         frontPID = pid
+        for id in quitting.keys.filter({ quitting[$0]?.processes.contains { $0.pid == pid } == true }) {
+            quitting[id] = nil
+        }
+        if let id = ladder.current, let tree = trees[id], tree.processes.contains(where: { $0.pid == pid }) {
+            ladder.cancelEpisode()
+            Signals.thawTree(tree.processes, journal: journal)
+        }
         if let id = pauses.first(where: { $0.value.processes.contains { $0.pid == pid } })?.key {
             release(id, reason: Code.thawActivated, note: "resumed on activation")
         }
@@ -724,14 +753,16 @@ public final class BrakeAgent {
             guard let id = pauses.first(where: { $0.key.lowercased() == q || $0.value.pause.name.lowercased() == q })?.key else {
                 return Response(ok: false, text: "The Panic Brake has not paused \(req.app ?? "that app").")
             }
-            release(id, reason: Code.thawUser, note: "resumed by the user")
-            return Response(ok: true, text: "Resumed \(id).")
+            let complete = release(id, reason: Code.thawUser, note: "resumed by the user")
+            return Response(ok: complete, text: complete ? "Resumed \(id)." : "Resume incomplete for \(id); kept for recovery.")
         case "quit":
             let q = (req.app ?? "").lowercased()
             guard let (id, p) = pauses.first(where: { $0.key.lowercased() == q || $0.value.pause.name.lowercased() == q }) else {
                 return Response(ok: false, text: "The Panic Brake has not paused \(req.app ?? "that app").")
             }
-            release(id, reason: Code.thawUser, note: "resumed to ask it to quit")
+            guard release(id, reason: Code.thawUser, note: "resumed to ask it to quit") else {
+                return Response(ok: false, text: "Resume incomplete for \(id); quit was not requested.")
+            }
             let asked = p.processes.first.map { quitApp($0.pid) } ?? false
             return Response(
                 ok: asked,

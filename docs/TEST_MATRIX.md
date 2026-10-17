@@ -8,6 +8,19 @@ automated test that exercises it and is listed in the README's "Not validated" l
 
 ## CLI commands
 
+Candidate recovery/gate additions (PR #15): `ordinaryPriorityRestoreRetriesUntilConfirmed`
+(including a missing snapshot), `shieldRestorationFailureKeepsOwnershipAndRetries`,
+`brakeResumeReportsUnresolvedJournalOwnership`, `emergencyCancelsDelayedRepause`
+(Resume all and activation), `resumeAllCancelsTheCurrentStallEpisode`,
+`realHomeOverrideCannotBypassReleaseGates`, `unvalidatedMaxSaverIsHeldBackOnTheNormalInstall`.
+These run against disposable processes, with failure injection for unconfirmed restores.
+`scripts/test-signing-preflight.sh` checks all 32 credential-presence combinations;
+`scripts/test-verify-release.sh` checks command, stapling and Gatekeeper failure propagation.
+`scripts/test-battery-session.py` checks invalid-pair exclusion, interval decision and
+checkpoint persistence. `ic-lab battery-preflight`, the actual E2 collector's hardware
+checks/process-group cleanup and Battery Saver B1 workload remain **NOT TESTED on battery**.
+CI packaging runs quick selftest only; it does not replace the registered full lab gate.
+
 | Command | Exercised by |
 |---|---|
 | `help`, `version`, `completions zsh/bash/fish`, unknown command | `cliOfflineCommands` |

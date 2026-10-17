@@ -20,7 +20,7 @@ import Testing
         #expect(c.brake.mode == .observe && !c.brake.blackBox && !c.thrash.enabled && !c.wakeOnData.enabled && !c.leaks.notify)
         let (same, held) = ReleaseGates.thisBuild.apply(c)
         #expect(same == c && held.isEmpty)
-        #expect(ReleaseGates.thisBuild.pending.count == 5)  // nothing has passed in this build
+        #expect(ReleaseGates.thisBuild.pending.count == 6)  // nothing has passed in this build
     }
 
     @Test func everyUngatedFeatureIsHeldBackWhateverTheConfigSays() {

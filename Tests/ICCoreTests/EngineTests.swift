@@ -320,6 +320,8 @@ import Testing
         #expect(e.state.deprioritized.count == 2)
         let back = e.activated(appID: a.id, name: a.name, at: 10, weekday: 2, hour: 9)
         #expect(back.of(.restorePriority).ids == [a.id])
+        #expect(e.state.deprioritized[a.id] != nil)
+        e.priorityRestored(a.id)  // the executor acknowledges observed restoration
         _ = e.tick(TickInput(sample: sample(20), apps: [a, b]))
         let r = e.tick(TickInput(sample: sample(400), apps: [a, b]))
         #expect(r.actions.of(.restorePriority).ids == [b.id])

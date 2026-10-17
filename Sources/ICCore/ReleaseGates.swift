@@ -15,6 +15,8 @@ public struct ReleaseGates: Equatable, Sendable {
     public var wakeOnData = false
     /// Stage 4 L1-L5; otherwise `iclear leaks` and the menu list only, no notifications.
     public var leakNotifications = false
+    /// v1.2 B1: Max is offered only after its paired battery-benefit bound passes.
+    public var batterySaverMax = false
 
     public init() {}
 
@@ -25,6 +27,7 @@ public struct ReleaseGates: Equatable, Sendable {
         [
             (brakeActing, "Panic Brake acting (observe-only)"), (blackBox, "Black Box (off)"), (thrashGuard, "Thrash Guard (off)"),
             (wakeOnData, "Wake-on-Data (off)"), (leakNotifications, "leak notifications (list only)"),
+            (batterySaverMax, "Battery Saver Max (off; B1 not measured)"),
         ].filter { !$0.0 }.map(\.1)
     }
 
@@ -32,6 +35,10 @@ public struct ReleaseGates: Equatable, Sendable {
     public func apply(_ config: Config) -> (Config, [String]) {
         var c = config
         var held: [String] = []
+        if !batterySaverMax, c.batterySaver.mode == .max {
+            c.batterySaver.mode = .off
+            held.append("Battery Saver Max: off in this build (B1 paired battery-benefit criterion has not passed)")
+        }
         if !brakeActing, c.brake.mode == .on {
             c.brake.mode = .observe
             held.append(

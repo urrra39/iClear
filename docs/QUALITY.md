@@ -1,5 +1,61 @@
 # Quality self-assessment
 
+## Current readiness (2026-10-17)
+
+**Decision: not qualified for a 9/10 product-readiness claim or stable 1.2.0.** The
+unreleased `1.2.0-rc.4` work is [draft PR #15](https://github.com/urrra39/iClear/pull/15),
+branch `fix/recovery-safety-20261016`. Main remains `eccb9e0e957ccaa43bed08319ca00e7a9b6d02b5`;
+stable is 1.0.4 and the latest published candidate is 1.2.0-rc.3. Nothing in this
+section authorizes merging, tagging or publishing.
+
+| Criterion | Status / evidence scope | Next acceptance evidence |
+|---|---|---|
+| Recovery baseline | PASS on `a2577bd86e32da6376597217434bec9d77ba57c5`: 384 tests on macOS 15 arm64/Intel and 26, [CI 38902358238](https://github.com/urrra39/iClear/actions/runs/38902358238) | Exact-head CI for the new candidate |
+| Newly reproduced defects | FAIL before fixes: ordinary priority restore, shield restore, delayed Brake re-pause, current episode cancellation, incomplete per-app resume and home alias gates; 390 tests / 21 failing assertions on macOS 15, [CI 39019364726](https://github.com/urrra39/iClear/actions/runs/39019364726), `34c9f25889e1b6abc3b08652758410e23c0acf00` | Same regressions pass after fixes; failures are retained, not waived |
+| Candidate engineering verification | See PR's exact-head required CI and focused regressions; a previous commit's green result does not qualify later code | Build, all tests and strict lint on all three runners; universal packaging and asset verification |
+| Experimental defaults | Panic Brake observe; Black Box, Thrash Guard, Wake-on-Data and leak notifications held back. Saver off by default; Max held back pending B1, Balanced remains explicit opt-in | Registered benefit/side-effect gates before changing defaults |
+| Battery utility / overhead | BLOCKED for this candidate: no physical battery Mac available in this work environment. Historical E1 is not a fresh pass; E2/B1 savings are not measured | E1/E2/E3 and B1 in BATTERY.md; resumable E2 collector prepared, B1's three-mode fixture collector still missing |
+| Real-app utility | Historical lab shows reclamation and resume latency; no new candidate paired real-app benefit experiment | Registered disposable-app paired experiment and complete observational trial |
+| Real-use trial | INCONCLUSIVE: start recorded October 11, completion not reported; runtime unknown | Sanitized local trial digest, conditions, failures and exclusions |
+| Installation | BLOCKED for frictionless distribution: latest release workflow skipped certificate import and notarization ([38227462601](https://github.com/urrra39/iClear/actions/runs/38227462601)); PR artifacts are ad-hoc | Developer ID certificate + notarization credentials; verified ticket, Gatekeeper and first launch |
+| Compatibility | Automated 15 arm64/Intel and 26 baseline; historical physical Mac15,6 lab. macOS 14 had unresolved integration failures; 13 is deployment target only | S7's ten consecutive macOS 14 passes; physical Intel/low-memory/multi-display evidence |
+
+Candidate CI stores `.zip`, CLI `.tar.gz`, checksums, `provenance.json`, build and verifier
+logs under `candidate-<exact source SHA>` with 30-day retention. These are CI artifacts,
+not published releases. Quick selftest excludes microphone on runners and cannot satisfy
+the full on-battery regression gate. Coverage percentages elsewhere in this file are
+historical; no new coverage percentage is claimed.
+
+Reproduce the automated checks on a disposable macOS test environment:
+
+```sh
+swift build
+swift test --no-parallel
+swift format lint --strict --recursive Sources Tests spikes Package.swift
+sh scripts/test-signing-preflight.sh
+sh scripts/test-verify-release.sh
+python3 scripts/test-battery-session.py
+bash scripts/package-candidate.sh
+```
+
+Signing prerequisites (GitHub Actions repository secrets, never committed):
+`MACOS_CERTIFICATE` (base64 Developer ID Application certificate **with private key**),
+`MACOS_CERTIFICATE_PASSWORD` (if password-protected), `SIGN_IDENTITY`, and all three of
+`NOTARY_APPLE_ID`, `NOTARY_TEAM_ID`, `NOTARY_PASSWORD` (app-specific password). An existing
+Apple Developer membership and valid certificate are required. The workflow rejects
+partial configuration, requires Apple's `Accepted` status for app and CLI submissions,
+staples and validates the app, checks Gatekeeper and removes its temporary keychain.
+Without these credentials it explicitly produces an ad-hoc build. No notarization or
+first-launch result is inferred from `codesign --verify` alone. A future authorized
+manual **Release → Run workflow** on the candidate branch builds/verifies without publishing.
+
+The historical scores and tables below retain their original date and build scope.
+They must not be read as the current candidate's score. Engineering improvements are
+reviewable and testable; product utility, wider hardware validation and distribution
+remain materially incomplete.
+
+## Historical assessment: 1.0.0
+
 Date: 2026-10-01, version 1.0.0. Scores are 1-10, with evidence, not adjectives.
 Anything below 9 lists what is missing. Criteria and thresholds:
 [RELEASE_CRITERIA.md](RELEASE_CRITERIA.md) (pre-registered; amended once by owner

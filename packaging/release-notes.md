@@ -5,11 +5,25 @@ available, and the release rule then allows only a candidate
 (`docs/RELEASE_CRITERIA_v1.2.md`). iClear's own steady-state cost on battery was measured
 on 1.2.0-rc.1 code and met its bound.
 
-Keep 1.0.3 for daily use unless you want to help test. iClear pauses idle background apps
+The latest stable version is 1.0.4. This candidate is for testing. iClear pauses idle background apps
 on a Mac that is running out of memory and resumes each one when you switch back to it.
 It starts in **Observe mode**, which only records what it would do.
 
-## Changed since 1.2.0-rc.2
+## Changed since 1.2.0-rc.3
+
+- Resume all restores journaled hidden/priority state and cancels delayed Brake re-pauses;
+  failed restores and uninstall retain recovery data instead of claiming success.
+- Ordinary and shield priority restoration retry until confirmed, even without a cached
+  app snapshot. New pauses require a ready watchdog and fresh activity guards.
+- Real-home aliases cannot bypass release gates; unvalidated Saver Max is withheld from
+  the normal CLI, daemon and menu. Balanced stays opt-in with no battery-benefit claim.
+- Candidate CI assembles and checks universal app/CLI archives with exact-SHA provenance.
+  Signing configuration fails closed when incomplete; notarization requires Accepted,
+  stapling validation and Gatekeeper acceptance.
+- A bounded, resumable E2 collector preserves complete pairs and invalid attempts across
+  battery sessions. No new battery, B1 benefit or daily-use result is claimed.
+
+## Earlier changes in 1.2.0-rc.3
 
 - The real-use trial also rolls back when all iClear processes together exceed the E1
   bounds over the last hour (0.25% of one core, 2 wakeups per second); an overhead guard,
@@ -108,12 +122,13 @@ Universal binaries (arm64 and x86_64), built for macOS 13 and later.
 
 ## First launch
 
-These builds are ad-hoc signed and not notarized, so Gatekeeper blocks the first launch.
+PR candidate artifacts are ad-hoc signed, not notarized. The release workflow's Signing
+section states the actual release signing status. Ad-hoc builds need explicit OS approval:
 - **App on macOS 15 and later:** open it once, then System Settings > Privacy & Security >
   Open Anyway.
 - **App on macOS 13 and 14:** right-click iClear.app, choose Open, confirm.
-- **Command-line tools:** unpack, run `xattr -dr com.apple.quarantine iclear-@VERSION@`,
-  then inside that folder `./iclear selftest --quick` and `./iclear install`.
+- **Command-line tools:** use a local source build or a verified Developer ID/notarized
+  distribution. Verification does not remove quarantine or disable Gatekeeper.
 
 ## Verify
 

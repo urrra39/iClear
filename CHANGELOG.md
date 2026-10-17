@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Ordinary and shield priority restoration keep ownership and retry until confirmed,
+  including apps absent from the latest snapshot. Brake Resume all cancels delayed
+  re-pauses and the current stall episode; per-app resume reports unresolved journals.
+- Real-home aliases cannot bypass release gates. Battery Saver Max is withheld in the
+  normal install until its registered B1 benefit criterion passes.
+- Prepare 1.2.0-rc.4 as a CI artifact with universal archives, checksums and exact-SHA
+  provenance. Signing preflight rejects partial credentials; notarization requires
+  Accepted results, a validated app ticket and Gatekeeper acceptance.
+- Add a bounded, resumable E2 battery collector and evidence-accounting tests. No battery
+  benefit is claimed; historical results, support and real-use status are scoped explicitly.
+
 - Resume all restores completed stashes, hidden apps, and priority changes from the
   journal. Incomplete recovery is reported by the CLI and menu instead of claiming success.
 - Uninstall preserves recovery data when stopping a service or recovering its changes

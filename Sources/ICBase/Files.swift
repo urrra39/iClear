@@ -17,10 +17,17 @@ public struct Paths: Sendable {
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let custom = environment["ICLEAR_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         home = custom ?? FileManager.default.homeDirectoryForCurrentUser
-        let name = environment["ICLEAR_INSTANCE"].flatMap { $0.isEmpty ? nil : $0 }
-        instance = name ?? (custom == nil ? nil : "isolated")
+        // A label is not proof of isolation. Reject path components in instance names,
+        // and resolve home/base aliases before allowing experimental configuration.
+        let name = environment["ICLEAR_INSTANCE"].flatMap { value -> String? in
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+            return !value.isEmpty && value.unicodeScalars.allSatisfy(allowed.contains) ? value : nil
+        }
         let lib = home.appendingPathComponent("Library")
         base = lib.appendingPathComponent("Application Support/iClear" + (name.map { "-" + $0 } ?? ""))
+        let defaultBase = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/iClear")
+        let isDefault = base.resolvingSymlinksInPath().standardizedFileURL == defaultBase.resolvingSymlinksInPath().standardizedFileURL
+        instance = isDefault ? nil : (name ?? "isolated")
         launchAgents = lib.appendingPathComponent("LaunchAgents")
         legacyBase = lib.appendingPathComponent("Application Support/iClean")
     }

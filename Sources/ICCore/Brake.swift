@@ -267,6 +267,13 @@ public struct BrakeLadder: Sendable {
 
     public var inEpisode: Bool { onset != nil }
 
+    /// Emergency recovery cancels this episode, including candidates not yet tried.
+    /// A healthy sample must end it before another episode may act.
+    public mutating func cancelEpisode() {
+        current = nil
+        finished = true
+    }
+
     /// `stalled`: the detector's state; `recovering`: stalled, but the condition is clear
     /// right now (waiting out the recovery delay).
     public mutating func step(now: Double, stalled: Bool, recovering: Bool, ranking: CulpritRanking) -> [BrakeEvent] {

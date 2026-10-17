@@ -431,13 +431,13 @@ public final class Engine {
             let app = byID[id]
             let calm = (state.normalSince.map { now - $0 >= 300 } ?? false) && now - since >= 300
             if app == nil || app!.isFrontmost || app!.hasVisibleWindow || calm || state.frozen[id] != nil {
-                state.deprioritized[id] = nil
-                if let app, state.frozen[id] == nil {
-                    out.append(
-                        Action(
-                            kind: .restorePriority, appID: id, name: app.name, processes: app.processes,
-                            reasons: [Reason(calm ? Code.thawRelieved : Code.thawActivated)], dryRun: dryRun))
-                }
+                // Only the executor can confirm restoration. An absent snapshot still
+                // needs an action: its identities may remain in the durable journal.
+                if dryRun { state.deprioritized[id] = nil }
+                out.append(
+                    Action(
+                        kind: .restorePriority, appID: id, name: app?.name ?? id, processes: app?.processes ?? [],
+                        reasons: [Reason(calm ? Code.thawRelieved : Code.thawActivated)], dryRun: dryRun))
             }
         }
         return out
@@ -607,7 +607,6 @@ public final class Engine {
             }
             let reasons = [Reason(trig), Reason.idle(minutes: ctx.idleMinutes(app)), Reason(Code.topScore)]
             out.append(freeze(app, reasons: reasons, relief: relief, at: now))
-            state.deprioritized[app.id] = nil
             frozenTotal += app.residentMB
             accumulated += relief
             round.append(app.id)
@@ -705,7 +704,8 @@ public final class Engine {
                 day: Int(now / 86400))
         }
         var out = thaw(appID, reason: Code.thawActivated, at: now)
-        if state.deprioritized.removeValue(forKey: appID) != nil {
+        if state.deprioritized[appID] != nil {
+            if dryRun { state.deprioritized[appID] = nil }
             out.append(
                 Action(
                     kind: .restorePriority, appID: appID, name: name, reasons: [Reason(Code.thawActivated)],
