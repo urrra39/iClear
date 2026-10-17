@@ -7,6 +7,44 @@ import Testing
 @testable import ICSystem
 
 @Suite(.serialized) struct SafetyRegressionTests {
+    @Test func shieldRestorationFailureKeepsOwnershipAndRetries() throws {
+        let h = try hog()
+        defer { h.kill() }
+        let d = try testDaemon(FakeProbe())
+        defer { d.shutdown() }
+        let process = h.identity!
+        d.shieldBackground[.call] = [process]
+        try d.journal.update {
+            $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: "shield", previous: false, at: 2))
+        }
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in false }, inBackground: { _ in true }, requestUnhide: { _ in false }, isHidden: { _ in false })
+        d.applyShield(.call, from: .background, to: .off, now: 3)
+        #expect(d.shieldBackground[.call] == [process] && !d.journal.read().restorations.isEmpty)
+        d.priorityRestorer = Signals.Restorer(
+            leaveBackground: { _ in true }, inBackground: { _ in false }, requestUnhide: { _ in false }, isHidden: { _ in false })
+        d.runShield(.call, active: false, interference: nil, settings: ShieldSettings(), now: 4)
+        #expect(d.shieldBackground[.call]?.isEmpty == true && d.journal.read().restorations.isEmpty)
+    }
+
+    @Test func brakeResumeReportsUnresolvedJournalOwnership() throws {
+        let h = try hog()
+        defer { h.kill() }
+        let a = BrakeAgent(paths: tempHome())
+        let id = "brake-recovery"
+        let process = h.identity!
+        #expect(Signals.freezeTree([process], appID: id, at: 1, journal: a.journal).ok)
+        a.pauses[id] = (BrakePause(appID: id, name: id, pausedAt: 1), [process])
+        let lock = URL(fileURLWithPath: a.journal.url.path + ".lock")
+        try FileManager.default.removeItem(at: lock)
+        try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
+        #expect(!a.handle(Request("resume", app: id)).ok)
+        #expect(a.pauses[id] != nil && !a.journal.read().isEmpty)
+        try FileManager.default.removeItem(at: lock)
+        #expect(a.handle(Request("resume", app: id)).ok)
+        #expect(a.pauses.isEmpty && a.journal.read().isEmpty && !isStopped(h.pid))
+    }
+
     @Test(arguments: [false, true])
     func ordinaryPriorityRestoreRetriesUntilConfirmed(missingSnapshot: Bool) throws {
         let h = try hog()
