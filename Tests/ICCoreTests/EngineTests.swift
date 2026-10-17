@@ -37,6 +37,21 @@ import Testing
         #expect(e.state.deprioritized.isEmpty)
     }
 
+    @Test func pendingPriorityRestoreCannotAdvanceForecastPauseLadder() {
+        let e = engine(activeConfig { $0.forecast.enabled = true }, apps: [a])
+        e.state.normalSince = 0
+        e.state.deprioritized[a.id] = 0
+        e.state.forecast.lastTime = 540
+        e.state.forecast.lastAvailable = 35
+        e.state.forecast.slope = -5
+        let result = e.tick(TickInput(sample: sample(600, available: 30), apps: [a]))
+        #expect(result.trigger == Code.forecast)
+        #expect(result.actions.of(.restorePriority).ids == [a.id])
+        #expect(result.actions.of(.freeze).isEmpty)
+        #expect(result.actions.of(.deprioritize).isEmpty)
+        #expect(e.state.deprioritized[a.id] == 0)
+    }
+
     @Test func criticalFreezesImmediately() {
         let e = engine(apps: [a, b])
         let r = e.tick(TickInput(sample: sample(0, .critical), apps: [a, b]))
