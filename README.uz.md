@@ -1,7 +1,8 @@
 # iClear (avvalgi nomi iClean)
 
 Xotirasi tugayotgan Mac'da fonda bo'sh turgan ilovalarni pauza qiladi va siz qaysi
-biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi.
+biriga qaytsangiz, uni davom ettiradi. Hujjatlaringizni yoki ilovalar keshini o'chirmaydi.
+`--purge` bilan o'chirish tiklash tugagach faqat iClear'ning o'z ma'lumotlarini o'chiradi.
 
 [![CI](https://github.com/urrra39/iClear/actions/workflows/ci.yml/badge.svg)](https://github.com/urrra39/iClear/actions/workflows/ci.yml)
 [![Oxirgi reliz](https://img.shields.io/github/v/release/urrra39/iClear)](https://github.com/urrra39/iClear/releases/latest)
@@ -22,6 +23,12 @@ biriga qaytsangiz, uni o'sha zahoti davom ettiradi. Hech qachon fayl o'chirmaydi
 
 <p align="center"><img src="docs/images/window-uz.png" width="360" alt="iClear oynasi (faqat main): Mac salomatligi 100/100, xotira me'yorida, Kuzatish rejimi, sozlamalar"> <img src="docs/images/menu-uz.png" width="360" alt="Xuddi shu mazmundagi iClear menyusi"></p>
 
+**Hali chiqarilmagan hardening candidate:** PR #15 tiklash va relizni tekshirish
+tuzatishlarini qo'shadi; u barqaror 1.0.4 va chiqarilgan 1.2.0-rc.3 sinov relizidan alohida.
+CI paketining aniq manba SHA'si `provenance.json` ichida; imzosi ad-hoc, notarization yo'q.
+Joriy dalillar va to'siqlar [QUALITY.md](docs/QUALITY.md#current-readiness-2026-10-17) da.
+Rasmlar avvalgi 1.2 interfeysini ko'rsatadi; ular bu candidate tekshirilganini isbotlamaydi.
+
 ```text
 $ iclear status
 iClear observe mode, profile work. Mac Health 100/100 (good).
@@ -41,7 +48,9 @@ faqat mavjud xotirani qaysi ilovalar ishlatishini o'zgartiradi.
 
 ## Nega iClear
 
-Har bir qator bitta Mac'dagi laboratoriya o'lchovi; N va sharoitlar havolada.
+Quyidagi o'lchovlar 2026-yil oktabrdagi v1.0 laboratoriya sinoviga va bitta Mac'ga
+tegishli. Dizayn xususiyatlari alohida berilgan. N va sharoitlar havolada; bu tarixiy
+natijalar hali chiqarilmagan candidate qayta tekshirilganini bildirmaydi.
 
 - **Ishdan chiqishga chidamli.** Har bir pauza amalga oshishidan oldin jurnalga yoziladi,
   xizmat to'xtab qolsa alohida kuzatuvchi (watchdog) hammasini davom ettiradi: `kill -9`
@@ -104,7 +113,7 @@ yuboriladi); `main` da `--no-mic` bu tekshiruvni o'tkazib yuboradi.
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **o'chiq** | **faqat main**, laboratoriya mezonlari o'tmaguncha o'chiq |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | siz so'raganingizda | **faqat main**, tasdiqlanmagan |
 | Dock belgisi bilan ilova oynasi, tanishtiruv kartalari, sozlamalar (ochilganda oynani ko'rsatish, Dock'da qoldirish, tizimga kirganda ochish) | ilova ochilganda oyna ochiladi | **faqat main** (1.2.0-rc.3); `ic-lab ui-smoke` U1-U7 10/10 |
-| Batareya tejash (`iclear battery saver`) | **o'chiq**; faqat batareyada | **faqat main**; foydasi **o'lchanmagan** ([BATTERY.md](docs/BATTERY.md)) |
+| Batareya tejash (`iclear battery saver`) | **o'chiq**; faqat batareyada | **faqat main**; foydasi **o'lchanmagan**. PR #15 da Balanced ixtiyoriy; Max B1 o'tmaguncha yopiq ([BATTERY.md](docs/BATTERY.md)) |
 | SESSION sinfi, har bir sinf uchun eng uzun pauza, MRU himoyasi, ko'rinib turgan ilova uchun "Baribir pauza qilish" (`iclear freeze <ilova> --visible`) | yoqilgan ("Baribir pauza qilish" so'raganingizda) | **faqat main**; birlik va integratsiya testlari ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
 | Haqiqiy foydalanish sinovi (`iclear trial start\|stop\|status`) | boshlanmaguncha ishlamaydi | **faqat main**; orqaga qaytarish himoyasi har bir sabab uchun 5/5 sinalgan |
 
@@ -357,8 +366,9 @@ Buildlar ad-hoc imzolangan, notarizatsiyadan o'tmagan, shuning uchun Gatekeeper 
 ishga tushirishni to'xtatadi. macOS 15 va undan keyingisida: iClear.app ni bir marta oching,
 keyin System Settings > Privacy & Security > Open Anyway (Apple o'ng tugma yo'lini macOS 15
 da olib tashlagan). macOS 13 va 14 da: iClear.app ni o'ng tugma bilan bosing, Open ni
-tanlang va tasdiqlang. Buyruq qatori vositalari: `xattr -dr com.apple.quarantine
-iclear-<versiya>`, keyin uning ichida `./iclear install`.
+tanlang va tasdiqlang. Buyruq qatori vositalari uchun manba kodni mahalliy quring yoki
+Developer ID/notarization qilingan relizni kuting. Candidate tekshiruvi quarantine
+belgisini olib tashlamaydi va Gatekeeper'ni o'chirmaydi.
 
 **Manba koddan** (Swift 6; `main` 1.2 ishini quradi (1.2.0-rc.3)):
 

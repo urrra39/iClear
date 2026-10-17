@@ -19,9 +19,20 @@ jobs:
     # `if`; these job-level flags say whether signing and notarization are configured.
     env:
       HAS_CERT: ${{ secrets.MACOS_CERTIFICATE != '' }}
+      HAS_IDENTITY: ${{ secrets.SIGN_IDENTITY != '' }}
       HAS_NOTARY: ${{ secrets.NOTARY_APPLE_ID != '' }}
+      HAS_NOTARY_TEAM: ${{ secrets.NOTARY_TEAM_ID != '' }}
+      HAS_NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD != '' }}
+    outputs:
+      notarized: ${{ steps.signing.outputs.notarized }}
     steps:
       - uses: actions/checkout@v4
+      - name: Signing preflight
+        id: signing
+        run: |
+          sh scripts/test-signing-preflight.sh
+          sh scripts/signing-preflight.sh
+          echo "notarized=$HAS_NOTARY" >> "$GITHUB_OUTPUT"
       - name: Test
         run: swift test --no-parallel
       - name: Import signing certificate
@@ -48,10 +59,20 @@ jobs:
           NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
-          xcrun notarytool submit dist/iClear-*.zip --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --wait
+          VERSION=$(sed -n 's/^public let iclearVersion = "\(.*\)"/\1/p' Sources/ICSystem/Doctor.swift)
+          xcrun notarytool submit dist/iClear-*.zip --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --wait --output-format json > notary-app.json
+          test "$(plutil -extract status raw -o - notary-app.json)" = Accepted
           xcrun stapler staple dist/iClear.app
+          xcrun stapler validate dist/iClear.app
+          spctl --assess --type execute --verbose=2 dist/iClear.app
           rm dist/iClear-*.zip
-          (cd dist && ditto -c -k --keepParent iClear.app "iClear-${GITHUB_REF_NAME#v}.zip")
+          (cd dist && ditto -c -k --keepParent iClear.app "iClear-$VERSION.zip")
+          # The CLI archive has separately signed binaries. Submit their ZIP too;
+          # command-line executables cannot carry a stapled app ticket.
+          (cd dist && ditto -c -k --keepParent "iclear-$VERSION" cli-notary.zip)
+          xcrun notarytool submit dist/cli-notary.zip --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --wait --output-format json > notary-cli.json
+          test "$(plutil -extract status raw -o - notary-cli.json)" = Accepted
+          rm dist/cli-notary.zip
       - name: Checksums
         run: cd dist && shasum -a 256 iClear-*.zip iclear-*-macos.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -70,6 +91,15 @@ jobs:
           {
             sed "s/@VERSION@/$VERSION/g" packaging/release-notes.md
             echo
+            echo "## Signing"
+            if [ "$HAS_NOTARY" = true ]; then
+              echo "Developer ID signed; app and CLI notarization accepted. App ticket stapled and Gatekeeper verified."
+            elif [ "$HAS_CERT" = true ]; then
+              echo "Developer ID signed, NOT notarized."
+            else
+              echo "Ad-hoc signed, NOT notarized."
+            fi
+            echo
             echo "## SHA256"
             echo
             echo '```'
@@ -80,6 +110,11 @@ jobs:
           case "$VERSION" in *-*) KIND="--prerelease" ;; *) KIND="" ;; esac
           gh release create "$GITHUB_REF_NAME" --draft $KIND --title "iClear $VERSION" --notes-file notes.md \
             dist/iClear-*.zip dist/iclear-*-macos.tar.gz dist/SHA256SUMS.txt
+      - name: Remove temporary signing material
+        if: always() && env.HAS_CERT == 'true'
+        run: |
+          rm -f cert.p12
+          security delete-keychain build.keychain || true
 
   verify:
     needs: release
@@ -98,6 +133,8 @@ jobs:
           name: dist
           path: assets
       - name: Verify (no microphone on CI runners)
+        env:
+          REQUIRE_NOTARIZATION: ${{ needs.release.outputs.notarized }}
         run: |
           VERSION=$(sed -n 's/^public let iclearVersion = "\(.*\)"/\1/p' Sources/ICSystem/Doctor.swift)
           if [ "${{ github.event_name }}" = push ] && [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then

@@ -150,12 +150,16 @@ case "explain":
 
 case "thaw":
     let all = rest.isEmpty || rest.contains("--all")
+    var brakeRecovered = true
     if all {
         // The Panic Brake keeps its own journal.
         if let b = brake(Request("resume", app: "all")) {
             out(b.text)
+            brakeRecovered = b.ok
         } else {
             let b = Signals.recover(journal: JournalStore(url: paths.brakeJournal))
+            brakeRecovered = b.complete
+            if !b.complete { out(b.summary) }
             if b.thawed > 0 { out("Panic Brake not running; resumed \(b.thawed) process(es) from its journal.") }
             if b.absent { out("No Panic Brake journal on this Mac: it has not run here, so it paused nothing.") }
             if b.pending {
@@ -178,7 +182,7 @@ case "thaw":
             out(
                 "iClear is not installed for this user (no journal at \(paths.journal.deletingLastPathComponent().path)), so nothing is paused."
             )
-            exit(0)
+            exit(brakeRecovered ? 0 : 1)
         }
         let why =
             answer.failureValue == .absent
@@ -202,12 +206,17 @@ case "thaw":
             out("\(r.unresolved) record(s) could not be resolved and stay in the journal; run `iclear thaw --all` again.")
             exit(1)
         }
+        if !r.complete {
+            out(r.summary)
+            exit(1)
+        }
     } else {
         fail(
             answer.failureValue == .absent
                 ? "icleard is not running. `iclear thaw --all` works without it."
                 : "icleard did not answer. `iclear thaw --all` works without it.")
     }
+    if !brakeRecovered { exit(1) }
 
 case "freeze":
     guard let app = rest.first(where: { !$0.hasPrefix("--") }) else { fail("usage: iclear freeze <app> [--visible]") }
@@ -472,8 +481,11 @@ case "migrate":
     if !m.ok { exit(1) }
 
 case "uninstall":
-    out(brakeInstaller.uninstall(purge: false))
-    out(installer.uninstall(purge: rest.contains("--purge")))
+    let brakeRemoval = brakeInstaller.uninstallResult(purge: false)
+    out(brakeRemoval.text)
+    let removal = installer.uninstallResult(purge: rest.contains("--purge") && brakeRemoval.ok)
+    out(removal.text)
+    if !brakeRemoval.ok || !removal.ok { exit(1) }
 
 case "probe":
     guard let app = rest.first, !app.hasPrefix("-") else { fail("usage: iclear probe <app> [--cycles N] [--yes]") }
@@ -512,7 +524,9 @@ case "brake":
             try Files.atomicWrite(c.encoded(), to: paths.config)
         } catch { fail("could not write \(paths.config.path): \(error)") }
         if sub == "off" {
-            out(brakeInstaller.uninstall(purge: false))
+            let removal = brakeInstaller.uninstallResult(purge: false)
+            out(removal.text)
+            if !removal.ok { exit(1) }
             out("Panic Brake off.")
         } else {
             if !brakeInstaller.isLoaded { out((try? brakeInstaller.install()) ?? "Panic Brake could not be installed.") }

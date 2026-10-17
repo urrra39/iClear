@@ -18,15 +18,21 @@ for b in "$T"/* "$APP"/Contents/MacOS/* "$APP"/Contents/Helpers/*; do
 done
 echo "== signature"; codesign -dv "$APP" 2>&1 | grep -E "Identifier|Format|Signature|TeamIdentifier"
 codesign --verify --deep --strict "$APP"; echo "verify ok"
-xattr -dr com.apple.quarantine "$T" "$APP" 2>/dev/null || true
+if [ "${REQUIRE_NOTARIZATION:-false}" = true ]; then
+  xcrun stapler validate "$APP"
+  spctl --assess --type execute --verbose=2 "$APP"
+fi
 echo "== version"; got=$("$T/iclear" --version); echo "$got"; [ "$got" = "iclear $V" ]
 [ "$("$APP/Contents/Helpers/iclear" --version)" = "iclear $V" ]
 export HOME="$H" ICLEAR_HOME="$H" ICLEAR_INSTANCE=relcheck
 echo "== selftest --quick $MIC"; "$T/iclear" selftest --quick $MIC
-echo "== doctor"; "$T/iclear" doctor | head -8
+echo "== doctor"; "$T/iclear" doctor > "$W/doctor.log"; head -8 "$W/doctor.log"
 echo "== migrate (simulated iClean install)"
 mkdir -p "$H/Library/Application Support/iClean"
 printf '{"mode":"observe"}' > "$H/Library/Application Support/iClean/config.json"
-"$T/iclear" migrate --dry-run | head -4
-"$T/iclear" migrate | head -4
+"$T/iclear" migrate --dry-run > "$W/migrate-dry.log"; head -4 "$W/migrate-dry.log"
+"$T/iclear" migrate > "$W/migrate.log"; head -4 "$W/migrate.log"
+[ -f "$H/Library/Application Support/iClean/config.json" ]
+/usr/bin/plutil -extract mode raw -o "$W/migrated-mode" "$H/Library/Application Support/iClear-relcheck/config.json"
+[ "$(cat "$W/migrated-mode")" = observe ]
 echo "== all checks passed for $V"

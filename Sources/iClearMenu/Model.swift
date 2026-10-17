@@ -30,6 +30,9 @@ final class Model: ObservableObject {
     @Published var brakePromptDone = UserDefaults.standard.bool(forKey: "brakePromptDone")
     /// Whether this build lets the Panic Brake act here (`ReleaseGates`; isolated instances can).
     var brakeActingOffered: Bool { paths.instance != nil || ReleaseGates.thisBuild.brakeActing }
+    var saverModes: [String] {
+        paths.instance != nil || ReleaseGates.thisBuild.batterySaverMax ? ["off", "balanced", "max"] : ["off", "balanced"]
+    }
     /// The first-run card: what iClear does, what it never touches, and the way out.
     @Published var onboardingDone = UserDefaults.standard.bool(forKey: "onboardingDone")
     @Published var onboardingCard = 0
@@ -86,7 +89,8 @@ final class Model: ObservableObject {
 
     func refresh() {
         accessibility = Permissions.status().accessibility
-        saverMode = ((try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 })?.batterySaver.mode.rawValue ?? "off"
+        let saved = (try? Data(contentsOf: paths.config)).flatMap { try? Config.load(json: $0).0 } ?? Config()
+        saverMode = paths.gated(saved).0.batterySaver.mode.rawValue
         client.refresh(since: (lastEvent, lastBrakeEvent)) { [weak self] snap in
             Task { @MainActor in self?.apply(snap) }
         }
@@ -162,6 +166,7 @@ final class Model: ObservableObject {
                 guard let self else { return }
                 var lines: [String] = []
                 if let a = r.answer { lines.append(r.answerDeclined ? localized("thawAll.notAll") + " " + a : a) }
+                lines += r.recoveryErrors
                 switch r.offline {
                 case nil: break
                 case .absent?: lines.append(String(format: localized("thawAll.offline"), r.offlineThawed))
@@ -232,7 +237,6 @@ final class Model: ObservableObject {
     @Published var saverMode = "off"
 
     func setSaver(_ m: String) {
-        saverMode = m
         run("saver", value: m)
     }
 

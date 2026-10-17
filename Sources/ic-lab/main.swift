@@ -469,10 +469,17 @@ case "cost":
         print(String(format: "%@ | %.3f | %.0f | %.3f", name, ms, every, ms / 10 / every))
     }
 
+case "battery-preflight":
+    let data = try JSONSerialization.data(withJSONObject: EnergyLab.preflight(), options: [.sortedKeys])
+    print(String(decoding: data, as: UTF8.self))
+
 case "energy-steady", "battery-ab":
     // docs/RELEASE_CRITERIA_v1.2.md, E1 and E2 (stack from an app bundle, isolated home).
     let args = Array(CommandLine.arguments.dropFirst(2))
-    func opt(_ k: String) -> String? { args.firstIndex(of: k).map { args[$0 + 1] } }
+    func opt(_ k: String) -> String? {
+        guard let index = args.firstIndex(of: k), index + 1 < args.count else { return nil }
+        return args[index + 1]
+    }
     let app = opt("--app") ?? NSHomeDirectory() + "/Applications/iClear.app"
     if CommandLine.arguments[1] == "energy-steady" {
         try EnergyLab.steady(
@@ -480,7 +487,7 @@ case "energy-steady", "battery-ab":
     } else {
         try EnergyLab.ab(
             app: app, pairs: Int(opt("--pairs") ?? "6") ?? 6, blockMinutes: Int(opt("--block") ?? "20") ?? 20, workload: tool("ic-hog"),
-            out: URL(fileURLWithPath: opt("--out") ?? "battery-ab.txt"))
+            out: URL(fileURLWithPath: opt("--out") ?? "battery-ab.txt"), runningFirst: opt("--running-first").flatMap(Bool.init))
     }
 
 case "ui-smoke":
@@ -503,6 +510,6 @@ case "ui-smoke":
 
 default:
     print(
-        "usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost | ui-smoke | energy-steady | battery-ab"
+        "usage: ic-lab signals | energy | prio | stall | session | validate <phase> | soak | soak-status | cost | ui-smoke | energy-steady | battery-ab | battery-preflight"
     )
 }

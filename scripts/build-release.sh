@@ -29,7 +29,11 @@ cp packaging/AppIcon.icns "$APP/Contents/Resources/"
 sed "s/@SHORT_VERSION@/$SHORT_VERSION/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 
 sign() {
-    codesign --force --timestamp=none --options runtime --entitlements packaging/iClear.entitlements -s "$IDENTITY" "$@"
+    if [ "$IDENTITY" = - ]; then
+        codesign --force --timestamp=none --options runtime --entitlements packaging/iClear.entitlements -s "$IDENTITY" "$@"
+    else
+        codesign --force --timestamp --options runtime --entitlements packaging/iClear.entitlements -s "$IDENTITY" "$@"
+    fi
 }
 for f in "$APP/Contents/Helpers"/*; do sign "$f"; done
 sign "$APP"

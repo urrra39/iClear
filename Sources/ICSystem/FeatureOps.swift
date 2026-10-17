@@ -261,7 +261,7 @@ extension Daemon {
         let level = Shield.step(&st, triggerActive: active, interference: interference, settings: settings)
         if let m = st.message, shieldStates[trigger]?.message == nil { notify(title: "iClear shield off", body: m, appID: nil) }
         shieldStates[trigger] = st
-        guard level != before else { return }
+        guard level != before || (level < .background && !(shieldBackground[trigger] ?? []).isEmpty) else { return }
         applyShield(trigger, from: before, to: level, now: now)
     }
 
@@ -297,9 +297,9 @@ extension Daemon {
                 }
                 ActionLog.append(ActionLogEntry(t: now, action: act, outcome: outcome), paths: paths)
                 if outcome != "observe", outcome != "ok" { continue }
-                ids += a.processes
+                if !dry { ids += a.processes }
             }
-            shieldBackground[trigger] = ids
+            shieldBackground[trigger] = Array(Set((shieldBackground[trigger] ?? []) + ids))
         }
         if to >= .pause, from < .pause {
             let ctx = engine.eligibilityContext(at: now)
@@ -318,9 +318,13 @@ extension Daemon {
             for id in shieldFrozen[trigger] ?? [] { execute(engine.thaw(id, reason: Code.thawUser, at: now), immediate: true) }
             shieldFrozen[trigger] = []
         }
-        if to < .background, from >= .background {
-            if !dry { _ = try? Signals.setBackground(shieldBackground[trigger] ?? [], false, journal: journal, at: now) }
-            shieldBackground[trigger] = []
+        if to < .background, !(shieldBackground[trigger] ?? []).isEmpty {
+            let identities = shieldBackground[trigger] ?? []
+            let result = Signals.restoreBackground(identities, journal: journal, at: now, restorer: priorityRestorer)
+            // Retry on later polls even when the shield is already off. Preserve all
+            // identities on an I/O error because their journal records may remain.
+            shieldBackground[trigger] = result.journalError == nil ? result.unresolved : identities
+            if !result.complete { record("Shield \(trigger.rawValue): priority restoration pending; retrying") }
         }
         record("Shield \(trigger.rawValue): level \(from.rawValue) -> \(to.rawValue)" + (dry ? " (observe only)" : ""))
     }

@@ -35,9 +35,51 @@ nothing about battery drain.
 | Menu app | refreshed every 5 s, always | every 5 s while the popover or window is open; a coalesced 60 s poll while hidden (it posts the daemon's notifications) |
 | Battery bookkeeping file | written every tick | written when a receipt changes, otherwise every 10 minutes |
 
-Safety paths are unchanged: the journal is written before every pause, the watchdog,
-thaw-on-activation (the activation handler sends the resume signal before anything else)
-and recovery are the same code.
+Those energy changes preserved the then-existing recovery design. Later hardening in
+PR #15 changes watchdog readiness and recovery failure handling; historical energy and
+lab results therefore do not qualify the new candidate. The journal-before-mutation
+invariant remains, with regression tests for failed and interrupted recovery.
+
+## Resumable E2 sessions (2026-10-17, no measurements collected yet)
+
+`scripts/battery-session.py` runs **one pair per invocation**, at most 44 minutes. A
+session contains 20 minutes per arm plus settling; it measures the Observe stack's
+added drain, not Battery Saver's benefit. It refuses a changed binary/workload fingerprint,
+another running iClear stack, a missing battery, starting charge below 50%, a sleeping
+display or serious thermal state. Each block aborts on AC, charge at/below 25%, changed
+display/Low Power Mode, or serious thermal state. Keep screen brightness and other
+workload unchanged; brightness is an explicit operator-recorded condition, not a sensor.
+No personal app is paused, and no memory pressure is induced.
+
+Before a run, explicitly quit/stop the ordinary iClear installation on the test Mac.
+Build the candidate and lab from the **same checkout**, then use a fresh evidence folder:
+
+```sh
+sh scripts/build-release.sh
+swift build -c release
+LAB="$(swift build -c release --show-bin-path)/ic-lab"
+python3 scripts/battery-session.py plan "$PWD/evidence-e2" \
+  --app "$PWD/dist/iClear.app" --lab "$LAB" --source-sha "$(git rev-parse HEAD)" --brightness-percent 50
+python3 scripts/battery-session.py run "$PWD/evidence-e2" \
+  --app "$PWD/dist/iClear.app" --lab "$LAB" --brightness-percent 50
+python3 scripts/battery-session.py status "$PWD/evidence-e2"
+```
+
+Use your actual fixed brightness in place of 50. Recharge **between complete pairs**,
+then repeat `run` until six valid pairs exist. The plan fixes randomized arm order before
+measurement. `session.json`, per-attempt console/raw logs and SHA-256 hashes preserve
+provenance and invalid attempts. SIGINT/SIGTERM and timeout stop only the collector's own
+process group; incomplete pairs never count. A hard-killed collector leaves a `running`
+record and blocks resume until its recorded group is inspected; retain the record and
+start a fresh plan rather than silently deleting evidence. The 95% paired t interval is
+computed only after six complete pairs. The E2 upper bound stays 0.20 W.
+
+This runner's evidence-accounting and process-group cleanup tests are **not battery results**. Hardware
+execution, E1's fresh hour and E3's 200 battery cycles remain BLOCKED in a Windows workspace.
+B1 additionally needs its registered throwaway Chrome/Electron/echo workload and three
+Saver modes; this E2 runner cannot substitute for B1. B1 collection remains unimplemented
+here and no Saver benefit is claimed. Balanced remains opt-in and recommendations off;
+Max must not be offered until B1's ship rule is met.
 
 ## Results
 
@@ -53,14 +95,15 @@ and recovery are the same code.
 
 ## Battery Saver (off by default)
 
-`iclear battery saver off|balanced|max`, or the picker in the window. Only on battery;
-everything is undone on AC power, when the mode is turned off, and app by app on
-activation.
+`iclear battery saver off|balanced`, or the picker in the window. Max is withheld in the
+normal install until B1 passes; isolated lab instances can still select `max`. Only on
+battery; restoration is attempted on AC power, when turned off, and on activation.
+Unconfirmed restorations remain listed and are retried.
 
 - **Balanced:** lowers the priority of visible apps you have not brought to the front for
   10 minutes when their measured background power is at least 0.3 W or they wake at least
   20 times a second; pauses hidden idle apps at twice those thresholds.
-- **Max:** also pauses hidden idle apps above the lower thresholds.
+- **Max (isolated lab only):** also pauses hidden idle apps above the lower thresholds.
 - **Never touched:** protected apps, chat, mail, calendar, media and session apps, the
   frontmost app, the last 3 apps you used, and any app playing audio, in a call, using the
   camera or microphone, downloading, writing files or holding connections (the same

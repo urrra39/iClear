@@ -205,11 +205,15 @@ extension Daemon {
         }
         reconcileUnresolved()
         for id in engine.state.deprioritized.keys.filter(apps.contains).sorted() {
-            guard let procs = lastApps.first(where: { $0.id == id })?.processes else {
-                engine.priorityRestored(id)  // gone
+            guard case .ok(let records) = journal.load(moveAside: false) else {
+                r.priorityPending.append(id)
                 continue
             }
-            if (try? Signals.setBackground(procs, false, appID: id, journal: journal, at: now)) != nil {
+            let procs = Array(
+                Set(
+                    (lastApps.first(where: { $0.id == id })?.processes ?? [])
+                        + records.restorations.filter { $0.appID == id && $0.kind == .background }.map(\.identity)))
+            if Signals.restoreBackground(procs, appID: id, journal: journal, at: now, restorer: priorityRestorer).complete {
                 engine.priorityRestored(id)
             } else {
                 r.priorityPending.append(id)

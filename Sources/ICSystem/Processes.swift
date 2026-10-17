@@ -31,6 +31,7 @@ extension Signals {
         since: String? = nil, request: (NSRunningApplication) -> Void = { _ = $0.hide() }
     ) throws -> Bool {
         try journal.locked {
+            guard journal.mayMutate() else { throw JournalStore.MutationUnavailable() }
             guard ScopeLock.permits(root), Proc.startTime(root.pid) == root.startTime,
                 let app = NSRunningApplication(processIdentifier: root.pid)
             else { return false }

@@ -343,7 +343,8 @@ public final class Engine {
         var trigger: String?
         if focus.isEmpty {
             actions += preThaw(input, cfg: cfg)
-            let (a, t) = freezeRound(input, cfg: cfg, profile: profile, forecast: forecast)
+            let restoring = Set(actions.filter { $0.kind == .restorePriority }.map(\.appID))
+            let (a, t) = freezeRound(input, cfg: cfg, profile: profile, forecast: forecast, restoring: restoring)
             actions += a
             trigger = t
             if cfg.thrash.enabled, thrashTicks >= cfg.thrash.sustainTicks {
@@ -430,14 +431,13 @@ public final class Engine {
         for (id, since) in state.deprioritized.sorted(by: { $0.key < $1.key }) {
             let app = byID[id]
             let calm = (state.normalSince.map { now - $0 >= 300 } ?? false) && now - since >= 300
-            if app == nil || app!.isFrontmost || app!.hasVisibleWindow || calm || state.frozen[id] != nil {
-                state.deprioritized[id] = nil
-                if let app, state.frozen[id] == nil {
-                    out.append(
-                        Action(
-                            kind: .restorePriority, appID: id, name: app.name, processes: app.processes,
-                            reasons: [Reason(calm ? Code.thawRelieved : Code.thawActivated)], dryRun: dryRun))
-                }
+            if cfg.mode == .observe || app == nil || app!.isFrontmost || app!.hasVisibleWindow || calm || state.frozen[id] != nil {
+                // Only the executor can confirm restoration. An absent snapshot still
+                // needs an action: its identities may remain in the durable journal.
+                out.append(
+                    Action(
+                        kind: .restorePriority, appID: id, name: app?.name ?? id, processes: app?.processes ?? [],
+                        reasons: [Reason(calm ? Code.thawRelieved : Code.thawActivated)], dryRun: dryRun))
             }
         }
         return out
@@ -491,7 +491,9 @@ public final class Engine {
         return out
     }
 
-    func freezeRound(_ input: TickInput, cfg: Config, profile: ProfileName, forecast: Forecast) -> ([Action], String?) {
+    func freezeRound(
+        _ input: TickInput, cfg: Config, profile: ProfileName, forecast: Forecast, restoring: Set<String> = []
+    ) -> ([Action], String?) {
         let s = input.sample
         let now = s.time
         let conservative = state.regret.isConservative(at: now)
@@ -508,7 +510,9 @@ public final class Engine {
             var r = Policy.skipReasons(app, ctx, requireInspection: false)
             if cfg.probe.requirePassed, state.probes?[app.id]?.passed != true { r.append(Reason(Code.notProbed)) }
             state.lastSkips[app.id] = r
-            if r.isEmpty { eligible.append(app) }
+            // A pending restore still owns its journal identities, but must not
+            // count as a completed demotion step toward another pause this tick.
+            if r.isEmpty && !restoring.contains(app.id) { eligible.append(app) }
         }
         state.lastSkips = state.lastSkips.filter { id, _ in input.apps.contains { $0.id == id } }
         func inspected(_ app: AppSnapshot) -> Bool {
@@ -607,7 +611,6 @@ public final class Engine {
             }
             let reasons = [Reason(trig), Reason.idle(minutes: ctx.idleMinutes(app)), Reason(Code.topScore)]
             out.append(freeze(app, reasons: reasons, relief: relief, at: now))
-            state.deprioritized[app.id] = nil
             frozenTotal += app.residentMB
             accumulated += relief
             round.append(app.id)
@@ -705,7 +708,7 @@ public final class Engine {
                 day: Int(now / 86400))
         }
         var out = thaw(appID, reason: Code.thawActivated, at: now)
-        if state.deprioritized.removeValue(forKey: appID) != nil {
+        if state.deprioritized[appID] != nil {
             out.append(
                 Action(
                     kind: .restorePriority, appID: appID, name: name, reasons: [Reason(Code.thawActivated)],

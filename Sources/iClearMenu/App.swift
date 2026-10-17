@@ -219,7 +219,7 @@ struct MenuView: View {
     var settings: some View {
         VStack(alignment: .leading, spacing: 4) {
             Picker(localized("saver"), selection: Binding(get: { model.saverMode }, set: { model.setSaver($0) })) {
-                ForEach(["off", "balanced", "max"], id: \.self) { Text(localized("saver." + $0)).tag($0) }
+                ForEach(model.saverModes, id: \.self) { Text(localized("saver." + $0)).tag($0) }
             }
             Text(localized("saver.note")).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle(localized("settings.showAtLaunch"), isOn: $showAtLaunch)

@@ -8,6 +8,46 @@ import Testing
 
 /// The Panic Brake on spawned ic-hog processes, with injected stall signals.
 @Suite(.serialized) struct BrakeIntegrationTests {
+    @Test(arguments: ["resume", "activation"])
+    func emergencyCancelsDelayedRepause(_ command: String) throws {
+        let h = try hog()
+        defer { h.kill() }
+        let a = agent(FakeProbe(), mode: .on)
+        let id = "pending-quit"
+        a.quitting[id] = (1, BrakePause(appID: id, name: id, pausedAt: 0), [h.identity!])
+        if command == "resume" {
+            #expect(a.handle(Request("resume", app: "all")).ok)
+        } else {
+            a.handleActivation(pid: h.pid)
+        }
+        a.checkQuitting(now: 30)
+        #expect(!isStopped(h.pid) && a.quitting.isEmpty && a.pauses.isEmpty && a.journal.read().isEmpty)
+    }
+
+    @Test func resumeAllCancelsTheCurrentStallEpisode() throws {
+        let first = try hog()
+        let second = try hog()
+        defer {
+            first.kill()
+            second.kill()
+        }
+        let probe = FakeProbe()
+        probe.apps = [app(first, "first", 500), app(second, "second", 300)]
+        let a = agent(probe, mode: .on)
+        let f = Feed()
+        a.clock = { f.t }
+        f.next(a, storm: false)
+        f.next(a, storm: true)
+        f.next(a, storm: true)
+        probe.apps = [app(first, "first", 900), app(second, "second", 500)]
+        f.next(a, storm: true)
+        #expect(isStopped(first.pid))
+        #expect(a.resumeAll(reason: Code.thawUser).complete)
+        #expect(a.ladder.current == nil)
+        for _ in 0..<8 { f.next(a, storm: true) }
+        #expect(!isStopped(first.pid) && !isStopped(second.pid) && a.journal.read().isEmpty)
+    }
+
     final class Feed {
         var t = 0.0
         var swap: UInt64 = 0

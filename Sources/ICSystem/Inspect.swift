@@ -9,20 +9,38 @@ public enum Inspector {
     public static let maxFDs = 4096
 
     public static func fds(_ pid: Int32) -> [proc_fdinfo] {
-        let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard size > 0 else { return [] }
-        let n = min(Int(size) / MemoryLayout<proc_fdinfo>.size, maxFDs)
+        checkedFDs(pid) ?? []
+    }
+
+    public typealias FDReader = (Int32, UnsafeMutableRawPointer?, Int32) -> Int32
+
+    /// nil means unavailable or incomplete, never "no activity". Spare capacity catches
+    /// growth between sizing and reading; a full buffer cannot prove completeness.
+    public static func checkedFDs(
+        _ pid: Int32,
+        read: FDReader = { proc_pidinfo($0, PROC_PIDLISTFDS, 0, $1, $2) }
+    ) -> [proc_fdinfo]? {
+        let stride = MemoryLayout<proc_fdinfo>.size
+        let size = read(pid, nil, 0)
+        guard size > 0, Int(size) % stride == 0, Int(size) / stride <= maxFDs else { return nil }
+        let n = min(Int(size) / stride + 16, maxFDs + 1)
         var buf = [proc_fdinfo](repeating: proc_fdinfo(), count: n)
-        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &buf, Int32(n * MemoryLayout<proc_fdinfo>.size))
-        return Array(buf.prefix(max(0, Int(got)) / MemoryLayout<proc_fdinfo>.size))
+        let got = buf.withUnsafeMutableBytes { read(pid, $0.baseAddress, Int32($0.count)) }
+        guard got > 0, Int(got) % stride == 0, Int(got) < n * stride, Int(got) / stride <= maxFDs else { return nil }
+        return Array(buf.prefix(Int(got) / stride))
     }
 
     public static func sockets(_ pid: Int32) -> [SocketFact] {
+        checkedSockets(pid) ?? []
+    }
+
+    public static func checkedSockets(_ pid: Int32) -> [SocketFact]? {
+        guard let descriptors = checkedFDs(pid) else { return nil }
         var out: [SocketFact] = []
-        for fd in fds(pid) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+        for fd in descriptors where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
             var si = socket_fdinfo()
             let size = Int32(MemoryLayout<socket_fdinfo>.size)
-            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, size) == size else { continue }
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &si, size) == size else { return nil }
             let s = si.psi
             let queued = Int(s.soi_rcv.sbi_cc) + Int(s.soi_snd.sbi_cc)
             switch Int32(s.soi_kind) {
@@ -56,11 +74,16 @@ public enum Inspector {
 
     /// Open regular files: name only, whether open for writing, and age of last change.
     public static func files(_ pid: Int32, now: Double = Date().timeIntervalSince1970) -> [FileFact] {
+        checkedFiles(pid, now: now) ?? []
+    }
+
+    public static func checkedFiles(_ pid: Int32, now: Double = Date().timeIntervalSince1970) -> [FileFact]? {
+        guard let descriptors = checkedFDs(pid) else { return nil }
         var out: [FileFact] = []
-        for fd in fds(pid) where fd.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) {
+        for fd in descriptors where fd.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) {
             var vi = vnode_fdinfowithpath()
             let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &vi, size) == size else { continue }
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &vi, size) == size else { return nil }
             let path = withUnsafeBytes(of: vi.pvip.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
             let mode = vi.pvip.vip_vi.vi_stat.vst_mode
             guard mode & S_IFMT == S_IFREG else { continue }

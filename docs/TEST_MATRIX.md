@@ -8,6 +8,19 @@ automated test that exercises it and is listed in the README's "Not validated" l
 
 ## CLI commands
 
+Candidate recovery/gate additions (PR #15): `ordinaryPriorityRestoreRetriesUntilConfirmed`
+(including a missing snapshot), `shieldRestorationFailureKeepsOwnershipAndRetries`,
+`brakeResumeReportsUnresolvedJournalOwnership`, `emergencyCancelsDelayedRepause`
+(Resume all and activation), `resumeAllCancelsTheCurrentStallEpisode`,
+`realHomeOverrideCannotBypassReleaseGates`, `unvalidatedMaxSaverIsHeldBackOnTheNormalInstall`.
+These run against disposable processes, with failure injection for unconfirmed restores.
+`scripts/test-signing-preflight.sh` checks all 32 credential-presence combinations;
+`scripts/test-verify-release.sh` checks command, stapling and Gatekeeper failure propagation.
+`scripts/test-battery-session.py` checks invalid-pair exclusion, interval decision and
+checkpoint persistence. `ic-lab battery-preflight`, the actual E2 collector's hardware
+checks/process-group cleanup and Battery Saver B1 workload remain **NOT TESTED on battery**.
+CI packaging runs quick selftest only; it does not replace the registered full lab gate.
+
 | Command | Exercised by |
 |---|---|
 | `help`, `version`, `completions zsh/bash/fish`, unknown command | `cliOfflineCommands` |
@@ -47,6 +60,26 @@ automated test that exercises it and is listed in the README's "Not validated" l
 | `freeze <app> --visible` (v1.2) | `visibleAppPausesOnlyOnExplicitRequestAndResumesOnActivation` |
 | `thaw --all` with nothing installed (v1.2) | `thawAllWithNothingInstalledSaysSo` |
 | Recovery when its marker cannot be written (v1.2.0-rc.2) | `RecoveryMarkerTests` (EACCES, ENOSPC, EIO and a real failure; a writer held before and after its change; a hung writer; concurrent recoveries; a process that exits; the priority path), `RecoveryMarkerBeforeAfterTests` (fails on 1.2.0-rc.1 code) |
+
+## Recovery safety regressions (unreleased)
+
+The following functions are in `SafetyRegressionTests` unless another suite is named.
+
+| Invariant | Test |
+|---|---|
+| Online Resume all restores a completed stash and is safe to repeat | `onlineResumeAllRestoresACompletedStash` |
+| Pending recovery, journal errors, marker errors, lock errors and corrupt data block purge | `purgePreservesDataAfterIncompleteRecovery` |
+| Failed service stop and another service's journal preserve data | `purgeStopsOnBootoutFailureAndKeepsTheOtherJournal` |
+| Purge succeeds only after recovery, with neither service owning its instance lock | `purgeRemovesOnlyFullyRecoveredData`, `purgeKeepsDataWhileAManualBrakeOwnsTheInstance` |
+| Repeating purge cannot discard a damaged journal moved aside by recovery | `repeatedPurgePreservesDamagedJournalEvidence` |
+| A missing watchdog blocks mutations but never recovery | `missingWatchdogBlocksChangesButNeverRecovery` |
+| Watchdog readiness requires an acknowledgement and a live process; initial launch failure can be retried | `watchdogHandshakeRequiresAnAcknowledgementAndALiveProcess`, `brakeRetriesAnInitialWatchdogLaunchFailure` |
+| Workspace decisions use current activity and report execution failure | `workspaceFreezeUsesFreshActivity`, `workspaceReportsExecutionFailure` |
+| Config persistence failures do not report success or change the live config | `configWriteFailuresNeverReportSuccess` |
+| Failed priority restoration retains ownership and journal records | `saverKeepsFailedPriorityRestorationUntilItReallySucceeds`, `trialRestoresJournaledPriorityWithoutACachedAppSnapshot` |
+| Failed, partial or oversized descriptor scans stay unknown and block pausing | `guardReadFailuresRemainUnknownAndBlockPause`, `descriptorScanRejectsErrorsTruncationAndGrowth` |
+| Emergency CLI recovery reports an in-flight writer as incomplete and undoes its late mutation | `EmergencyOrderTests.aLateFreezeAfterAnEmergencyRecoveryIsUndone` |
+| Release verification preserves doctor, dry-run migration and migration exit failures | `scripts/test-verify-release.sh` in CI (fake assets; real signing and notarization are not exercised) |
 
 ## Menu actions
 

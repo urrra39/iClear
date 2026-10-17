@@ -80,6 +80,7 @@ extension Paths {
     /// The brake's own journal: it runs in a separate process and never shares the daemon's.
     public var brakeJournal: URL { base.appendingPathComponent("brake-journal.json") }
     public var brakeSocket: URL { base.appendingPathComponent("icbrake.sock") }
+    public var brakeLock: URL { base.appendingPathComponent("icbrake.lock") }
     public var brakeCalibration: URL { base.appendingPathComponent("brake-calibration.json") }
     public var blackBox: URL { base.appendingPathComponent("blackbox.json") }
     public var blackBoxPrevious: URL { base.appendingPathComponent("blackbox-previous.json") }
@@ -222,6 +223,10 @@ public final class BrakeAgent {
     var timer: DispatchSourceTimer?
     var timerInterval = 1.0
     var unclean = false
+    var instanceLockFD: Int32 = -1
+    var watchdog: Process?
+    var watchdogExecutable: URL?
+    let watchdogMonitor = WatchdogMonitor()
 
     public init(paths: Paths = Paths(), source: BrakeTreeSource = LibprocTrees()) {
         self.paths = paths
@@ -239,19 +244,31 @@ public final class BrakeAgent {
 
     public func start(watchdogExecutable: URL?) throws {
         try paths.ensure()
+        let fd = open(paths.brakeLock.path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw POSIXError(.EIO) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            throw POSIXError(.EWOULDBLOCK)
+        }
+        instanceLockFD = fd
+        watchdogMonitor.requireWatchdog(true)
+        let monitor = watchdogMonitor
+        journal.mayMutate = { monitor.permitsChanges }
+        self.watchdogExecutable = watchdogExecutable
         // Anything a previous brake process left paused is resumed first.
         _ = Signals.recover(journal: journal, restorer: .base)
         checkUncleanRestart()
-        if let exe = watchdogExecutable {
-            let w = Process()
-            w.executableURL = exe
-            w.arguments = ["--watchdog", "\(getpid())"]
-            try? w.run()
-        }
+        startWatchdog()
         server = IPCServer(path: paths.brakeSocket.path) { [weak self] in
             self?.handle($0) ?? Response(ok: false, text: "brake shutting down")
         }
-        try server?.start()
+        do { try server?.start() } catch {
+            close(instanceLockFD)
+            instanceLockFD = -1
+            watchdogMonitor.ready(nil)
+            if watchdog?.isRunning == true { watchdog?.terminate() }
+            throw error
+        }
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 1, repeating: 1)
         t.setEventHandler { [weak self] in self.map { $0.work(now: $0.clock()) } }
@@ -261,6 +278,29 @@ public final class BrakeAgent {
         let thread = Thread { [weak self] in self?.samplingLoop(reader) }
         thread.qualityOfService = .userInteractive
         thread.start()
+    }
+
+    func startWatchdog() {
+        guard let exe = watchdogExecutable else { return }
+        watchdogMonitor.ready(nil)
+        let process = Process()
+        let ready = Pipe()
+        process.executableURL = exe
+        process.arguments = ["--watchdog", "\(getpid())"]
+        process.standardOutput = ready
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            ready.fileHandleForWriting.closeFile()
+            guard WatchdogMonitor.awaitReady(ready), process.isRunning else {
+                if process.isRunning { process.terminate() }
+                return
+            }
+            watchdog = process
+            watchdogMonitor.ready(process)
+        } catch {
+            // Retried by work(); the journal gate blocks mutations meanwhile.
+        }
     }
 
     /// The previous boot ended without the brake's clean-shutdown marker: keep its Black Box.
@@ -281,9 +321,16 @@ public final class BrakeAgent {
     /// SIGTERM (logout, restart, `launchctl bootout`): resume every brake pause, flush the
     /// Black Box and mark this boot as cleanly shut down.
     public func shutdown() {
+        timer?.cancel()
+        server?.stop()
+        watchdogMonitor.ready(nil)
         resumeAll(reason: Code.thawShutdown)
         flushBlackBox(force: true)
         try? Files.writeJSON(BlackBoxMarker(bootTime: Proc.bootTime(), cleanShutdown: true), to: paths.blackBoxMarker)
+        if instanceLockFD >= 0 {
+            close(instanceLockFD)
+            instanceLockFD = -1
+        }
     }
 
     // MARK: sampling thread
@@ -388,6 +435,7 @@ public final class BrakeAgent {
 
     public func work(now: Double) {
         defer { pace() }
+        if watchdogExecutable != nil, watchdog?.isRunning != true { startWatchdog() }
         lock.lock()
         let state = detector.state
         let recovering = state == .stalled && !detector.conditionNow
@@ -506,12 +554,19 @@ public final class BrakeAgent {
                 id, trees[id]?.name ?? id, kind: .freeze, code: Code.panicWould, "would have paused it (\(score)); observe mode",
                 dryRun: true)
         case .pause(let id):
-            guard let t = trees[id], settings.mode == .on else { return }
+            guard let t = trees[id], settings.mode == .on, ladder.current == id, !ladder.finished else { return }
             let r = Signals.freezeTree(t.processes, appID: id, at: now, journal: journal)
             record(id, t.name, kind: .freeze, code: Code.panicPause, r.ok ? "paused (\(score))" : "could not pause: \(r.error ?? "")")
+            if !r.ok { ladder.cancelEpisode() }
         case .resume(let id):
-            if let t = trees[id] { Signals.thawTree(t.processes, journal: journal) }
-            record(id, trees[id]?.name ?? id, kind: .thaw, code: Code.panicResumed, "resumed: the stall went on while it was paused")
+            let identities = trees[id]?.processes ?? journal.read().entries.filter { $0.appID == id }.map(\.identity)
+            let outcomes = Signals.thawTree(identities, journal: journal)
+            let resolved = outcomes.allSatisfy(\.resolved) && !journal.read().entries.contains { $0.appID == id }
+            if !resolved { ladder.cancelEpisode() }
+            record(
+                id, trees[id]?.name ?? id, kind: .thaw, code: Code.panicResumed,
+                resolved
+                    ? "resumed: the stall went on while it was paused" : "resume incomplete; ladder cancelled, journal kept for recovery")
         case .confirmed(let id):
             let name = trees[id]?.name ?? id
             pauses[id] = (BrakePause(appID: id, name: name, pausedAt: now), trees[id]?.processes ?? [])
@@ -523,16 +578,34 @@ public final class BrakeAgent {
         }
     }
 
-    func release(_ id: String, reason: String, note: String) {
-        guard let p = pauses.removeValue(forKey: id) else { return }
-        Signals.thawTree(p.processes, journal: journal)
-        record(id, p.pause.name, kind: .thaw, code: reason, note)
+    @discardableResult
+    func release(_ id: String, reason: String, note: String) -> Bool {
+        guard let p = pauses[id] else { return true }
+        quitting[id] = nil
+        let outcomes = Signals.thawTree(p.processes, journal: journal)
+        let identities = Set(p.processes)
+        let cleared: Bool
+        if case .ok(let records) = journal.load(moveAside: false) {
+            cleared = !records.entries.contains { identities.contains($0.identity) }
+        } else {
+            cleared = false
+        }
+        let complete = cleared && outcomes.allSatisfy(\.resolved)
+        if complete { pauses[id] = nil }
+        record(id, p.pause.name, kind: .thaw, code: reason, complete ? note : "resume incomplete; kept for recovery")
+        return complete
     }
 
-    public func resumeAll(reason: String) {
+    @discardableResult
+    public func resumeAll(reason: String) -> Signals.RecoveryResult {
+        // Cancel intentions before recovery: a successful resume must not be undone
+        // by a pending quit timeout or by the next candidate in the same stall.
+        quitting.removeAll()
+        ladder.cancelEpisode()
         for id in Array(pauses.keys) { release(id, reason: reason, note: "resumed") }
-        if let c = ladder.current, let t = trees[c] { Signals.thawTree(t.processes, journal: journal) }
-        _ = Signals.recover(journal: journal, restorer: .base)
+        let recovery = Signals.recover(journal: journal, restorer: .base)
+        if recovery.complete { pauses.removeAll() }
+        return recovery
     }
 
     /// Auto graceful quit (opt-in per app): skipped when the app reports unsaved work;
@@ -548,8 +621,7 @@ public final class BrakeAgent {
                 "auto quit skipped: it reports unsaved work; it stays paused")
             return
         }
-        Signals.thawTree(p.processes, journal: journal)
-        pauses[id] = nil
+        guard release(id, reason: Code.panicQuit, note: "resumed to request quit") else { return }
         let asked = quitApp(root.pid)
         record(
             id, p.pause.name, kind: .requestQuit, code: Code.panicQuit,
@@ -600,6 +672,13 @@ public final class BrakeAgent {
     /// An activation of a paused app (reported by the daemon) resumes it.
     public func handleActivation(pid: Int32) {
         frontPID = pid
+        for id in quitting.keys.filter({ quitting[$0]?.processes.contains { $0.pid == pid } == true }) {
+            quitting[id] = nil
+        }
+        if let id = ladder.current, let tree = trees[id], tree.processes.contains(where: { $0.pid == pid }) {
+            ladder.cancelEpisode()
+            Signals.thawTree(tree.processes, journal: journal)
+        }
         if let id = pauses.first(where: { $0.value.processes.contains { $0.pid == pid } })?.key {
             release(id, reason: Code.thawActivated, note: "resumed on activation")
         }
@@ -669,20 +748,22 @@ public final class BrakeAgent {
         case "resume":
             let q = (req.app ?? "").lowercased()
             if q == "all" {
-                resumeAll(reason: Code.thawUser)
-                return Response(ok: true, text: "Resumed every app the Panic Brake paused.")
+                let recovery = resumeAll(reason: Code.thawUser)
+                return Response(ok: recovery.complete, text: recovery.summary)
             }
             guard let id = pauses.first(where: { $0.key.lowercased() == q || $0.value.pause.name.lowercased() == q })?.key else {
                 return Response(ok: false, text: "The Panic Brake has not paused \(req.app ?? "that app").")
             }
-            release(id, reason: Code.thawUser, note: "resumed by the user")
-            return Response(ok: true, text: "Resumed \(id).")
+            let complete = release(id, reason: Code.thawUser, note: "resumed by the user")
+            return Response(ok: complete, text: complete ? "Resumed \(id)." : "Resume incomplete for \(id); kept for recovery.")
         case "quit":
             let q = (req.app ?? "").lowercased()
             guard let (id, p) = pauses.first(where: { $0.key.lowercased() == q || $0.value.pause.name.lowercased() == q }) else {
                 return Response(ok: false, text: "The Panic Brake has not paused \(req.app ?? "that app").")
             }
-            release(id, reason: Code.thawUser, note: "resumed to ask it to quit")
+            guard release(id, reason: Code.thawUser, note: "resumed to ask it to quit") else {
+                return Response(ok: false, text: "Resume incomplete for \(id); quit was not requested.")
+            }
             let asked = p.processes.first.map { quitApp($0.pid) } ?? false
             return Response(
                 ok: asked,

@@ -1,7 +1,8 @@
 # iClear (formerly iClean)
 
 Pauses idle background apps on a Mac that is running out of memory and resumes each one
-when you switch back to it. It never deletes files.
+when you switch back to it. It does not delete your documents or clear app caches.
+Uninstall with `--purge` deletes iClear's own state only after recovery completes.
 
 [![CI](https://github.com/urrra39/iClear/actions/workflows/ci.yml/badge.svg)](https://github.com/urrra39/iClear/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/urrra39/iClear)](https://github.com/urrra39/iClear/releases/latest)
@@ -19,6 +20,12 @@ when you switch back to it. It never deletes files.
 > it would do. [Oʻzbekcha](README.uz.md) · [Status and limits](#status-and-limits)
 
 <p align="center"><img src="docs/images/window-en.png" width="360" alt="The iClear window (main only): Mac Health 100/100, memory normal, Observe mode, nothing paused, settings"> <img src="docs/images/menu-en.png" width="360" alt="The iClear menu-bar popover with the same content"></p>
+
+**Unreleased hardening candidate:** PR #15 adds recovery and release verification fixes;
+it is separate from stable 1.0.4 and published pre-release 1.2.0-rc.3. CI packages carry
+their exact source SHA in `provenance.json`; they are ad-hoc signed, not notarized.
+Current evidence and blockers are in [QUALITY.md](docs/QUALITY.md#current-readiness-2026-10-17).
+Screenshots illustrate the earlier 1.2 UI; they are not proof of this candidate's validation.
 
 ```text
 $ iclear status
@@ -38,7 +45,9 @@ memory: it only changes which apps use the memory you have.
 
 ## Why iClear
 
-Every line is a measurement from the lab on one Mac; follow the link for N and conditions.
+The measurements below describe the October 2026 v1.0 lab on one Mac. Design properties
+are labelled separately. Follow each link for N and conditions; these are historical
+results, not a fresh validation of the unreleased candidate.
 
 - **Crash-safe by design.** Every pause is written to a journal before it happens, and a
   separate watchdog resumes everything if the daemon dies: after `kill -9`, 100/100 trials
@@ -98,7 +107,7 @@ discarded); on `main`, `--no-mic` skips that check.
 | Black Box (`iclear blackbox`), Thrash Guard, Wake-on-Data | **off** | **main only**, off until their lab criteria pass |
 | Canary probe (`iclear probe`), Capacity Report (`iclear capacity`) | when you ask | **main only**, not validated |
 | App window with Dock icon, onboarding cards, settings (show at launch, keep in Dock, open at login) | the window opens with the app | **main only** (1.2.0-rc.3); `ic-lab ui-smoke` U1-U7 10/10 |
-| Battery Saver (`iclear battery saver`) | **off**; battery only | **main only**; its benefit is **not measured** ([BATTERY.md](docs/BATTERY.md)) |
+| Battery Saver (`iclear battery saver`) | **off**; battery only | **main only**; benefit **not measured**. In PR #15 Balanced is opt-in; Max is withheld pending B1 ([BATTERY.md](docs/BATTERY.md)) |
 | SESSION class, a maximum pause per class, MRU protection, "Pause anyway" for a visible app (`iclear freeze <app> --visible`) | on (Pause anyway when you ask) | **main only**; unit and integration tests ([SIDE_EFFECTS.md](docs/SIDE_EFFECTS.md)) |
 | Real-use trial (`iclear trial start\|stop\|status`) | not running unless started | **main only**; rollback guard tested 5/5 per trigger |
 
@@ -326,7 +335,8 @@ The builds are ad-hoc signed, not notarized, so Gatekeeper blocks the first laun
 macOS 15 and later: open iClear.app once, then System Settings > Privacy & Security >
 Open Anyway (Apple removed the right-click route in macOS 15). On macOS 13 and 14:
 right-click iClear.app, choose Open, confirm. Command-line tools:
-`xattr -dr com.apple.quarantine iclear-<version>`, then `./iclear install` inside it.
+use a local source build, or wait for a Developer ID/notarized distribution. The
+candidate verifier does not remove quarantine or disable Gatekeeper.
 
 **From source** (a Swift 6 toolchain; `main` builds the 1.2 work (1.2.0-rc.3)):
 

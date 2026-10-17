@@ -40,7 +40,8 @@ import Testing
         }
         // Another process: waits 5 s for the lock, then resumes without it.
         let r = run("iclear", ["thaw", "--all"], env: ["ICLEAR_HOME": paths.home.path])
-        #expect(r.status == 0 && r.out.contains("busy"), "\(r.out)")
+        // An in-flight writer is not confirmed recovered yet: report a retryable failure.
+        #expect(r.status == 1 && r.out.contains("busy"), "\(r.out)")
         finished.wait()
         #expect(!isStopped(h.pid), "the late writer paused it after recovery finished")
         #expect(j.read().entries.isEmpty)

@@ -224,6 +224,7 @@ public final class DaemonClient: @unchecked Sendable {
         public var pending = false
         /// The recovery marker could not be written: a change in progress was not told to undo itself.
         public var markerFailed = false
+        public var recoveryErrors: [String] = []
     }
 
     /// "Resume all": the daemon and the Panic Brake, with the journals as the fallback.
@@ -250,15 +251,19 @@ public final class DaemonClient: @unchecked Sendable {
                 r.stillPaused += rec.unresolved
                 r.pending = r.pending || rec.pending
                 r.markerFailed = r.markerFailed || rec.markerError != nil
+                if rec.corrupt || rec.lockError != nil || rec.journalError != nil { r.recoveryErrors.append(rec.summary) }
             }
             switch call(Request("resume", app: "all"), paths.brakeSocket.path, Date(timeIntervalSinceNow: emergencyDeadline / 2)) {
-            case .success(let resp): r.brakeAnswer = resp.text
+            case .success(let resp):
+                r.brakeAnswer = resp.text
+                if !resp.ok { r.recoveryErrors.append(resp.text) }
             case .failure:
                 let rec = recover(JournalStore(url: paths.brakeJournal), false)
                 r.brakeOfflineThawed = rec.thawed
                 r.stillPaused += rec.unresolved
                 r.pending = r.pending || rec.pending
                 r.markerFailed = r.markerFailed || rec.markerError != nil
+                if rec.corrupt || rec.lockError != nil || rec.journalError != nil { r.recoveryErrors.append(rec.summary) }
             }
             locked {
                 resuming = false

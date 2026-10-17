@@ -85,6 +85,14 @@ Otherwise `v1.2.0-rc.N` with each failure and its plan listed.
 
 ## Amendments (dated; no bound above is changed)
 
+**A5 (2026-10-17, before new E2 measurement), resumable collection.** E2 may span
+recharged sessions, but each randomized running/stopped pair must complete in a single
+unplugged session with the same build, workload, screen brightness and power settings.
+Interrupted pairs are retained as invalid and repeated in the planned order; never mix
+one arm from before charging with the other after it. Six complete pairs, 20 minutes
+per arm and the paired 95% upper bound of 0.20 W are unchanged. Report session boundaries,
+all exclusions and binary fingerprints. The executable procedure is in BATTERY.md.
+
 **A1 (2026-10-11), R1 battery-regression trigger.** The Trial Guard as built in
 `1.2.0-rc.1` rolls back when iClear's own CPU over the last hour (daemon and its direct
 children) exceeds 1% of one core. That measures iClear's overhead, not a battery

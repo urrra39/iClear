@@ -30,7 +30,28 @@ import Testing
         #expect(f[0].reasons.contains { $0.code.hasPrefix("IDLE_") })
         #expect(f.allSatisfy { !$0.dryRun })
         #expect(e.state.frozen.count == 2)
+        #expect(e.state.deprioritized.count == 2)  // freezing does not restore Darwin priority
+        let restore = e.tick(TickInput(sample: sample(62, .warning), apps: [a, b])).actions.of(.restorePriority)
+        #expect(restore.ids == [a.id, b.id])
+        for action in restore { e.priorityRestored(action.appID) }
         #expect(e.state.deprioritized.isEmpty)
+    }
+
+    @Test func pendingPriorityRestoreCannotAdvanceForecastPauseLadder() {
+        var state = EngineState(startedAt: 0)
+        state.lastActiveAt[a.id] = -10_000
+        state.normalSince = 0
+        state.deprioritized[a.id] = 0
+        state.forecast.lastTime = 540
+        state.forecast.lastAvailable = 35
+        state.forecast.slope = -5
+        let e = Engine(config: activeConfig { $0.forecast.enabled = true }, hardware: hw16, state: state)
+        let result = e.tick(TickInput(sample: sample(600, available: 30), apps: [a]))
+        #expect(result.trigger == Code.forecast)
+        #expect(result.actions.of(.restorePriority).ids == [a.id])
+        #expect(result.actions.of(.freeze).isEmpty)
+        #expect(result.actions.of(.deprioritize).isEmpty)
+        #expect(e.state.deprioritized[a.id] == 0)
     }
 
     @Test func criticalFreezesImmediately() {
@@ -320,6 +341,8 @@ import Testing
         #expect(e.state.deprioritized.count == 2)
         let back = e.activated(appID: a.id, name: a.name, at: 10, weekday: 2, hour: 9)
         #expect(back.of(.restorePriority).ids == [a.id])
+        #expect(e.state.deprioritized[a.id] != nil)
+        e.priorityRestored(a.id)  // the executor acknowledges observed restoration
         _ = e.tick(TickInput(sample: sample(20), apps: [a, b]))
         let r = e.tick(TickInput(sample: sample(400), apps: [a, b]))
         #expect(r.actions.of(.restorePriority).ids == [b.id])

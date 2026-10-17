@@ -17,12 +17,31 @@ public struct Paths: Sendable {
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let custom = environment["ICLEAR_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         home = custom ?? FileManager.default.homeDirectoryForCurrentUser
-        let name = environment["ICLEAR_INSTANCE"].flatMap { $0.isEmpty ? nil : $0 }
-        instance = name ?? (custom == nil ? nil : "isolated")
+        // A label is not proof of isolation. Reject path components in instance names,
+        // and resolve home/base aliases before allowing experimental configuration.
+        let name = environment["ICLEAR_INSTANCE"].flatMap { value -> String? in
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+            return !value.isEmpty && value.unicodeScalars.allSatisfy(allowed.contains) ? value : nil
+        }
         let lib = home.appendingPathComponent("Library")
         base = lib.appendingPathComponent("Application Support/iClear" + (name.map { "-" + $0 } ?? ""))
+        let defaultBase = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/iClear")
+        let isDefault = Self.canonical(base) == Self.canonical(defaultBase)
+        instance = isDefault ? nil : (name ?? "isolated")
         launchAgents = lib.appendingPathComponent("LaunchAgents")
         legacyBase = lib.appendingPathComponent("Application Support/iClean")
+    }
+
+    /// Foundation may leave a symlink unresolved when a suffix does not exist yet.
+    /// Resolve the nearest existing ancestor first, then append the missing suffix.
+    private static func canonical(_ url: URL) -> URL {
+        var ancestor = url.standardizedFileURL
+        var suffix: [String] = []
+        while !FileManager.default.fileExists(atPath: ancestor.path), ancestor.path != "/" {
+            suffix.append(ancestor.lastPathComponent)
+            ancestor.deleteLastPathComponent()
+        }
+        return suffix.reversed().reduce(ancestor.resolvingSymlinksInPath().standardizedFileURL) { $0.appendingPathComponent($1) }
     }
 
     public var config: URL { base.appendingPathComponent("config.json") }
@@ -125,6 +144,14 @@ public enum Files {
 /// then stopped. Reads need no lock: files are replaced by rename, never torn.
 public final class JournalStore: @unchecked Sendable {
     public let url: URL
+    /// Live daemons require a ready watchdog before any new pause, hide or demotion.
+    /// Recovery never needs this permission. Set before starting concurrent work.
+    public var mayMutate: @Sendable () -> Bool = { true }
+
+    public struct MutationUnavailable: Error, CustomStringConvertible {
+        public init() {}
+        public var description: String { "the recovery watchdog is not ready; no new changes are allowed" }
+    }
 
     public init(url: URL) { self.url = url }
 

@@ -5,6 +5,9 @@ on:
     branches: [main, v1.1, v1.2, "release/**"]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,17 +22,41 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Toolchain
         run: swift --version && sw_vers && uname -m
+      - name: Release verifier regression tests
+        run: |
+          sh scripts/test-verify-release.sh
+          sh scripts/test-signing-preflight.sh
+          python3 scripts/test-battery-session.py
       - name: Build
         run: swift build
       - name: Test
         # Serial: GUI suites share focus and the main queue; parallel runs flake on slow runners.
         run: swift test --no-parallel
       - name: Lint
-        run: swift format lint --strict --recursive Sources Tests spikes Package.swift
-      - name: Universal release build
-        if: matrix.runner == 'macos-15'
+        if: ${{ !cancelled() }}
         run: |
-          swift build -c release --arch arm64 --arch x86_64
-          lipo -info .build/apple/Products/Release/icleard
+          if ! swift format lint --strict --recursive Sources Tests spikes Package.swift; then
+            swift format format --in-place --recursive Sources Tests spikes Package.swift
+            git diff --exit-code
+            exit 1
+          fi
+      - name: Package and verify universal candidate
+        if: matrix.runner == 'macos-15'
+        env:
+          SIGN_IDENTITY: '-'
+        run: bash scripts/package-candidate.sh
+      - uses: actions/upload-artifact@v4
+        if: success() && matrix.runner == 'macos-15'
+        with:
+          name: candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 30
+          path: |
+            dist/iClear-*.zip
+            dist/iclear-*-macos.tar.gz
+            dist/SHA256SUMS.txt
+            dist/provenance.json
+            validation/*.log

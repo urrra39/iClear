@@ -5,3 +5,5 @@ dist/
 .DS_Store
 .build-v11/
 .build-*/
+__pycache__/
+validation/

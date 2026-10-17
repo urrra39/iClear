@@ -141,19 +141,21 @@ extension Daemon {
         return Response(ok: true, text: l.joined(separator: "\n"))
     }
 
+    func actionResponse(_ actions: [Action], empty: String, immediate: Bool) -> Response {
+        let outcomes = execute(actions, immediate: immediate)
+        let lines = zip(actions, outcomes).map { action, outcome in
+            outcome.hasPrefix("failed") ? "\(action.name): \(outcome)" : action.summary
+        }
+        return Response(ok: !outcomes.contains { $0.hasPrefix("failed") }, text: lines.isEmpty ? empty : lines.joined(separator: "\n"))
+    }
+
     func setMode(_ m: Mode) -> Response {
         if observeOnly, m == .active {
             return Response(ok: false, text: "This instance is observe-only (ICLEAR_OBSERVE_ONLY=1) and cannot switch to Active.")
         }
         var c = engine.config
         c.mode = m
-        do {
-            try Files.atomicWrite(c.encoded(), to: paths.config)
-        } catch {
-            return Response(ok: false, text: "Could not write config: \(error)")
-        }
-        reloadConfig()
-        configMTime = Self.mtime(paths.config)
+        if let error = saveConfigChange(c) { return Response(ok: false, text: error) }
         if m == .observe { execute(engine.thawAll(reason: Code.thawUser, at: clock())) }
         return Response(ok: true, text: "Mode is now \(m.rawValue).")
     }
@@ -187,10 +189,13 @@ extension Daemon {
             }
             let outcomes = execute(acts, immediate: true)
             var lines = zip(acts, outcomes).map { a, o in o.hasPrefix("failed") ? "\(a.name): \(o)" : a.summary }
-            // Everything else in the journal that no stash holds (earlier resumes that did not take).
-            let stuck = req.app == nil || req.app == "all" ? resumeJournal() : 0
-            if stuck > 0 { lines.append("\(stuck) process(es) are still paused; their records stay in the journal.") }
-            let ok = stuck == 0 && !outcomes.contains { $0.hasPrefix("failed") }
+            var recoveryOK = true
+            if req.app == nil || req.app == "all" {
+                let recovery = resumeJournal()
+                recoveryOK = recovery.complete
+                lines.append(recovery.summary)
+            }
+            let ok = recoveryOK && !outcomes.contains { $0.hasPrefix("failed") }
             return Response(ok: ok, text: lines.isEmpty ? "Nothing to thaw." : lines.joined(separator: "\n"))
         case "freeze":
             // Collected now: audio, microphone and power assertions from the last tick can be
@@ -211,8 +216,7 @@ extension Daemon {
                 ? Response(ok: false, text: "Not frozen: \(outcome)") : Response(ok: true, text: a.summary + note)
         case "undo":
             let acts = engine.undo(at: now)
-            execute(acts, immediate: true)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to undo." : acts.map(\.summary).joined(separator: "\n"))
+            return actionResponse(acts, empty: "Nothing to undo.", immediate: true)
         case "mode":
             guard let m = req.value.flatMap(Mode.init(rawValue:)) else {
                 return Response(ok: true, text: "Mode: \(engine.config.mode.rawValue)")
@@ -228,9 +232,7 @@ extension Daemon {
                 return Response(
                     ok: true, text: "Profile: \(engine.lastProfile.rawValue)" + (c.profiles.manual == nil ? " (automatic)" : " (manual)"))
             }
-            try? Files.atomicWrite(c.encoded(), to: paths.config)
-            reloadConfig()
-            configMTime = Self.mtime(paths.config)
+            if let error = saveConfigChange(c) { return Response(ok: false, text: error) }
             return Response(ok: true, text: "Profile set to \(req.value!).")
         case "stats":
             let days = Int(req.value ?? "1") ?? 1
@@ -261,10 +263,11 @@ extension Daemon {
             if req.value == "thaw" {
                 acts = engine.thawWorkspace(name, at: now)
             } else if req.value == "freeze" {
-                var apps = lastApps
+                var apps = visibleApps(probe.collect(now: now).apps)
                 for i in apps.indices where engine.config.workspaces[name]?.contains(apps[i].id) == true {
                     AppCollector.inspectGuards(&apps[i], engine: engine, now: now)
                 }
+                engine.noteAudio(apps, at: now)
                 let (a, refused) = engine.freezeWorkspace(name, apps: apps, at: now)
                 if !refused.isEmpty {
                     return Response(
@@ -279,8 +282,7 @@ extension Daemon {
                     text: engine.config.workspaces.map { "\($0.key): \($0.value.joined(separator: ", "))" }.sorted().joined(separator: "\n")
                 )
             }
-            execute(acts)
-            return Response(ok: true, text: acts.isEmpty ? "Nothing to do." : acts.map(\.summary).joined(separator: "\n"))
+            return actionResponse(acts, empty: "Nothing to do.", immediate: req.value == "thaw")
         case "advise":
             let a = Advisor.advise(days: Array(engine.state.days.values), physicalGB: engine.hardware.memoryGB)
             return Response(ok: true, text: a.text, data: req.json == true ? encode(a) : nil)
@@ -358,9 +360,7 @@ extension Daemon {
                 c.allow = Array(Set(c.allow + [id])).sorted()
                 c.deny.removeAll { $0 == id }
             }
-            try? Files.atomicWrite(c.encoded(), to: paths.config)
-            reloadConfig()
-            configMTime = Self.mtime(paths.config)
+            if let error = saveConfigChange(c) { return Response(ok: false, text: error) }
             if req.cmd == "deny" { execute(engine.thaw(id, reason: Code.thawUser, at: now), immediate: true) }
             return Response(ok: true, text: "\(id) \(req.cmd == "deny" ? "will never be frozen" : "may be frozen automatically").")
         default:
