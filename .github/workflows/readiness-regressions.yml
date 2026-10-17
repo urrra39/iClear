@@ -1,0 +1,19 @@
+name: Focused readiness regressions
+on:
+  pull_request:
+    paths:
+      - 'Sources/ICCore/ReleaseGates.swift'
+      - 'Tests/ICSystemTests/SafetyRegressionTests.swift'
+      - '.github/workflows/readiness-regressions.yml'
+permissions:
+  contents: read
+jobs:
+  regressions:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: swift build
+      - run: swift test --no-parallel --filter 'SafetyRegressionTests|BrakeIntegrationTests'

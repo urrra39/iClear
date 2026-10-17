@@ -1,12 +1,27 @@
 import AppKit
+
 import Foundation
+
 import Testing
 
 @testable import ICBase
+
 @testable import ICCore
+
 @testable import ICSystem
 
 @Suite(.serialized) struct SafetyRegressionTests {
+    @Test func unvalidatedMaxSaverIsHeldBackOnTheNormalInstall() {
+        var config = Config()
+        config.batterySaver.mode = .max
+        let normal = Paths(environment: [:]).gated(config)
+        #expect(normal.0.batterySaver.mode == .off)
+        #expect(normal.1.contains { $0.contains("B1") })
+        #expect(tempHome().gated(config).0.batterySaver.mode == .max)
+        config.batterySaver.mode = .balanced
+        #expect(Paths(environment: [:]).gated(config).0.batterySaver.mode == .balanced)
+    }
+
     @Test func shieldRestorationFailureKeepsOwnershipAndRetries() throws {
         let h = try hog()
         defer { h.kill() }
@@ -15,7 +30,8 @@ import Testing
         let process = h.identity!
         d.shieldBackground[.call] = [process]
         try d.journal.update {
-            $0.record(Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: "shield", previous: false, at: 2))
+            $0.record(
+                Restoration(kind: .background, pid: process.pid, startTime: process.startTime, appID: "shield", previous: false, at: 2))
         }
         d.priorityRestorer = Signals.Restorer(
             leaveBackground: { _ in false }, inBackground: { _ in true }, requestUnhide: { _ in false }, isHidden: { _ in false })
@@ -366,4 +382,3 @@ import Testing
         #expect(Inspector.checkedFDs(1, read: { _, _, _ in stride })?.count == 1)
     }
 }
-
